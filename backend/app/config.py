@@ -18,9 +18,17 @@ class Settings(BaseSettings):
     ENVIRONMENT: str = "development"
 
     HOST: str = "0.0.0.0"
-    PORT: int = 8000
+    # Database Configuration
     DATABASE_URL: str = "postgresql+asyncpg://aerostake_user:aerostake_password@localhost:5432/aerostake_db"
     DB_ECHO: bool = False
+
+    # Redis Configuration
+    REDIS_URL: str = "redis://localhost:6379/0"
+
+    # Notification Services
+    RESEND_API_KEY: Union[str, None] = None
+    RESEND_FROM_EMAIL: str = "notifications@latrics.com"
+    FIREBASE_CREDENTIALS_PATH: Union[str, None] = None
 
     # JWT Authentication
     JWT_SECRET_KEY: str = "aerostake_dev_secret_key_change_in_production_9876543210"

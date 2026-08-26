@@ -9,6 +9,7 @@ from alembic import context
 from app.config import get_settings
 from app.database import Base
 from app.modules.users.model import User  # Registers User model in Base.metadata
+from app.modules.timeline.model import TimelineEvent  # Registers TimelineEvent in Base.metadata
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
