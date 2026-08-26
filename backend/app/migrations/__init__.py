@@ -1,1 +1,1 @@
-"""Database migrations package placeholder."""
+"""Alembic migrations package."""

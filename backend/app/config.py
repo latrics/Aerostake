@@ -19,6 +19,8 @@ class Settings(BaseSettings):
 
     HOST: str = "0.0.0.0"
     PORT: int = 8000
+    DATABASE_URL: str = "postgresql+asyncpg://aerostake_user:aerostake_password@localhost:5432/aerostake_db"
+    DB_ECHO: bool = False
     CORS_ORIGINS: List[str] = [
         "http://localhost:3000",
         "http://127.0.0.1:3000",
