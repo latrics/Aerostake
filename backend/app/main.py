@@ -21,6 +21,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Feature Routers
+from app.modules.users.router import auth_router, users_router
+app.include_router(auth_router)
+app.include_router(users_router)
+
 
 @app.get("/health", tags=["Health"])
 async def health_check():

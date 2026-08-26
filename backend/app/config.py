@@ -21,6 +21,13 @@ class Settings(BaseSettings):
     PORT: int = 8000
     DATABASE_URL: str = "postgresql+asyncpg://aerostake_user:aerostake_password@localhost:5432/aerostake_db"
     DB_ECHO: bool = False
+
+    # JWT Authentication
+    JWT_SECRET_KEY: str = "aerostake_dev_secret_key_change_in_production_9876543210"
+    JWT_ALGORITHM: str = "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 7
+
     CORS_ORIGINS: List[str] = [
         "http://localhost:3000",
         "http://127.0.0.1:3000",
