@@ -13,9 +13,10 @@ from app.modules.users.schema import (
 from app.modules.users.service import user_service
 from app.security.auth import get_current_user
 from app.security.permissions import require_role
+from app.shared.rate_limiter import auth_rate_limiter
 
-# Auth Endpoints (/auth/*)
-auth_router = APIRouter(prefix="/auth", tags=["Authentication"])
+# Auth Endpoints (/auth/*) with rate limiting
+auth_router = APIRouter(prefix="/auth", tags=["Authentication"], dependencies=[Depends(auth_rate_limiter)])
 
 # Users Endpoints (/users/*)
 users_router = APIRouter(prefix="/users", tags=["Users"])

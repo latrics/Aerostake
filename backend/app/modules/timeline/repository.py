@@ -36,14 +36,13 @@ class TimelineRepository:
         self,
         db: AsyncSession,
         project_id: uuid.UUID,
+        category: Optional[str] = None,
         limit: int = 100,
     ) -> List[TimelineEvent]:
-        stmt = (
-            select(TimelineEvent)
-            .where(TimelineEvent.project_id == project_id)
-            .order_by(TimelineEvent.created_at.desc())
-            .limit(limit)
-        )
+        stmt = select(TimelineEvent).where(TimelineEvent.project_id == project_id)
+        if category:
+            stmt = stmt.where(TimelineEvent.category == category.strip().lower())
+        stmt = stmt.order_by(TimelineEvent.created_at.desc()).limit(limit)
         result = await db.execute(stmt)
         return list(result.scalars().all())
 

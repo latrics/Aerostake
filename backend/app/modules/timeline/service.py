@@ -41,10 +41,11 @@ class TimelineService:
         self,
         db: AsyncSession,
         project_id: uuid.UUID,
+        category: Optional[str] = None,
         limit: int = 100,
     ) -> List[TimelineEvent]:
-        """Fetch chronological timeline events for a given project."""
-        return await timeline_repository.list_by_project(db, project_id, limit)
+        """Fetch chronological timeline events for a given project, optionally filtered by category."""
+        return await timeline_repository.list_by_project(db, project_id, category=category, limit=limit)
 
 
 timeline_service = TimelineService()

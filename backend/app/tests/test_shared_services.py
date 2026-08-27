@@ -65,8 +65,11 @@ async def test_timeline_logging_service():
             mock_events.append(event)
             return event
 
-        async def list_by_project(self, db, project_id, limit=100):
-            return [e for e in mock_events if e.project_id == project_id]
+        async def list_by_project(self, db, project_id, category=None, limit=100):
+            events = [e for e in mock_events if e.project_id == project_id]
+            if category:
+                events = [e for e in events if e.category == category]
+            return events[:limit]
 
     test_project_id = uuid.uuid4()
     test_user_id = uuid.uuid4()
