@@ -26,11 +26,15 @@ from app.modules.users.router import auth_router, users_router
 from app.modules.projects.router import projects_router
 from app.modules.requests.router import requests_router
 from app.modules.planning.router import planning_router
+from app.modules.sectors.router import sectors_router
+from app.modules.allocations.router import allocations_router
 app.include_router(auth_router)
 app.include_router(users_router)
 app.include_router(projects_router)
 app.include_router(requests_router)
 app.include_router(planning_router)
+app.include_router(sectors_router)
+app.include_router(allocations_router)
 
 
 @app.get("/health", tags=["Health"])
