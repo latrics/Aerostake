@@ -23,8 +23,12 @@ app.add_middleware(
 
 # Feature Routers
 from app.modules.users.router import auth_router, users_router
+from app.modules.projects.router import projects_router
+from app.modules.requests.router import requests_router
 app.include_router(auth_router)
 app.include_router(users_router)
+app.include_router(projects_router)
+app.include_router(requests_router)
 
 
 @app.get("/health", tags=["Health"])
