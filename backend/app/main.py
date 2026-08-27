@@ -28,6 +28,7 @@ from app.modules.requests.router import requests_router
 from app.modules.planning.router import planning_router
 from app.modules.sectors.router import sectors_router
 from app.modules.allocations.router import allocations_router
+from app.modules.payments.router import payments_router
 app.include_router(auth_router)
 app.include_router(users_router)
 app.include_router(projects_router)
@@ -35,6 +36,7 @@ app.include_router(requests_router)
 app.include_router(planning_router)
 app.include_router(sectors_router)
 app.include_router(allocations_router)
+app.include_router(payments_router)
 
 
 @app.get("/health", tags=["Health"])

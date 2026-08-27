@@ -15,6 +15,7 @@ from app.modules.requests.model import RequestVersion  # Registers RequestVersio
 from app.modules.planning.model import OperationalPlan  # Registers OperationalPlan in Base.metadata
 from app.modules.sectors.model import Sector  # Registers Sector model in Base.metadata
 from app.modules.allocations.model import SectorAllocation  # Registers SectorAllocation in Base.metadata
+from app.modules.payments.model import PaymentRecord  # Registers PaymentRecord in Base.metadata
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
