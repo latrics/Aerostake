@@ -12,6 +12,7 @@ from app.modules.users.model import User  # Registers User model in Base.metadat
 from app.modules.timeline.model import TimelineEvent  # Registers TimelineEvent in Base.metadata
 from app.modules.projects.model import Project  # Registers Project model in Base.metadata
 from app.modules.requests.model import RequestVersion  # Registers RequestVersion in Base.metadata
+from app.modules.planning.model import OperationalPlan  # Registers OperationalPlan in Base.metadata
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
