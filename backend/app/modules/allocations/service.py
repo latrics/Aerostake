@@ -100,12 +100,13 @@ class AllocationService:
             subject=f"New Flight Sector Assigned: {sector.sector_code} ({project.title})",
             html_content=f"<p>You have been assigned to survey <b>Sector {sector.sector_code}</b> for project <b>{project.title}</b> with drone {alloc_in.drone_model}.</p>",
         )
-        await notification_service.send_push(
-            device_token="pilot-fcm-device-token",
-            title=f"New Mission: Sector {sector.sector_code}",
-            body=f"Assigned with {alloc_in.drone_model} for {project.title}",
-            data={"sector_id": str(sector.id), "project_id": str(project.id)},
-        )
+        if pilot.device_token:
+            await notification_service.send_push(
+                device_token=pilot.device_token,
+                title=f"New Mission: Sector {sector.sector_code}",
+                body=f"Assigned with {alloc_in.drone_model} for {project.title}",
+                data={"sector_id": str(sector.id), "project_id": str(project.id)},
+            )
 
         return allocation
 
@@ -156,6 +157,25 @@ class AllocationService:
                 "new_status": status_in.status.value,
             },
         )
+
+        # If completed, notify project client & ops of progress
+        if status_in.status == AllocationStatusEnum.COMPLETED and sector:
+            project = await project_repository.get_by_id(db, allocation.project_id)
+            if project:
+                client_user = await user_repository.get_by_id(db, project.client_id)
+                if client_user:
+                    await notification_service.send_email(
+                        to_email=client_user.email,
+                        subject=f"Survey Completed: Sector {sector.sector_code} ({project.title})",
+                        html_content=f"<p>Aerial survey for <b>Sector {sector.sector_code}</b> of project <b>{project.title}</b> is complete and telemetry data logged.</p>",
+                    )
+                    if client_user.device_token:
+                        await notification_service.send_push(
+                            device_token=client_user.device_token,
+                            title=f"Sector {sector.sector_code} Survey Complete",
+                            body=f"Flight mission for Sector {sector.sector_code} in '{project.title}' is completed.",
+                            data={"project_id": str(project.id), "sector_id": str(sector.id)},
+                        )
 
         return updated_alloc
 

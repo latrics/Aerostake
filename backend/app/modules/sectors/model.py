@@ -45,7 +45,7 @@ class Sector(Base):
         index=True
     )
     status: Mapped[SectorStatusEnum] = mapped_column(
-        Enum(SectorStatusEnum, name="sector_status_enum", create_type=False),
+        Enum(SectorStatusEnum, name="sector_status_enum", create_type=False, values_callable=lambda obj: [e.value for e in obj]),
         default=SectorStatusEnum.PENDING,
         nullable=False,
         index=True

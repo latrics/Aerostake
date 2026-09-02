@@ -40,7 +40,7 @@ class PaymentRecord(Base):
         nullable=False
     )
     status: Mapped[PaymentStatusEnum] = mapped_column(
-        Enum(PaymentStatusEnum, name="payment_status_enum", create_type=False),
+        Enum(PaymentStatusEnum, name="payment_status_enum", create_type=False, values_callable=lambda obj: [e.value for e in obj]),
         default=PaymentStatusEnum.PENDING,
         nullable=False,
         index=True

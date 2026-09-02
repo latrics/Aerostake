@@ -31,6 +31,10 @@ class MockUserRepo:
                 return u
         return None
 
+    async def get_users_by_roles(self, db, roles):
+        return [u for u in mock_users.values() if u.role in roles]
+
+
 
 class MockProjectRepo:
     async def get_by_id(self, db, project_id):

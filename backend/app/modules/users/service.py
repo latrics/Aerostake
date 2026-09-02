@@ -108,5 +108,47 @@ class UserService:
             user=UserOut.model_validate(user),
         )
 
+    async def list_users(
+        self,
+        db: AsyncSession,
+        role: Optional[RoleEnum] = None,
+        skip: int = 0,
+        limit: int = 100,
+    ) -> List[UserOut]:
+        users = await user_repository.list_users(db, role=role, skip=skip, limit=limit)
+        return [UserOut.model_validate(u) for u in users]
+
+    async def create_user_admin(self, db: AsyncSession, user_in: UserCreate) -> UserOut:
+        existing = await user_repository.get_by_email(db, user_in.email)
+        if existing:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="A user with this email already exists",
+            )
+
+        hashed_pw = hash_password(user_in.password)
+        role = user_in.role or RoleEnum.CLIENT
+
+        user = await user_repository.create(
+            db=db,
+            email=user_in.email,
+            hashed_password=hashed_pw,
+            role=role,
+        )
+        return UserOut.model_validate(user)
+
+    async def register_device_token(
+        self,
+        db: AsyncSession,
+        current_user: User,
+        device_token: str,
+    ) -> UserOut:
+        updated_user = await user_repository.update_device_token(
+            db=db,
+            user=current_user,
+            device_token=device_token,
+        )
+        return UserOut.model_validate(updated_user)
+
 
 user_service = UserService()

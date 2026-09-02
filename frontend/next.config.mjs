@@ -1,7 +1,20 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  // We can add rewrites or redirect if needed, e.g. rewrites to backend API during dev.
+  output:
+    process.env.BUILD_STANDALONE === 'true' ||
+    (process.env.NODE_ENV === 'production' && process.platform !== 'win32')
+      ? 'standalone'
+      : undefined,
+  async redirects() {
+    return [
+      {
+        source: '/request',
+        destination: '/requests',
+        permanent: true,
+      },
+    ];
+  },
 };
 
 export default nextConfig;

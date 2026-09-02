@@ -1,9 +1,25 @@
+# ==============================================================================
+# AEROSTAKE — LOCAL DEVELOPMENT DOCKER COMPOSE CONFIGURATION (.dev)
+# Hot reloading enabled, isolated dev database volume, localhost port bindings.
+# ==============================================================================
+
 version: '3.8'
+
+networks:
+  aerostake_dev_network:
+    driver: bridge
+    name: aerostake_dev_network
+
+volumes:
+  aerostake_dev_postgres_data:
+    name: aerostake_dev_postgres_data
+  aerostake_dev_redis_data:
+    name: aerostake_dev_redis_data
 
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: aerostake_postgres
+    container_name: aerostake_dev_postgres
     restart: unless-stopped
     environment:
       POSTGRES_USER: aerostake_user
@@ -12,7 +28,9 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - aerostake_dev_postgres_data:/var/lib/postgresql/data
+    networks:
+      - aerostake_dev_network
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U aerostake_user -d aerostake_db"]
       interval: 5s
@@ -21,12 +39,14 @@ services:
 
   redis:
     image: redis:7-alpine
-    container_name: aerostake_redis
+    container_name: aerostake_dev_redis
     restart: unless-stopped
     ports:
       - "6379:6379"
     volumes:
-      - redis_data:/data
+      - aerostake_dev_redis_data:/data
+    networks:
+      - aerostake_dev_network
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -36,8 +56,8 @@ services:
   backend:
     build:
       context: ./backend
-      dockerfile: Dockerfile
-    container_name: aerostake_backend
+      dockerfile: Dockerfile.dev
+    container_name: aerostake_dev_backend
     restart: unless-stopped
     ports:
       - "8000:8000"
@@ -48,8 +68,12 @@ services:
       - DATABASE_URL=postgresql+asyncpg://aerostake_user:aerostake_password@postgres:5432/aerostake_db
       - REDIS_URL=redis://redis:6379/0
       - CORS_ORIGINS=["http://localhost:3000", "http://127.0.0.1:3000", "http://localhost:8000"]
+      - ENVIRONMENT=development
+      - DEBUG=True
     env_file:
       - ./backend/.env
+    networks:
+      - aerostake_dev_network
     depends_on:
       postgres:
         condition: service_healthy
@@ -59,8 +83,8 @@ services:
   frontend:
     build:
       context: ./frontend
-      dockerfile: Dockerfile
-    container_name: aerostake_frontend
+      dockerfile: Dockerfile.dev
+    container_name: aerostake_dev_frontend
     restart: unless-stopped
     ports:
       - "3000:3000"
@@ -70,11 +94,8 @@ services:
       - /frontend/.next
     environment:
       - NEXT_PUBLIC_API_URL=http://localhost:8000
+      - NODE_ENV=development
+    networks:
+      - aerostake_dev_network
     depends_on:
       - backend
-
-volumes:
-  postgres_data:
-    name: aerostake_postgres_data
-  redis_data:
-    name: aerostake_redis_data

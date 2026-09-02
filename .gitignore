@@ -1,10 +1,18 @@
 # Environment variables and secrets
 .env
-.env*.local
-.env.production
+.env*
+!.env.dev.example
+!.env.prod.example
 *.pem
 *.key
-serviceAccountKey.json
+*.crt
+*.pfx
+*.p12
+*serviceAccount*.json
+firebase*.json
+*.credentials
+.secrets*
+
 
 # Local Docs, Progress & Engineering Logs
 docs/

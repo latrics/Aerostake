@@ -28,8 +28,13 @@ class UserOut(BaseModel):
     email: str
     role: RoleEnum
     is_active: bool
+    device_token: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+
+
+class DeviceTokenRegisterRequest(BaseModel):
+    device_token: str = Field(..., min_length=10, max_length=512, description="Firebase/WebPush Device Registration Token")
 
 
 class TokenResponse(BaseModel):

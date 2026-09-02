@@ -20,7 +20,15 @@ export function middleware(request: NextRequest) {
   const isAuthRoute = pathname === '/login' || pathname === '/signup';
   
   // Define route lists for route guarding
-  const clientRoutes = ['/dashboard', '/projects', '/help-desk'];
+  const clientRoutes = [
+    '/dashboard',
+    '/projects',
+    '/activity-logs',
+    '/payments',
+    '/documents',
+    '/help-desk',
+    '/settings',
+  ];
   const latricsRoutes = [
     '/requests',
     '/planning',
@@ -29,7 +37,7 @@ export function middleware(request: NextRequest) {
     '/my-assignments',
     '/sector-updates',
     '/user-management',
-    '/settings',
+    '/portal-settings',
   ];
 
   const isClientRoute = clientRoutes.some((route) => pathname === route || pathname.startsWith(route + '/'));
@@ -82,7 +90,7 @@ export function middleware(request: NextRequest) {
 
     // Role-specific sub-route guarding within Latrics Portal
     if (role === 'operations') {
-      const adminOnlyRoutes = ['/requests', '/planning', '/user-management', '/settings'];
+      const adminOnlyRoutes = ['/requests', '/planning', '/user-management', '/portal-settings'];
       if (adminOnlyRoutes.some((route) => pathname === route || pathname.startsWith(route + '/'))) {
         return NextResponse.redirect(new URL('/allocations', request.url));
       }
@@ -95,7 +103,7 @@ export function middleware(request: NextRequest) {
         '/allocations',
         '/sectors',
         '/user-management',
-        '/settings',
+        '/portal-settings',
       ];
       if (nonPilotRoutes.some((route) => pathname === route || pathname.startsWith(route + '/'))) {
         return NextResponse.redirect(new URL('/my-assignments', request.url));

@@ -38,7 +38,7 @@ class OperationalPlan(Base):
         index=True
     )
     status: Mapped[PlanStatusEnum] = mapped_column(
-        Enum(PlanStatusEnum, name="plan_status_enum", create_type=False),
+        Enum(PlanStatusEnum, name="plan_status_enum", create_type=False, values_callable=lambda obj: [e.value for e in obj]),
         default=PlanStatusEnum.DRAFT,
         nullable=False,
         index=True

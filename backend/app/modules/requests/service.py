@@ -11,7 +11,8 @@ from app.modules.requests.model import RequestVersion
 from app.modules.requests.repository import request_repository
 from app.modules.requests.schema import RequestVersionCreate
 from app.modules.timeline.service import timeline_service
-from app.modules.users.model import User
+from app.modules.users.model import RoleEnum, User
+from app.modules.users.repository import user_repository
 
 
 class RequestService:
@@ -71,12 +72,35 @@ class RequestService:
             },
         )
 
-        # Dispatch async notification alert
+        # Dispatch async notification alert to client
         await notification_service.send_email(
             to_email=current_user.email,
             subject=f"Request #{new_version_num:03d} Received: {project.title}",
             html_content=f"<p>Thank you. Your request version #{new_version_num:03d} for <b>{project.title}</b> has been received and queued for operational planning.</p>",
         )
+        if current_user.device_token:
+            await notification_service.send_push(
+                device_token=current_user.device_token,
+                title=f"Request #{new_version_num:03d} Confirmed",
+                body=f"Survey request for '{project.title}' queued for operational planning.",
+                data={"project_id": str(project.id), "version": str(new_version_num)},
+            )
+
+        # Notify Ops team
+        ops_users = await user_repository.get_users_by_roles(db, [RoleEnum.ADMIN, RoleEnum.OPERATIONS])
+        for staff in ops_users:
+            await notification_service.send_email(
+                to_email=staff.email,
+                subject=f"New Survey Request: {project.title} (#{new_version_num:03d})",
+                html_content=f"<p>A new survey request version #{new_version_num:03d} was submitted for <b>{project.title}</b> at location <i>{request_in.survey_location}</i> ({request_in.target_area_sqkm} sq km). Ready for quotation drafting.</p>",
+            )
+            if staff.device_token:
+                await notification_service.send_push(
+                    device_token=staff.device_token,
+                    title=f"New Survey Request: {project.title}",
+                    body=f"Request #{new_version_num:03d} at {request_in.survey_location} ({request_in.target_area_sqkm} sq km).",
+                    data={"project_id": str(project.id), "request_id": str(request_version.id), "action": "draft_plan"},
+                )
 
         return request_version
 

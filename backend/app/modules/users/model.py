@@ -1,4 +1,5 @@
 import enum
+from typing import Optional
 import uuid
 from datetime import datetime, timezone
 from sqlalchemy import Boolean, DateTime, Enum, String, func
@@ -34,7 +35,7 @@ class User(Base):
         nullable=False
     )
     role: Mapped[RoleEnum] = mapped_column(
-        Enum(RoleEnum, name="role_enum", create_type=False),
+        Enum(RoleEnum, name="role_enum", create_type=False, values_callable=lambda obj: [e.value for e in obj]),
         nullable=False,
         default=RoleEnum.CLIENT
     )
@@ -42,6 +43,11 @@ class User(Base):
         Boolean,
         default=True,
         nullable=False
+    )
+    device_token: Mapped[Optional[str]] = mapped_column(
+        String(512),
+        nullable=True,
+        default=None
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

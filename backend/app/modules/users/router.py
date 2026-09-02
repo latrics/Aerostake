@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.modules.users.model import RoleEnum, User
 from app.modules.users.schema import (
+    DeviceTokenRegisterRequest,
     RefreshTokenRequest,
     TokenResponse,
     UserCreate,
@@ -91,3 +92,52 @@ async def get_me(
 ):
     """Retrieve profile details for the currently authenticated user."""
     return current_user
+
+
+@users_router.post(
+    "/me/device-token",
+    response_model=UserOut,
+    status_code=status.HTTP_200_OK,
+    summary="Register browser or mobile push device token",
+)
+async def register_device_token(
+    payload: DeviceTokenRegisterRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Register or refresh Firebase Cloud Messaging / Web Push device token for authenticated user."""
+    return await user_service.register_device_token(db, current_user, payload.device_token)
+
+
+
+@users_router.get(
+    "",
+    response_model=list[UserOut],
+    status_code=status.HTTP_200_OK,
+    summary="List all users with optional role filtering (Admin/Ops only)",
+)
+async def list_users(
+    role: RoleEnum | None = None,
+    skip: int = 0,
+    limit: int = 100,
+    current_user: User = Depends(require_role(RoleEnum.ADMIN, RoleEnum.OPERATIONS)),
+    db: AsyncSession = Depends(get_db),
+):
+    """Retrieve system user roster (e.g. licensed pilots or staff) for allocation and user management."""
+    return await user_service.list_users(db, role=role, skip=skip, limit=limit)
+
+
+@users_router.post(
+    "",
+    response_model=UserOut,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create a new team member or pilot profile (Admin only)",
+)
+async def create_user_by_admin(
+    user_in: UserCreate,
+    current_user: User = Depends(require_role(RoleEnum.ADMIN)),
+    db: AsyncSession = Depends(get_db),
+):
+    """Admin endpoint to provision team member profiles."""
+    return await user_service.create_user_admin(db, user_in)
+

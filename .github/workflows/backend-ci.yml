@@ -69,4 +69,5 @@ jobs:
           JWT_SECRET_KEY: ci-test-secret-key-for-jwt-signing
           JWT_ALGORITHM: HS256
         run: |
-          if [ -d backend/tests ]; then pytest backend/tests; fi
+          pytest backend/app/tests -v
+

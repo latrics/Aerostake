@@ -29,6 +29,10 @@ class MockUserRepo:
                 return u
         return None
 
+    async def get_users_by_roles(self, db, roles):
+        return [u for u in mock_users.values() if u.role in roles]
+
+
 
 class MockProjectRepo:
     async def create(self, db, title, description, client_id):
@@ -135,6 +139,7 @@ def test_projects_and_requests_full_lifecycle():
          patch("app.modules.projects.service.timeline_service.log_event", MockTimelineService().log_event), \
          patch("app.modules.requests.service.project_repository", MockProjectRepo()), \
          patch("app.modules.requests.service.request_repository", MockRequestRepo()), \
+         patch("app.modules.requests.service.user_repository", MockUserRepo()), \
          patch("app.modules.requests.service.timeline_service.log_event", MockTimelineService().log_event):
 
         # 1. Client A creates Project

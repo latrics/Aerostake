@@ -40,12 +40,37 @@ class UserRepository:
     async def list_users(
         self,
         db: AsyncSession,
+        role: Optional[RoleEnum] = None,
         skip: int = 0,
         limit: int = 100,
     ) -> List[User]:
-        stmt = select(User).offset(skip).limit(limit).order_by(User.created_at.desc())
+        stmt = select(User)
+        if role is not None:
+            stmt = stmt.where(User.role == role)
+        stmt = stmt.offset(skip).limit(limit).order_by(User.created_at.desc())
+        result = await db.execute(stmt)
+        return list(result.scalars().all())
+
+    async def update_device_token(
+        self,
+        db: AsyncSession,
+        user: User,
+        device_token: Optional[str],
+    ) -> User:
+        user.device_token = device_token
+        await db.flush()
+        await db.refresh(user)
+        return user
+
+    async def get_users_by_roles(
+        self,
+        db: AsyncSession,
+        roles: List[RoleEnum],
+    ) -> List[User]:
+        stmt = select(User).where(User.role.in_(roles), User.is_active == True)
         result = await db.execute(stmt)
         return list(result.scalars().all())
 
 
 user_repository = UserRepository()
+

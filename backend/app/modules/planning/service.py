@@ -110,6 +110,13 @@ class PlanningService:
                 subject=f"Flight Plan Ready for Review: {project.title}",
                 html_content=f"<p>An operational flight plan has been formulated for <b>{project.title}</b>. Cost estimate: ${plan.estimated_cost_usd:,.2f}. Please review and approve.</p>",
             )
+            if client_user.device_token:
+                await notification_service.send_push(
+                    device_token=client_user.device_token,
+                    title=f"Plan Ready: {project.title}",
+                    body=f"Operational flight plan published (${plan.estimated_cost_usd:,.2f}). Awaiting your review.",
+                    data={"project_id": str(project.id), "plan_id": str(published_plan.id), "action": "review_plan"},
+                )
 
         return published_plan
 
@@ -210,12 +217,21 @@ class PlanningService:
             },
         )
 
-        # Send notification to Ops
-        await notification_service.send_email(
-            to_email="ops@latrics.com",
-            subject=f"Plan Approved: {project.title}",
-            html_content=f"<p>The operational plan for project <b>{project.title}</b> was approved by the client. Hardware and pilot allocation can now begin.</p>",
-        )
+        # Send notification to Ops & Admin
+        ops_users = await user_repository.get_users_by_roles(db, [RoleEnum.ADMIN, RoleEnum.OPERATIONS])
+        for staff in ops_users:
+            await notification_service.send_email(
+                to_email=staff.email,
+                subject=f"Plan Approved: {project.title}",
+                html_content=f"<p>The operational plan for project <b>{project.title}</b> was approved by the client. Hardware and pilot allocation can now begin.</p>",
+            )
+            if staff.device_token:
+                await notification_service.send_push(
+                    device_token=staff.device_token,
+                    title=f"Plan Approved: {project.title}",
+                    body=f"Client approved plan (${plan.estimated_cost_usd:,.2f}). Ready for sector allocation.",
+                    data={"project_id": str(project.id), "plan_id": str(plan.id), "action": "allocate"},
+                )
 
         return updated_project
 
@@ -265,12 +281,21 @@ class PlanningService:
             },
         )
 
-        # Send notification to Ops
-        await notification_service.send_email(
-            to_email="ops@latrics.com",
-            subject=f"Revision Requested: {project.title}",
-            html_content=f"<p>Client requested plan revisions for <b>{project.title}</b>.<br/>Feedback: {revision_in.feedback_notes}</p>",
-        )
+        # Send notification to Ops & Admin
+        ops_users = await user_repository.get_users_by_roles(db, [RoleEnum.ADMIN, RoleEnum.OPERATIONS])
+        for staff in ops_users:
+            await notification_service.send_email(
+                to_email=staff.email,
+                subject=f"Revision Requested: {project.title}",
+                html_content=f"<p>Client requested plan revisions for <b>{project.title}</b>.<br/>Feedback: {revision_in.feedback_notes}</p>",
+            )
+            if staff.device_token:
+                await notification_service.send_push(
+                    device_token=staff.device_token,
+                    title=f"Revision Requested: {project.title}",
+                    body=f"Client feedback: '{revision_in.feedback_notes[:80]}'",
+                    data={"project_id": str(project.id), "plan_id": str(plan.id), "action": "revise_plan"},
+                )
 
         return updated_project
 

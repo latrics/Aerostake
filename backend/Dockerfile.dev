@@ -1,3 +1,7 @@
+# ==============================================================================
+# AEROSTAKE BACKEND — DEVELOPMENT DOCKERFILE (.dev)
+# Includes hot reload and development debugging utilities.
+# ==============================================================================
 FROM python:3.11-slim-bookworm
 
 ENV PYTHONUNBUFFERED=1 \

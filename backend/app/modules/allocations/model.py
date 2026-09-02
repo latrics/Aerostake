@@ -54,7 +54,7 @@ class SectorAllocation(Base):
         nullable=False
     )
     status: Mapped[AllocationStatusEnum] = mapped_column(
-        Enum(AllocationStatusEnum, name="allocation_status_enum", create_type=False),
+        Enum(AllocationStatusEnum, name="allocation_status_enum", create_type=False, values_callable=lambda obj: [e.value for e in obj]),
         default=AllocationStatusEnum.ASSIGNED,
         nullable=False,
         index=True

@@ -43,7 +43,7 @@ class Project(Base):
         index=True
     )
     status: Mapped[ProjectStatusEnum] = mapped_column(
-        Enum(ProjectStatusEnum, name="project_status_enum", create_type=False),
+        Enum(ProjectStatusEnum, name="project_status_enum", create_type=False, values_callable=lambda obj: [e.value for e in obj]),
         nullable=False,
         default=ProjectStatusEnum.DRAFT,
         index=True
