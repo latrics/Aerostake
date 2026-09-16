@@ -1,527 +1,285 @@
 'use client';
 
-import React, { useState } from 'react';
-import Link from 'next/link';
+import React, { useState, useEffect, useMemo, Suspense } from 'react';
+import { useRouter } from 'next/navigation';
+import WireframeBox from '@/components/WireframeBox';
 import {
   Search,
-  Filter,
-  List,
-  LayoutGrid,
-  Folder,
   FileText,
-  MessageSquare,
-  Handshake,
-  FileCheck,
-  BarChart3,
-  Eye,
-  Download,
-  MoreVertical,
+  Loader2,
+  Inbox,
+  RotateCcw,
   ChevronRight,
-  Info,
+  Folder,
+  MapPin,
+  Cpu,
 } from 'lucide-react';
+import { projectApi } from '@/modules/projects/api';
+import { Project } from '@/modules/projects/types';
 
 export default function ClientDocumentsPage() {
-  const [docCategoryFilter, setDocCategoryFilter] = useState('all');
-  const [docSearchQuery, setDocSearchQuery] = useState('');
-  const [docViewMode, setDocViewMode] = useState<'list' | 'grid'>('list');
-  const [selectedDocIds, setSelectedDocIds] = useState<string[]>([]);
+  return (
+    <Suspense
+      fallback={
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '50vh' }}>
+          <Loader2 size={32} className="animate-spin" color="#09090b" />
+        </div>
+      }
+    >
+      <ClientDocumentsContent />
+    </Suspense>
+  );
+}
 
-  // Detailed Documents dataset matching Figma Documents mockup
-  const allDocuments = [
-    {
-      id: 'doc-1',
-      name: 'Project Request Form.pdf',
-      description: 'Initial project request submitted by client.',
-      category: 'Request',
-      project: 'North Zone Survey',
-      uploadedBy: 'Amit Raj',
-      uploadedOn: '10 May 2025, 10:15 AM',
-      size: '1.2 MB',
-    },
-    {
-      id: 'doc-2',
-      name: 'Survey Plan v1.0.pdf',
-      description: 'Detailed survey plan and scope.',
-      category: 'Plan',
-      project: 'North Zone Survey',
-      uploadedBy: 'Latrics Ops',
-      uploadedOn: '16 May 2025, 11:20 AM',
-      size: '3.4 MB',
-    },
-    {
-      id: 'doc-3',
-      name: 'Client Review Comments.pdf',
-      description: 'Client feedback and comments.',
-      category: 'Review',
-      project: 'North Zone Survey',
-      uploadedBy: 'John Doe',
-      uploadedOn: '18 May 2025, 03:45 PM',
-      size: '1.1 MB',
-    },
-    {
-      id: 'doc-4',
-      name: 'Plan Approval.pdf',
-      description: 'Approved project plan by client.',
-      category: 'Approval',
-      project: 'North Zone Survey',
-      uploadedBy: 'John Doe',
-      uploadedOn: '19 May 2025, 11:20 AM',
-      size: '0.9 MB',
-    },
-    {
-      id: 'doc-5',
-      name: 'Resource Allocation Sheet.xlsx',
-      description: 'Resources and drones allocation details.',
-      category: 'Report',
-      project: 'North Zone Survey',
-      uploadedBy: 'Latrics Ops',
-      uploadedOn: '20 May 2025, 09:45 AM',
-      size: '2.1 MB',
-    },
-    {
-      id: 'doc-6',
-      name: 'NDA Agreement.pdf',
-      description: 'Non-disclosure agreement.',
-      category: 'Agreement',
-      project: 'North Zone Survey',
-      uploadedBy: 'John Doe',
-      uploadedOn: '12 May 2025, 02:10 PM',
-      size: '0.8 MB',
-    },
-    {
-      id: 'doc-7',
-      name: 'Execution Log - Day 1.pdf',
-      description: 'Execution log for 20 May 2025.',
-      category: 'Report',
-      project: 'North Zone Survey',
-      uploadedBy: 'Pilot: Vikram Singh',
-      uploadedOn: '20 May 2025, 05:30 PM',
-      size: '2.6 MB',
-    },
-    {
-      id: 'doc-8',
-      name: 'Sector 2 Progress Report.pdf',
-      description: 'Progress report for sector 2.',
-      category: 'Report',
-      project: 'North Zone Survey',
-      uploadedBy: 'Field Team',
-      uploadedOn: '21 May 2025, 10:30 AM',
-      size: '1.7 MB',
-    },
-  ];
+function ClientDocumentsContent() {
+  const router = useRouter();
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
 
-  const docCategoryCounts = {
-    all: 32,
-    request: 6,
-    approval: 5,
-    agreement: 7,
-    plan: 8,
-    report: 6,
-  };
+  useEffect(() => {
+    fetchProjects();
+  }, []);
 
-  const filteredDocuments = allDocuments.filter((doc) => {
-    const matchesSearch =
-      doc.name.toLowerCase().includes(docSearchQuery.toLowerCase()) ||
-      doc.description.toLowerCase().includes(docSearchQuery.toLowerCase()) ||
-      doc.uploadedBy.toLowerCase().includes(docSearchQuery.toLowerCase()) ||
-      doc.project.toLowerCase().includes(docSearchQuery.toLowerCase());
-
-    const matchesCategory =
-      docCategoryFilter === 'all' ||
-      doc.category.toLowerCase() === docCategoryFilter.toLowerCase();
-
-    return matchesSearch && matchesCategory;
-  });
-
-  const toggleSelectAllDocs = () => {
-    if (selectedDocIds.length === filteredDocuments.length) {
-      setSelectedDocIds([]);
-    } else {
-      setSelectedDocIds(filteredDocuments.map((d) => d.id));
+  const fetchProjects = async () => {
+    setIsLoading(true);
+    try {
+      const data = await projectApi.listProjects();
+      setProjects(data || []);
+    } catch (err) {
+      console.error('Error loading projects for documents:', err);
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  const toggleSelectDoc = (id: string) => {
-    setSelectedDocIds((prev) =>
-      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
+  const getCity = (p: Project) => p.city || (p.requirements_payload as any)?.city || '';
+  const getState = (p: Project) => p.state || (p.requirements_payload as any)?.state || '';
+  const getPayload = (p: Project) => p.payload || (p.requirements_payload as any)?.payload || '';
+
+  const formatLocation = (p: Project) => {
+    const parts: string[] = [];
+    if (p.survey_location) parts.push(p.survey_location);
+    const c = getCity(p);
+    const s = getState(p);
+    if (c) parts.push(c);
+    if (s) parts.push(s);
+    return parts.length > 0 ? parts.join(', ') : 'Location not specified';
+  };
+
+  const filteredProjects = useMemo(() => {
+    if (!searchQuery.trim()) return projects;
+    const q = searchQuery.toLowerCase();
+    return projects.filter(
+      (p) =>
+        p.title.toLowerCase().includes(q) ||
+        p.id.toLowerCase().includes(q) ||
+        (p.survey_location && p.survey_location.toLowerCase().includes(q)) ||
+        (getCity(p) && getCity(p).toLowerCase().includes(q)) ||
+        (getState(p) && getState(p).toLowerCase().includes(q))
     );
+  }, [projects, searchQuery]);
+
+  const getStatusBadge = (status: string) => {
+    const s = (status || '').toLowerCase();
+    let bg = '#f4f4f5';
+    let text = '#18181b';
+    let border = '#d4d4d8';
+
+    if (s === 'active' || s === 'approved') {
+      bg = '#f0fdf4';
+      text = '#15803d';
+      border = '#bbf7d0';
+    } else if (s === 'submitted') {
+      bg = '#eff6ff';
+      text = '#1d4ed8';
+      border = '#bfdbfe';
+    } else if (s === 'completed') {
+      bg = '#09090b';
+      text = '#ffffff';
+      border = '#09090b';
+    }
+
+    return (
+      <span
+        style={{
+          fontSize: '0.7rem',
+          fontWeight: 700,
+          padding: '0.15rem 0.5rem',
+          borderRadius: '4px',
+          backgroundColor: bg,
+          color: text,
+          border: `1px solid ${border}`,
+          textTransform: 'capitalize',
+        }}
+      >
+        {status}
+      </span>
+    );
+  };
+
+  const handleSelectProject = (projectId: string) => {
+    // Redirect user to the documents tab under the project preview page
+    router.push(`/projects/${projectId}/overview?tab=documents`);
   };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-      {/* ── Subheader Title & Action Controls ── */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
+      {/* ── Header ── */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
         <div>
-          <h2 style={{ fontSize: '1.25rem', fontWeight: 800, color: '#09090b' }}>Project Documents</h2>
-          <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-            All documents, requests, approvals and agreements related to your projects.
+          <h2 style={{ fontSize: '1.25rem', fontWeight: 800, margin: 0 }}>Project Documents Repository</h2>
+          <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: '0.2rem 0 0' }}>
+            Select a project from the list below to view its documents, survey plans, and request specifications under Project Preview.
           </p>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', flexWrap: 'wrap' }}>
-          {/* Search Box */}
-          <div style={{ position: 'relative', width: '220px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+          <div style={{ position: 'relative', width: '260px' }}>
+            <Search size={14} color="#71717a" style={{ position: 'absolute', left: '10px', top: '10px' }} />
             <input
               type="text"
-              placeholder="Search documents..."
-              value={docSearchQuery}
-              onChange={(e) => setDocSearchQuery(e.target.value)}
+              placeholder="Search projects..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
               className="form-input"
-              style={{ fontSize: '0.75rem', height: '32px', paddingRight: '1.8rem' }}
+              style={{ paddingLeft: '2rem', fontSize: '0.8rem', height: '34px' }}
             />
-            <Search size={13} color="#71717a" style={{ position: 'absolute', right: '8px', top: '9px' }} />
           </div>
 
-          {/* Filter Button */}
           <button
-            className="btn btn-secondary"
-            style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', height: '32px', fontSize: '0.75rem' }}
+            onClick={() => fetchProjects()}
+            title="Refresh projects"
+            style={{
+              width: '34px',
+              height: '34px',
+              border: '1px solid var(--border-color)',
+              borderRadius: '6px',
+              backgroundColor: '#ffffff',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: 'pointer',
+            }}
           >
-            <Filter size={13} /> Filter
+            <RotateCcw size={15} color="#09090b" className={isLoading ? 'animate-spin' : ''} />
           </button>
-
-          {/* View Switchers */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-            <button
-              onClick={() => setDocViewMode('list')}
-              style={{
-                width: '30px',
-                height: '30px',
-                border: docViewMode === 'list' ? '1px solid #09090b' : '1px solid var(--border-color)',
-                backgroundColor: docViewMode === 'list' ? '#f4f4f5' : '#ffffff',
-                borderRadius: '4px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                cursor: 'pointer',
-              }}
-            >
-              <List size={14} />
-            </button>
-            <button
-              onClick={() => setDocViewMode('grid')}
-              style={{
-                width: '30px',
-                height: '30px',
-                border: docViewMode === 'grid' ? '1px solid #09090b' : '1px solid var(--border-color)',
-                backgroundColor: docViewMode === 'grid' ? '#f4f4f5' : '#ffffff',
-                borderRadius: '4px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                cursor: 'pointer',
-              }}
-            >
-              <LayoutGrid size={14} />
-            </button>
-          </div>
         </div>
       </div>
 
-      {/* ── 2-Column Split: Category Sidebar Folders & Documents Table ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr', gap: '1.25rem', alignItems: 'start' }}>
-        {/* Left Column: Category Folder List */}
-        <div className="wf-card" style={{ padding: '0.5rem', display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
-          {[
-            { id: 'all', label: 'All Documents', count: docCategoryCounts.all, icon: Folder },
-            { id: 'request', label: 'Requests', count: docCategoryCounts.request, icon: FileText },
-            { id: 'approval', label: 'Approvals', count: docCategoryCounts.approval, icon: MessageSquare },
-            { id: 'agreement', label: 'Agreements', count: docCategoryCounts.agreement, icon: Handshake },
-            { id: 'plan', label: 'Plans', count: docCategoryCounts.plan, icon: FileCheck },
-            { id: 'report', label: 'Reports', count: docCategoryCounts.report, icon: BarChart3 },
-          ].map((cat) => {
-            const Icon = cat.icon;
-            const isActive = docCategoryFilter === cat.id;
+      {/* ── Projects List ── */}
+      {isLoading ? (
+        <div style={{ padding: '4rem 1rem', textAlign: 'center', color: 'var(--text-muted)' }}>
+          <Loader2 size={28} className="animate-spin" style={{ margin: '0 auto 0.75rem' }} />
+          <p style={{ fontSize: '0.85rem' }}>Loading project directory...</p>
+        </div>
+      ) : filteredProjects.length === 0 ? (
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '4rem 2rem',
+            textAlign: 'center',
+            backgroundColor: '#fafafa',
+            borderRadius: '6px',
+            border: '1px solid var(--border-color)',
+            gap: '0.5rem',
+          }}
+        >
+          <Inbox size={28} color="#71717a" />
+          <div style={{ fontSize: '0.95rem', fontWeight: 700 }}>No Projects Found</div>
+          <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', maxWidth: '380px' }}>
+            {searchQuery ? 'No survey projects match your search.' : 'No survey projects registered yet in your workspace.'}
+          </p>
+        </div>
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '1rem' }}>
+          {filteredProjects.map((p) => {
+            const payloadVal = getPayload(p);
+
             return (
-              <button
-                key={cat.id}
-                onClick={() => setDocCategoryFilter(cat.id)}
+              <div
+                key={p.id}
+                onClick={() => handleSelectProject(p.id)}
+                className="wf-card"
                 style={{
                   display: 'flex',
-                  alignItems: 'center',
+                  flexDirection: 'column',
                   justifyContent: 'space-between',
-                  padding: '0.55rem 0.75rem',
-                  borderRadius: '4px',
-                  border: 'none',
-                  backgroundColor: isActive ? '#f4f4f5' : 'transparent',
-                  color: isActive ? '#09090b' : 'var(--text-secondary)',
-                  fontWeight: isActive ? 700 : 500,
-                  fontSize: '0.8rem',
                   cursor: 'pointer',
-                  textAlign: 'left',
-                  transition: 'background-color 0.15s ease',
+                  border: '1px solid var(--border-color)',
+                  transition: 'all 0.15s ease',
+                  backgroundColor: '#ffffff',
+                  gap: '0.85rem',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.borderColor = '#09090b';
+                  e.currentTarget.style.transform = 'translateY(-1px)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.borderColor = 'var(--border-color)';
+                  e.currentTarget.style.transform = 'none';
                 }}
               >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                  <Icon size={14} />
-                  <span>{cat.label}</span>
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+                      <WireframeBox width={34} height={34} style={{ borderRadius: '4px', flexShrink: 0 }}>
+                        <Folder size={16} color="#09090b" />
+                      </WireframeBox>
+                      <div>
+                        <h4 style={{ fontSize: '0.95rem', fontWeight: 800, margin: 0, color: '#09090b' }}>
+                          {p.title}
+                        </h4>
+                        <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontFamily: 'monospace' }}>
+                          ID: {p.id.slice(0, 8)}...
+                        </span>
+                      </div>
+                    </div>
+                    {getStatusBadge(p.status)}
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', marginTop: '0.65rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                      <MapPin size={13} color="#71717a" style={{ flexShrink: 0 }} />
+                      <span style={{ whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>
+                        {formatLocation(p)}
+                      </span>
+                    </div>
+                    {payloadVal && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                        <Cpu size={13} color="#71717a" style={{ flexShrink: 0 }} />
+                        <span>Payload: {payloadVal}</span>
+                      </div>
+                    )}
+                  </div>
                 </div>
-                <span style={{ fontSize: '0.725rem', color: 'var(--text-muted)' }}>{cat.count}</span>
-              </button>
+
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    paddingTop: '0.75rem',
+                    borderTop: '1px solid #f4f4f5',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.75rem', fontWeight: 700, color: '#09090b' }}>
+                    <FileText size={14} color="#71717a" />
+                    <span>Project Documents</span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.75rem', fontWeight: 700, color: '#09090b' }}>
+                    <span>Open Documents</span>
+                    <ChevronRight size={14} />
+                  </div>
+                </div>
+              </div>
             );
           })}
         </div>
-
-        {/* Right Column: Documents Table */}
-        <div className="wf-card" style={{ padding: 0, overflow: 'hidden' }}>
-          <table className="wf-table">
-            <thead>
-              <tr>
-                <th style={{ width: '38px', textAlign: 'center' }}>
-                  <input
-                    type="checkbox"
-                    checked={selectedDocIds.length > 0 && selectedDocIds.length === filteredDocuments.length}
-                    onChange={toggleSelectAllDocs}
-                    style={{ cursor: 'pointer' }}
-                  />
-                </th>
-                <th style={{ width: '38%' }}>Document Name</th>
-                <th style={{ width: '12%' }}>Category</th>
-                <th style={{ width: '15%' }}>Uploaded By</th>
-                <th style={{ width: '18%' }}>Uploaded On</th>
-                <th style={{ width: '8%' }}>Size</th>
-                <th style={{ width: '9%', textAlign: 'right' }}>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredDocuments.length === 0 ? (
-                <tr>
-                  <td colSpan={7} style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-secondary)' }}>
-                    No matching documents found.
-                  </td>
-                </tr>
-              ) : (
-                filteredDocuments.map((doc) => {
-                  const isSelected = selectedDocIds.includes(doc.id);
-                  return (
-                    <tr
-                      key={doc.id}
-                      style={{
-                        backgroundColor: isSelected ? '#fafafa' : 'transparent',
-                        transition: 'background-color 0.15s ease',
-                      }}
-                    >
-                      {/* Checkbox */}
-                      <td style={{ textAlign: 'center' }}>
-                        <input
-                          type="checkbox"
-                          checked={isSelected}
-                          onChange={() => toggleSelectDoc(doc.id)}
-                          style={{ cursor: 'pointer' }}
-                        />
-                      </td>
-
-                      {/* Document Name & Description */}
-                      <td>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
-                          <FileText size={16} color="#71717a" style={{ flexShrink: 0 }} />
-                          <div style={{ display: 'flex', flexDirection: 'column' }}>
-                            <span style={{ fontWeight: 700, fontSize: '0.825rem', color: '#09090b', lineHeight: 1.3 }}>
-                              {doc.name}
-                            </span>
-                            <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginTop: '0.1rem' }}>
-                              {doc.description}
-                            </span>
-                          </div>
-                        </div>
-                      </td>
-
-                      {/* Category Badge */}
-                      <td>
-                        <span
-                          style={{
-                            fontSize: '0.7rem',
-                            fontWeight: 600,
-                            padding: '0.15rem 0.45rem',
-                            borderRadius: '3px',
-                            border: '1px solid #d4d4d8',
-                            backgroundColor: '#f4f4f5',
-                            display: 'inline-block',
-                          }}
-                        >
-                          {doc.category}
-                        </span>
-                      </td>
-
-                      {/* Uploaded By */}
-                      <td>
-                        <span style={{ fontSize: '0.75rem', color: '#09090b', fontWeight: 500 }}>
-                          {doc.uploadedBy}
-                        </span>
-                      </td>
-
-                      {/* Uploaded On */}
-                      <td>
-                        <span style={{ fontSize: '0.725rem', color: 'var(--text-secondary)' }}>
-                          {doc.uploadedOn}
-                        </span>
-                      </td>
-
-                      {/* Size */}
-                      <td>
-                        <span style={{ fontSize: '0.725rem', color: 'var(--text-secondary)' }}>
-                          {doc.size}
-                        </span>
-                      </td>
-
-                      {/* Actions */}
-                      <td style={{ textAlign: 'right' }}>
-                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}>
-                          <button
-                            title="View Document"
-                            style={{
-                              background: 'none',
-                              border: 'none',
-                              cursor: 'pointer',
-                              padding: '0.2rem',
-                              color: '#71717a',
-                            }}
-                          >
-                            <Eye size={14} />
-                          </button>
-                          <button
-                            title="Download Document"
-                            style={{
-                              background: 'none',
-                              border: 'none',
-                              cursor: 'pointer',
-                              padding: '0.2rem',
-                              color: '#71717a',
-                            }}
-                          >
-                            <Download size={14} />
-                          </button>
-                          <button
-                            title="More Actions"
-                            style={{
-                              background: 'none',
-                              border: 'none',
-                              cursor: 'pointer',
-                              padding: '0.2rem',
-                              color: '#71717a',
-                            }}
-                          >
-                            <MoreVertical size={14} />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-
-          {/* Table Footer / Pagination */}
-          <div
-            style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              padding: '0.75rem 1.25rem',
-              borderTop: '1px solid var(--border-color)',
-              fontSize: '0.75rem',
-              color: 'var(--text-secondary)',
-            }}
-          >
-            <span>Showing 1 to {filteredDocuments.length} of {docCategoryCounts.all} documents</span>
-
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-              <button
-                style={{
-                  width: '26px',
-                  height: '26px',
-                  border: '1px solid #09090b',
-                  backgroundColor: '#09090b',
-                  color: '#ffffff',
-                  borderRadius: '4px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontWeight: 700,
-                  fontSize: '0.75rem',
-                  cursor: 'pointer',
-                }}
-              >
-                1
-              </button>
-              <button
-                style={{
-                  width: '26px',
-                  height: '26px',
-                  border: '1px solid var(--border-color)',
-                  backgroundColor: '#ffffff',
-                  borderRadius: '4px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontSize: '0.75rem',
-                  cursor: 'pointer',
-                  color: '#71717a',
-                }}
-              >
-                2
-              </button>
-              <button
-                style={{
-                  width: '26px',
-                  height: '26px',
-                  border: '1px solid var(--border-color)',
-                  backgroundColor: '#ffffff',
-                  borderRadius: '4px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontSize: '0.75rem',
-                  cursor: 'pointer',
-                  color: '#71717a',
-                }}
-              >
-                3
-              </button>
-              <button
-                style={{
-                  width: '26px',
-                  height: '26px',
-                  border: '1px solid var(--border-color)',
-                  backgroundColor: '#ffffff',
-                  borderRadius: '4px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontSize: '0.75rem',
-                  cursor: 'pointer',
-                  color: '#71717a',
-                }}
-              >
-                4
-              </button>
-              <button
-                style={{
-                  width: '26px',
-                  height: '26px',
-                  border: '1px solid var(--border-color)',
-                  backgroundColor: '#ffffff',
-                  borderRadius: '4px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  cursor: 'pointer',
-                  color: '#71717a',
-                }}
-              >
-                <ChevronRight size={13} />
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* ── Bottom Help Tip Footnote ── */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.725rem', color: 'var(--text-muted)' }}>
-        <Info size={13} />
-        <span>Can&apos;t find a document? Contact Latrics Ops or raise a request.</span>
-      </div>
+      )}
     </div>
   );
 }

@@ -112,12 +112,15 @@ export const ProjectTimeline: React.FC<ProjectTimelineProps> = ({ events }) => {
           {filteredEvents.map((event) => {
             const eventColor = getCategoryColor(event.category);
             const icon = getCategoryIcon(event.category);
-            const formattedTime = new Date(event.timestamp).toLocaleString('en-US', {
-              month: 'short',
-              day: 'numeric',
-              hour: '2-digit',
-              minute: '2-digit',
-            });
+            const timeVal = event.created_at || event.timestamp;
+            const formattedTime = timeVal
+              ? new Date(timeVal).toLocaleString('en-US', {
+                  month: 'short',
+                  day: 'numeric',
+                  hour: '2-digit',
+                  minute: '2-digit',
+                })
+              : '—';
 
             return (
               <div

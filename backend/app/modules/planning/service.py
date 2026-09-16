@@ -134,7 +134,7 @@ class PlanningService:
             )
 
         # Verify access permission via project
-        project = await project_service.get_project(db, current_user, plan.project_id)
+        project = await project_service.get_project_model(db, current_user, plan.project_id)
 
         # Clients cannot see DRAFT plans
         if current_user.role == RoleEnum.CLIENT and plan.status == PlanStatusEnum.DRAFT:
@@ -179,7 +179,7 @@ class PlanningService:
         current_user: User,
         project_id: uuid.UUID,
     ) -> Project:
-        project = await project_service.get_project(db, current_user, project_id)
+        project = await project_service.get_project_model(db, current_user, project_id)
 
         # Only the client owner or Admin can approve
         if current_user.role == RoleEnum.CLIENT and project.client_id != current_user.id:
@@ -242,7 +242,7 @@ class PlanningService:
         project_id: uuid.UUID,
         revision_in: PlanRevisionRequest,
     ) -> Project:
-        project = await project_service.get_project(db, current_user, project_id)
+        project = await project_service.get_project_model(db, current_user, project_id)
 
         if current_user.role == RoleEnum.CLIENT and project.client_id != current_user.id:
             raise HTTPException(

@@ -35,17 +35,22 @@ class MockUserRepo:
 
 
 class MockProjectRepo:
-    async def create(self, db, title, description, client_id):
+    async def create(self, db, title, description, organization_id=None, created_by=None, client_id=None):
         p_id = uuid.uuid4()
         p = Project(
             id=p_id,
             title=title,
             description=description,
-            client_id=client_id,
+            organization_id=organization_id or uuid.uuid4(),
+            created_by=created_by or client_id or uuid.uuid4(),
+            client_id=client_id or created_by or uuid.uuid4(),
             status=ProjectStatusEnum.DRAFT,
         )
         mock_projects[str(p_id)] = p
         return p
+
+    async def log_status_history(self, db, project_id, to_status, from_status=None, changed_by=None, notes=None):
+        return None
 
     async def get_by_id(self, db, project_id):
         return mock_projects.get(str(project_id))
@@ -94,6 +99,9 @@ class MockRequestRepo:
     async def list_by_project(self, db, project_id):
         return [r for r in mock_requests if r.project_id == project_id]
 
+    async def list_all(self, db, skip=0, limit=100):
+        return mock_requests[skip:skip + limit]
+
     async def get_by_version(self, db, project_id, version):
         for r in mock_requests:
             if r.project_id == project_id and r.version == version:
@@ -124,11 +132,11 @@ class MockTimelineService:
 def test_projects_and_requests_full_lifecycle():
     # Setup test users
     client_a_id = uuid.uuid4()
-    client_a = User(id=client_a_id, email="client_a@latrics.com", role=RoleEnum.CLIENT, is_active=True)
+    client_a = User(id=client_a_id, email="client_a@latrics.com", role=RoleEnum.CLIENT, is_active=True, organization_id=uuid.uuid4())
     mock_users[str(client_a_id)] = client_a
 
     client_b_id = uuid.uuid4()
-    client_b = User(id=client_b_id, email="client_b@latrics.com", role=RoleEnum.CLIENT, is_active=True)
+    client_b = User(id=client_b_id, email="client_b@latrics.com", role=RoleEnum.CLIENT, is_active=True, organization_id=uuid.uuid4())
     mock_users[str(client_b_id)] = client_b
 
     token_a = create_access_token({"sub": str(client_a_id), "email": client_a.email, "role": "client"})
@@ -238,3 +246,82 @@ def test_projects_and_requests_full_lifecycle():
             }
         )
         assert unauthorized_req.status_code == 403
+
+
+def test_unified_project_and_request_creation():
+    client_c_id = uuid.uuid4()
+    client_c = User(
+        id=client_c_id,
+        email="client_c@latrics.com",
+        full_name="Rajiv Mehta",
+        company_name="Mehta Infrastructure",
+        phone_number="+91 99887 66554",
+        role=RoleEnum.CLIENT,
+        organization_id=uuid.uuid4(),
+        is_active=True,
+    )
+    mock_users[str(client_c_id)] = client_c
+
+    ops_id = uuid.uuid4()
+    ops_user = User(
+        id=ops_id,
+        email="ops_lead@latrics.com",
+        role=RoleEnum.OPERATIONS,
+        is_active=True,
+    )
+    mock_users[str(ops_id)] = ops_user
+
+    token_c = create_access_token({"sub": str(client_c_id), "email": client_c.email, "role": "client"})
+    token_ops = create_access_token({"sub": str(ops_id), "email": ops_user.email, "role": "operations"})
+
+    with patch("app.security.auth.user_repository", MockUserRepo()), \
+         patch("app.modules.projects.service.project_repository", MockProjectRepo()), \
+         patch("app.modules.projects.service.request_repository", MockRequestRepo()), \
+         patch("app.modules.projects.service.user_repository", MockUserRepo()), \
+         patch("app.modules.projects.service.timeline_service.log_event", MockTimelineService().log_event), \
+         patch("app.modules.requests.service.project_repository", MockProjectRepo()), \
+         patch("app.modules.requests.service.request_repository", MockRequestRepo()), \
+         patch("app.modules.requests.service.user_repository", MockUserRepo()), \
+         patch("app.modules.requests.service.timeline_service.log_event", MockTimelineService().log_event):
+
+        # 1. Create Project with bundled Survey Request in a single call
+        create_res = client.post(
+            "/projects",
+            headers={"Authorization": f"Bearer {token_c}"},
+            json={
+                "title": "Khavda Solar Grid Mapping",
+                "description": "Comprehensive topographical & orthomosaic survey",
+                "survey_location": "Khavda, Kutch, Gujarat",
+                "survey_type": "topography",
+                "target_area_sqkm": 15.0,
+                "requirements_payload": {
+                    "deliverables": {"orthomosaic": True, "dem": True, "cadOutput": True},
+                    "primary_contact": {
+                        "name": "Rajiv Mehta",
+                        "email": "client_c@latrics.com",
+                        "phone": "+91 99887 66554",
+                        "company": "Mehta Infrastructure"
+                    },
+                    "tenure_days": 12,
+                    "sensor_payload": "LiDAR + High-Res RGB",
+                    "remarks": "Priority quadrant"
+                }
+            }
+        )
+        assert create_res.status_code == 201
+        p_data = create_res.json()
+        assert p_data["title"] == "Khavda Solar Grid Mapping"
+        assert p_data["status"] == "submitted"
+
+        # 2. Ops User views global requests list via /requests
+        all_reqs_res = client.get(
+            "/requests",
+            headers={"Authorization": f"Bearer {token_ops}"}
+        )
+        assert all_reqs_res.status_code == 200
+        reqs = all_reqs_res.json()
+        assert len(reqs) >= 1
+        latest_r = [r for r in reqs if r["project_id"] == p_data["id"]][0]
+        assert latest_r["survey_location"] == "Khavda, Kutch, Gujarat"
+        assert latest_r["requirements_payload"]["sensor_payload"] == "LiDAR + High-Res RGB"
+

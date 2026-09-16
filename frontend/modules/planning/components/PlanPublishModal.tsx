@@ -95,7 +95,7 @@ export function PlanPublishModal({
               Draft & Publish Operational Plan
             </h3>
             <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginTop: '0.25rem' }}>
-              Publish flight strategy and commercial quotation for {projectName} (Req #{String(versionNumber).padStart(3, '0')})
+              Publish flight strategy and commercial quotation for {projectName} (Req {versionNumber})
             </p>
           </div>
           <button

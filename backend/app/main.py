@@ -45,7 +45,7 @@ async def http_exception_handler(request: Request, exc: HTTPException):
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     """Unified handler for Pydantic schema validation failures."""
     return JSONResponse(
-        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
         content={
             "status": "error",
             "message": "Request validation failed",
@@ -70,8 +70,10 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
 
 # 3. Feature Routers
 from app.modules.users.router import auth_router, users_router
+from app.modules.invitations.router import invitations_router
+from app.modules.organizations.router import organizations_router
 from app.modules.projects.router import projects_router
-from app.modules.requests.router import requests_router
+from app.modules.requests.router import global_requests_router, requests_router
 from app.modules.planning.router import planning_router
 from app.modules.sectors.router import sectors_router
 from app.modules.allocations.router import allocations_router
@@ -80,7 +82,10 @@ from app.modules.timeline.router import timeline_router
 
 app.include_router(auth_router)
 app.include_router(users_router)
+app.include_router(invitations_router)
+app.include_router(organizations_router)
 app.include_router(projects_router)
+app.include_router(global_requests_router)
 app.include_router(requests_router)
 app.include_router(planning_router)
 app.include_router(sectors_router)

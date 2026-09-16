@@ -20,7 +20,7 @@ export const RequestHistoryAccordion: React.FC<RequestHistoryAccordionProps> = (
         </p>
         {onNewRevisionClick && (
           <button onClick={onNewRevisionClick} className="btn btn-primary">
-            + Submit Requirements (#001)
+            + Submit Requirements (1)
           </button>
         )}
       </div>
@@ -46,7 +46,7 @@ export const RequestHistoryAccordion: React.FC<RequestHistoryAccordionProps> = (
 
       {requests.map((req, idx) => {
         const isExpanded = expandedIndex === idx;
-        const versionFormatted = `#${String(req.version).padStart(3, '0')}`;
+        const versionFormatted = `${req.version}`;
         const submittedDate = new Date(req.created_at).toLocaleString();
 
         return (

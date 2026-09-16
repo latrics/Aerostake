@@ -189,5 +189,37 @@ class AllocationService:
         # Admin or Ops can view all or filter by query
         return await allocation_repository.list_by_pilot(db, current_user.id)
 
+    async def list_project_allocations(
+        self,
+        db: AsyncSession,
+        project_id: uuid.UUID,
+        current_user: User,
+    ) -> List[AllocationOut]:
+        project = await project_repository.get_by_id(db, project_id)
+        if not project:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+
+        allocs = await allocation_repository.list_by_project(db, project_id)
+        out_list: List[AllocationOut] = []
+        for a in allocs:
+            pilot = await user_repository.get_by_id(db, a.pilot_id)
+            sector = await sector_repository.get_by_id(db, a.sector_id)
+            out_list.append(AllocationOut(
+                id=a.id,
+                sector_id=a.sector_id,
+                project_id=a.project_id,
+                pilot_id=a.pilot_id,
+                drone_model=a.drone_model,
+                drone_serial_number=a.drone_serial_number,
+                status=a.status,
+                assigned_by=a.assigned_by,
+                allocated_at=a.allocated_at,
+                completed_at=a.completed_at,
+                pilot_name=pilot.full_name if pilot else None,
+                pilot_email=pilot.email if pilot else None,
+                sector_code=sector.sector_code if sector else None,
+            ))
+        return out_list
+
 
 allocation_service = AllocationService()

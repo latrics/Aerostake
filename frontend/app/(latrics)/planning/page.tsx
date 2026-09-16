@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import Link from 'next/link';
 import { projectApi } from '@/modules/projects/api';
 import { Project, ProjectStatus } from '@/modules/projects/types';
 import { planningApi } from '@/modules/planning/api';
@@ -113,15 +114,36 @@ export default function PlanningPage() {
           </p>
         </div>
 
-        {latestRequest && (
-          <button
-            onClick={() => setPublishModalOpen(true)}
-            className="btn btn-primary"
-            style={{ fontSize: '0.875rem' }}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+          <Link
+            href="/planning/feasibility"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '0.45rem',
+              fontSize: '0.825rem',
+              fontWeight: 700,
+              backgroundColor: '#ffffff',
+              border: '1.5px solid #09090b',
+              color: '#09090b',
+              padding: '0.5rem 0.85rem',
+              borderRadius: '6px',
+              textDecoration: 'none',
+            }}
           >
-            ➕ Draft New Plan (Req #{String(latestRequest.version).padStart(3, '0')})
-          </button>
-        )}
+            <span>Project Planning & Feasibility</span>
+          </Link>
+
+          {latestRequest && (
+            <button
+              onClick={() => setPublishModalOpen(true)}
+              className="btn btn-primary"
+              style={{ fontSize: '0.875rem' }}
+            >
+              ➕ Draft New Plan (Req {latestRequest.version})
+            </button>
+          )}
+        </div>
       </div>
 
       {feedbackMsg && (
@@ -351,7 +373,7 @@ export default function PlanningPage() {
                       onClick={() => setPublishModalOpen(true)}
                       className="btn btn-primary"
                     >
-                      🚀 Draft & Publish Plan against Request #{String(latestRequest.version).padStart(3, '0')}
+                      🚀 Draft & Publish Plan against Request {latestRequest.version}
                     </button>
                   ) : (
                     <p style={{ fontSize: '0.85rem', color: 'var(--accent-warning)' }}>

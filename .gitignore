@@ -75,6 +75,7 @@ pnpm-debug.log*
 .next/
 out/
 .turbo/
+*.tsbuildinfo
 
 # Database / Local storage
 *.sqlite3

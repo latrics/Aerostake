@@ -10,9 +10,11 @@ export interface PaymentRecord {
   project_id: string;
   milestone_name: string;
   amount_usd: number;
-  status: PaymentStatusEnum;
+  amount_inr?: number;
+  status: PaymentStatusEnum | string;
   payment_method?: string | null;
   reference_code?: string | null;
+  bank_reference?: string | null;
   notes?: string | null;
   verified_by?: string | null;
   verified_at?: string | null;
@@ -22,6 +24,7 @@ export interface PaymentRecord {
 export interface PaymentRecordCreate {
   milestone_name: string;
   amount_usd: number;
+  amount_inr?: number;
   payment_method?: string;
   reference_code?: string;
   notes?: string;

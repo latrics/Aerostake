@@ -92,7 +92,7 @@ a {
 }
 
 /* ── Skeletal Wireframe Card & Panels ── */
-.wf-card {
+.wf-card, .glass-panel {
   background: #ffffff;
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
@@ -101,7 +101,7 @@ a {
   transition: var(--transition-smooth);
 }
 
-.wf-card:hover {
+.wf-card:hover, .glass-panel:hover {
   border-color: #a1a1aa;
 }
 

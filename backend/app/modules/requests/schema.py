@@ -26,3 +26,8 @@ class RequestVersionOut(BaseModel):
     requirements_payload: Optional[Dict[str, Any]] = None
     created_by: Optional[uuid.UUID] = None
     created_at: Optional[datetime] = None
+    project_title: Optional[str] = None
+    project_status: Optional[str] = None
+    client_email: Optional[str] = None
+    client_name: Optional[str] = None
+    client_company: Optional[str] = None

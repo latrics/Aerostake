@@ -33,7 +33,9 @@ export default function SignupPage() {
       
       // Perform redirect based on role
       const userRole = data.user.role;
-      if (userRole === 'client') {
+      if (userRole === 'client' || userRole === 'client_primary') {
+        window.location.href = '/company-profile?first_time=true';
+      } else if (userRole === 'client_sub') {
         window.location.href = '/dashboard';
       } else if (userRole === 'admin') {
         window.location.href = '/requests';

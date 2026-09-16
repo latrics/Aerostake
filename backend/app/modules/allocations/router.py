@@ -74,3 +74,22 @@ async def update_allocation_status(
         allocation_id=allocation_id,
         status_in=status_in,
     )
+
+
+@allocations_router.get(
+    "/projects/{project_id}/allocations",
+    response_model=List[AllocationOut],
+    status_code=status.HTTP_200_OK,
+    summary="List all sector flight allocations for a project",
+)
+async def get_project_allocations(
+    project_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Retrieve all flight allocations for the specified project."""
+    return await allocation_service.list_project_allocations(
+        db=db,
+        project_id=project_id,
+        current_user=current_user,
+    )

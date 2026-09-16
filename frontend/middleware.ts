@@ -53,61 +53,55 @@ export function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
+  const isClient = role === 'client' || role === 'client_primary' || role === 'client_sub';
+  const isAdmin = role === 'admin';
+  const isOps = role === 'operations';
+  const isPilot = role === 'pilot';
+  const isStaff = isAdmin || isOps;
+  const isOnboarded = request.cookies.get('is_onboarded')?.value === 'true';
+
   // 2. User IS logged in
   if (isAuthRoute || pathname === '/') {
-    // Redirect to their default dashboard if they hit auth pages or root
-    if (role === 'client') {
+    // Redirect to default dashboard if hitting auth pages or root
+    if (isClient) {
+      if (!isOnboarded && (role === 'client' || role === 'client_primary')) {
+        return NextResponse.redirect(new URL('/company-profile?first_time=true', request.url));
+      }
       return NextResponse.redirect(new URL('/dashboard', request.url));
-    } else if (role === 'admin') {
-      return NextResponse.redirect(new URL('/requests', request.url));
-    } else if (role === 'operations') {
-      return NextResponse.redirect(new URL('/allocations', request.url));
-    } else if (role === 'pilot') {
+    } else if (isStaff) {
+      return NextResponse.redirect(new URL('/dashboard', request.url));
+    } else if (isPilot) {
       return NextResponse.redirect(new URL('/my-assignments', request.url));
     }
   }
 
-  // 3. Client Role Guard
-  if (role === 'client') {
+  // 3. Client Role Guard & First-Time Onboarding Enforcement
+  if (isClient) {
     if (isLatricsRoute) {
       // Clients cannot access back-office routes
       return NextResponse.redirect(new URL('/dashboard', request.url));
     }
+
+    // First-time onboarding enforcement for primary clients
+    if (!isOnboarded && (role === 'client' || role === 'client_primary') && pathname !== '/company-profile') {
+      return NextResponse.redirect(new URL('/company-profile?first_time=true', request.url));
+    }
   }
 
-  // 4. Back-office Roles Guard
-  if (role === 'admin' || role === 'operations' || role === 'pilot') {
-    if (isClientRoute) {
-      // Latrics employees cannot access client portal routes
-      const defaultPath =
-        role === 'admin'
-          ? '/requests'
-          : role === 'operations'
-          ? '/allocations'
-          : '/my-assignments';
-      return NextResponse.redirect(new URL(defaultPath, request.url));
+  // 4. Pilot Role Guard
+  if (isPilot) {
+    const pilotAllowedRoutes = ['/my-assignments', '/sector-updates', '/help-desk'];
+    const isAllowed = pilotAllowedRoutes.some((route) => pathname === route || pathname.startsWith(route + '/'));
+    if (!isAllowed) {
+      return NextResponse.redirect(new URL('/my-assignments', request.url));
     }
+  }
 
-    // Role-specific sub-route guarding within Latrics Portal
-    if (role === 'operations') {
-      const adminOnlyRoutes = ['/requests', '/planning', '/user-management', '/portal-settings'];
-      if (adminOnlyRoutes.some((route) => pathname === route || pathname.startsWith(route + '/'))) {
-        return NextResponse.redirect(new URL('/allocations', request.url));
-      }
-    }
-
-    if (role === 'pilot') {
-      const nonPilotRoutes = [
-        '/requests',
-        '/planning',
-        '/allocations',
-        '/sectors',
-        '/user-management',
-        '/portal-settings',
-      ];
-      if (nonPilotRoutes.some((route) => pathname === route || pathname.startsWith(route + '/'))) {
-        return NextResponse.redirect(new URL('/my-assignments', request.url));
-      }
+  // 5. Operations Role Guard (Admin-only routes)
+  if (isOps) {
+    const adminOnlyRoutes = ['/user-management'];
+    if (adminOnlyRoutes.some((route) => pathname === route || pathname.startsWith(route + '/'))) {
+      return NextResponse.redirect(new URL('/dashboard', request.url));
     }
   }
 

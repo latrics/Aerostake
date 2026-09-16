@@ -8,9 +8,11 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 from alembic import context
 from app.config import get_settings
 from app.database import Base
+from app.modules.organizations.model import Organization  # Registers Organization model
+from app.modules.invitations.model import Invitation  # Registers Invitation model
 from app.modules.users.model import User  # Registers User model in Base.metadata
 from app.modules.timeline.model import TimelineEvent  # Registers TimelineEvent in Base.metadata
-from app.modules.projects.model import Project  # Registers Project model in Base.metadata
+from app.modules.projects.model import Project, ProjectStatusHistory  # Registers Project models
 from app.modules.requests.model import RequestVersion  # Registers RequestVersion in Base.metadata
 from app.modules.planning.model import OperationalPlan  # Registers OperationalPlan in Base.metadata
 from app.modules.sectors.model import Sector  # Registers Sector model in Base.metadata

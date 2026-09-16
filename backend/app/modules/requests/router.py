@@ -10,6 +10,28 @@ from app.modules.users.model import User
 from app.security.auth import get_current_user
 
 requests_router = APIRouter(prefix="/projects/{project_id}/requests", tags=["Requests"])
+global_requests_router = APIRouter(prefix="/requests", tags=["Requests"])
+
+
+@global_requests_router.get(
+    "",
+    response_model=List[RequestVersionOut],
+    status_code=status.HTTP_200_OK,
+    summary="List all survey requests across projects (with client and project metadata)",
+)
+async def list_all_requests(
+    skip: int = 0,
+    limit: int = 100,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Retrieve all survey requests with enriched project and client information."""
+    return await request_service.list_all_requests(
+        db=db,
+        current_user=current_user,
+        skip=skip,
+        limit=limit,
+    )
 
 
 @requests_router.post(

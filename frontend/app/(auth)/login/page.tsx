@@ -24,9 +24,16 @@ export default function LoginPage() {
     try {
       const data = await login({ email, password });
       
-      // Perform redirect based on role
+      // Perform redirect based on role and onboarding status
       const role = data.user.role;
-      if (role === 'client') {
+      if (role === 'client' || role === 'client_primary') {
+        const isOnboarded = Boolean(data.user.company_profile?.is_onboarded);
+        if (!isOnboarded) {
+          window.location.href = '/company-profile?first_time=true';
+        } else {
+          window.location.href = '/dashboard';
+        }
+      } else if (role === 'client_sub') {
         window.location.href = '/dashboard';
       } else if (role === 'admin') {
         window.location.href = '/requests';

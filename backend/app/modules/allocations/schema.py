@@ -28,3 +28,6 @@ class AllocationOut(BaseModel):
     assigned_by: Optional[uuid.UUID] = None
     allocated_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
+    pilot_name: Optional[str] = None
+    pilot_email: Optional[str] = None
+    sector_code: Optional[str] = None

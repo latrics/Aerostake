@@ -70,5 +70,20 @@ class RequestRepository:
         result = await db.execute(stmt)
         return result.scalar_one_or_none()
 
+    async def list_all(
+        self,
+        db: AsyncSession,
+        skip: int = 0,
+        limit: int = 100,
+    ) -> List[RequestVersion]:
+        stmt = (
+            select(RequestVersion)
+            .order_by(RequestVersion.created_at.desc())
+            .offset(skip)
+            .limit(limit)
+        )
+        result = await db.execute(stmt)
+        return list(result.scalars().all())
+
 
 request_repository = RequestRepository()

@@ -17,4 +17,9 @@ export interface RequestVersion {
   requirements_payload?: Record<string, any> | null;
   created_by?: string | null;
   created_at: string;
+  project_title?: string | null;
+  project_status?: string | null;
+  client_email?: string | null;
+  client_name?: string | null;
+  client_company?: string | null;
 }

@@ -2,6 +2,10 @@ import { apiClient } from '@/lib/api-client';
 import { RequestVersion, RequestVersionCreate } from './types';
 
 export const requestApi = {
+  async listAllRequests(): Promise<RequestVersion[]> {
+    return await apiClient.get<RequestVersion[]>('/requests');
+  },
+
   async submitRequest(projectId: string, data: RequestVersionCreate): Promise<RequestVersion> {
     return await apiClient.post<RequestVersion>(`/projects/${projectId}/requests`, data);
   },

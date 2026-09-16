@@ -1,8 +1,8 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, Suspense } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import {
   ChevronLeft,
   Search,
@@ -15,19 +15,73 @@ import {
   Info,
   Check,
   FileText,
+  Paperclip,
+  X,
+  Loader2,
 } from 'lucide-react';
 
-export default function NewProjectRequestPage() {
+import { useAuth } from '@/lib/auth';
+import { projectApi } from '@/modules/projects/api';
+import { ProjectStatus } from '@/modules/projects/types';
+
+const INDIAN_STATES = [
+  'Andhra Pradesh',
+  'Arunachal Pradesh',
+  'Assam',
+  'Bihar',
+  'Chhattisgarh',
+  'Goa',
+  'Gujarat',
+  'Haryana',
+  'Himachal Pradesh',
+  'Jharkhand',
+  'Karnataka',
+  'Kerala',
+  'Madhya Pradesh',
+  'Maharashtra',
+  'Manipur',
+  'Meghalaya',
+  'Mizoram',
+  'Nagaland',
+  'Odisha',
+  'Punjab',
+  'Rajasthan',
+  'Sikkim',
+  'Tamil Nadu',
+  'Telangana',
+  'Tripura',
+  'Uttar Pradesh',
+  'Uttarakhand',
+  'West Bengal',
+  'Delhi',
+  'Chandigarh',
+  'Jammu and Kashmir',
+  'Ladakh',
+  'Puducherry',
+];
+
+function NewProjectRequestPageContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const rawDraftId = searchParams?.get('draftId') || '';
+  const rawProjectId = searchParams?.get('projectId') || searchParams?.get('edit') || rawDraftId;
+  const [currentDraftId, setCurrentDraftId] = useState<string>(rawDraftId || rawProjectId);
+  const [isDraftMode, setIsDraftMode] = useState<boolean>(Boolean(rawDraftId));
+  const isRevision = Boolean(rawProjectId) && !isDraftMode;
+  const { user } = useAuth();
 
   // Form State
   const [projectName, setProjectName] = useState('');
+  const [locationAddress, setLocationAddress] = useState('');
+  const [city, setCity] = useState('');
+  const [state, setState] = useState('');
   const [primaryContact, setPrimaryContact] = useState({
-    name: 'Amit Raj',
-    email: 'amit.raj@acmeinfra.com',
-    phone: '+91 98765 43210',
-    company: 'Acme Infra Pvt. Ltd.',
+    name: user?.full_name || '',
+    email: user?.email || '',
+    phone: user?.phone_number || '',
+    company: user?.company_name || '',
   });
+
   const [alternateContact, setAlternateContact] = useState({
     email: '',
     phoneCode: '+91',
@@ -49,8 +103,53 @@ export default function NewProjectRequestPage() {
   });
   const [otherDeliverableText, setOtherDeliverableText] = useState('');
 
-  const [kmlFileName, setKmlFileName] = useState<string | null>(null);
-  const [scopeFileName, setScopeFileName] = useState<string | null>(null);
+  // 4. KML / Boundary Files State (Multiple Files Support)
+  const [kmlFiles, setKmlFiles] = useState<Array<{ name: string; size: string }>>([]);
+  const [isDraggingKml, setIsDraggingKml] = useState(false);
+
+  // 7. Scope Document Files State (Multiple Files Support)
+  const [scopeFiles, setScopeFiles] = useState<Array<{ name: string; size: string }>>([]);
+  const [isDraggingScope, setIsDraggingScope] = useState(false);
+
+  const formatFileSize = (bytes: number) => {
+    if (!bytes || bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  };
+
+  const handleAddKmlFiles = (fileList: FileList | File[]) => {
+    const incoming = Array.from(fileList).map((f) => ({
+      name: f.name,
+      size: formatFileSize(f.size),
+    }));
+    setKmlFiles((prev) => {
+      const existingNames = new Set(prev.map((f) => f.name));
+      const filtered = incoming.filter((f) => !existingNames.has(f.name));
+      return [...prev, ...filtered];
+    });
+  };
+
+  const handleRemoveKmlFile = (index: number) => {
+    setKmlFiles((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const handleAddScopeFiles = (fileList: FileList | File[]) => {
+    const incoming = Array.from(fileList).map((f) => ({
+      name: f.name,
+      size: formatFileSize(f.size),
+    }));
+    setScopeFiles((prev) => {
+      const existingNames = new Set(prev.map((f) => f.name));
+      const filtered = incoming.filter((f) => !existingNames.has(f.name));
+      return [...prev, ...filtered];
+    });
+  };
+
+  const handleRemoveScopeFile = (index: number) => {
+    setScopeFiles((prev) => prev.filter((_, i) => i !== index));
+  };
 
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
@@ -67,7 +166,212 @@ export default function NewProjectRequestPage() {
   ]);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isSavingDraft, setIsSavingDraft] = useState(false);
+  const [draftToast, setDraftToast] = useState(false);
+  const [draftSavedMessage, setDraftSavedMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  // Complete draft & revision hydration logic
+  useEffect(() => {
+    let isMounted = true;
+
+    const hydrateFromPayload = (projTitle: string, reqPayload: Record<string, any>, draftProjId?: string) => {
+      if (draftProjId) {
+        setIsDraftMode(true);
+        setCurrentDraftId(draftProjId);
+      }
+      if (projTitle) setProjectName(projTitle);
+
+      if (reqPayload.address) setLocationAddress(reqPayload.address);
+      else if (reqPayload.location_address) setLocationAddress(reqPayload.location_address);
+      else if (reqPayload.survey_location) setLocationAddress(reqPayload.survey_location);
+
+      if (reqPayload.city) setCity(reqPayload.city);
+      if (reqPayload.state) setState(reqPayload.state);
+
+      if (reqPayload.primary_contact) {
+        setPrimaryContact({
+          name: reqPayload.primary_contact.name || '',
+          email: reqPayload.primary_contact.email || '',
+          phone: reqPayload.primary_contact.phone || '',
+          company: reqPayload.primary_contact.company || '',
+        });
+      }
+      if (reqPayload.alternate_contact) {
+        setAlternateContact({
+          email: reqPayload.alternate_contact.email || '',
+          phoneCode: reqPayload.alternate_contact.phoneCode || '+91',
+          phone: reqPayload.alternate_contact.phone || '',
+        });
+      }
+      if (Array.isArray(reqPayload.assigned_contacts) && reqPayload.assigned_contacts.length > 0) {
+        setAssignedContacts(reqPayload.assigned_contacts);
+      }
+      if (reqPayload.payload_sensor) {
+        setSelectedPayload(reqPayload.payload_sensor);
+      } else if (reqPayload.survey_type) {
+        setSelectedPayload(reqPayload.survey_type);
+      }
+      if (reqPayload.start_date) setStartDate(reqPayload.start_date);
+      if (reqPayload.end_date) setEndDate(reqPayload.end_date);
+      if (reqPayload.tenure_days) setTenureDays(reqPayload.tenure_days);
+      if (reqPayload.remarks) setRemarks(reqPayload.remarks);
+
+      if (Array.isArray(reqPayload.deliverables)) {
+        const map: Record<string, boolean> = {
+          orthomosaic: false,
+          dem: false,
+          dsm: false,
+          pointCloud: false,
+          topoMap: false,
+          contourMap: false,
+          mesh3D: false,
+          cadOutput: false,
+          assetInventory: false,
+          inspectionReport: false,
+          other: false,
+        };
+        reqPayload.deliverables.forEach((item: string) => {
+          if (typeof item === 'string') {
+            if (item in map) map[item] = true;
+            else if (item.startsWith('Other:')) {
+              map.other = true;
+              setOtherDeliverableText(item.replace(/^Other:\s*/, ''));
+            }
+          }
+        });
+        setDeliverables((prev) => ({ ...prev, ...map }));
+      }
+
+      // Hydrate all uploaded boundary & scope files
+      const loadedKml: Array<{ name: string; size: string }> = [];
+      const loadedScope: Array<{ name: string; size: string }> = [];
+      const seenKml = new Set<string>();
+      const seenScope = new Set<string>();
+
+      if (Array.isArray(reqPayload.kml_files)) {
+        reqPayload.kml_files.forEach((f: any) => {
+          const name = typeof f === 'string' ? f : f?.name;
+          if (name && !seenKml.has(name)) {
+            seenKml.add(name);
+            loadedKml.push({ name, size: typeof f === 'object' && f?.size ? f.size : 'Existing File' });
+          }
+        });
+      }
+
+      if (Array.isArray(reqPayload.scope_files)) {
+        reqPayload.scope_files.forEach((f: any) => {
+          const name = typeof f === 'string' ? f : f?.name;
+          if (name && !seenScope.has(name)) {
+            seenScope.add(name);
+            loadedScope.push({ name, size: typeof f === 'object' && f?.size ? f.size : 'Existing Document' });
+          }
+        });
+      }
+
+      if (Array.isArray(reqPayload.attachments)) {
+        reqPayload.attachments.forEach((att: any) => {
+          const name = typeof att === 'string' ? att : att?.name;
+          if (!name) return;
+          const cat = (att?.category || '').toLowerCase();
+          const type = (att?.type || '').toLowerCase();
+          const isKml = cat.includes('boundary') || cat.includes('kml') || type.includes('kml') || type.includes('kmz') || name.endsWith('.kml') || name.endsWith('.kmz');
+          const isScope = cat.includes('scope') || type.includes('scope') || cat.includes('document') || name.endsWith('.pdf') || name.endsWith('.docx') || name.endsWith('.xlsx');
+
+          if (isKml && !seenKml.has(name)) {
+            seenKml.add(name);
+            loadedKml.push({ name, size: att?.size || 'Attached File' });
+          } else if (isScope && !seenScope.has(name)) {
+            seenScope.add(name);
+            loadedScope.push({ name, size: att?.size || 'Attached Document' });
+          }
+        });
+      }
+
+      if (reqPayload.kml_filename && typeof reqPayload.kml_filename === 'string') {
+        const names = reqPayload.kml_filename.split(',').map((s: string) => s.trim()).filter(Boolean);
+        names.forEach((n: string) => {
+          if (!seenKml.has(n)) {
+            seenKml.add(n);
+            loadedKml.push({ name: n, size: 'Attached File' });
+          }
+        });
+      }
+
+      if (reqPayload.scope_filename && typeof reqPayload.scope_filename === 'string') {
+        const names = reqPayload.scope_filename.split(',').map((s: string) => s.trim()).filter(Boolean);
+        names.forEach((n: string) => {
+          if (!seenScope.has(n)) {
+            seenScope.add(n);
+            loadedScope.push({ name: n, size: 'Attached Document' });
+          }
+        });
+      }
+
+      if (loadedKml.length > 0) setKmlFiles(loadedKml);
+      if (loadedScope.length > 0) setScopeFiles(loadedScope);
+    };
+
+    (async () => {
+      let targetId = currentDraftId || rawProjectId;
+
+      // 1. If targetId not in URL, check localStorage for saved draft
+      if (!targetId && typeof window !== 'undefined') {
+        try {
+          const cachedStr = localStorage.getItem('latrics_ops_request_draft');
+          if (cachedStr) {
+            const cachedData = JSON.parse(cachedStr);
+            if (cachedData) {
+              if (cachedData.draftId) {
+                targetId = cachedData.draftId;
+              }
+              // Immediately hydrate from localStorage
+              hydrateFromPayload(cachedData.projectName || '', cachedData, cachedData.draftId);
+            }
+          }
+        } catch (e) {
+          console.error('Error reading localStorage ops draft', e);
+        }
+      }
+
+      // 2. If still no targetId, query database for user's latest saved draft project
+      if (!targetId) {
+        try {
+          const allProjects = await projectApi.listProjects().catch(() => []);
+          const draftProject = allProjects.find((p: any) => p.status === 'draft');
+          if (draftProject) {
+            targetId = draftProject.id;
+          }
+        } catch (e) {
+          console.error('Error searching database for draft project', e);
+        }
+      }
+
+      // 3. If targetId resolved, load fresh project from database
+      if (targetId) {
+        try {
+          const proj = await projectApi.getProject(targetId);
+          if (!isMounted || !proj) return;
+          const reqPayload = (proj.requirements_payload || {}) as Record<string, any>;
+          hydrateFromPayload(proj.title || '', reqPayload, proj.status === 'draft' ? proj.id : undefined);
+          if (proj.status === 'draft') {
+            setIsDraftMode(true);
+            setCurrentDraftId(proj.id);
+            if (typeof window !== 'undefined' && !rawProjectId && !rawDraftId) {
+              window.history.replaceState(null, '', `?draftId=${proj.id}`);
+            }
+          }
+        } catch (err) {
+          console.error('Failed to load project from database:', err);
+        }
+      }
+    })();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [rawProjectId, rawDraftId, currentDraftId]);
 
   // Date difference calculation for tenure
   const handleStartDateChange = (val: string) => {
@@ -120,16 +424,287 @@ export default function NewProjectRequestPage() {
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleDiscardDraft = () => {
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('latrics_ops_request_draft');
+    }
+    setCurrentDraftId('');
+    setIsDraftMode(false);
+    setProjectName('');
+    setLocationAddress('');
+    setCity('');
+    setState('');
+    setStartDate('');
+    setEndDate('');
+    setTenureDays(0);
+    setSelectedPayload('');
+    setRemarks('');
+    setKmlFiles([]);
+    setScopeFiles([]);
+    setOtherDeliverableText('');
+    setDeliverables({
+      orthomosaic: false,
+      dem: false,
+      dsm: false,
+      pointCloud: false,
+      topoMap: false,
+      contourMap: false,
+      mesh3D: false,
+      cadOutput: false,
+      assetInventory: false,
+      inspectionReport: false,
+      other: false,
+    });
+    setPrimaryContact({
+      name: user?.full_name || '',
+      email: user?.email || '',
+      phone: user?.phone_number || '',
+      company: user?.company_name || '',
+    });
+    setAlternateContact({
+      email: '',
+      phoneCode: '+91',
+      phone: '',
+    });
+    setAssignedContacts([
+      { id: 1, name: '', role: '', email: '', phoneCode: '+91', phone: '' },
+      { id: 2, name: '', role: '', email: '', phoneCode: '+91', phone: '' },
+      { id: 3, name: '', role: '', email: '', phoneCode: '+91', phone: '' },
+      { id: 4, name: '', role: '', email: '', phoneCode: '+91', phone: '' },
+    ]);
+    if (typeof window !== 'undefined') {
+      window.history.replaceState(null, '', window.location.pathname);
+    }
+    setDraftSavedMessage(null);
+  };
+
+  const handleSaveDraft = async () => {
+    try {
+      setIsSavingDraft(true);
+      setErrorMessage(null);
+
+      const trimmedAddress = locationAddress.trim();
+      const trimmedCity = city.trim();
+      const trimmedState = state.trim();
+      const finalLocation = trimmedAddress || (trimmedCity && trimmedState ? `${trimmedCity}, ${trimmedState}` : 'Survey Location');
+      const draftTitle = projectName.trim() || `Draft Request - ${new Date().toLocaleDateString('en-GB')}`;
+
+      const deliverablesList = Object.keys(deliverables).filter((k) => deliverables[k]);
+      if (deliverables.other && otherDeliverableText.trim()) {
+        deliverablesList.push(`Other: ${otherDeliverableText.trim()}`);
+      }
+
+      const payloadPayload = {
+        address: trimmedAddress,
+        location_address: trimmedAddress,
+        city: trimmedCity,
+        state: trimmedState,
+        survey_location: trimmedAddress,
+        deliverables: deliverablesList,
+        other_deliverable: otherDeliverableText,
+        primary_contact: primaryContact,
+        alternate_contact: alternateContact,
+        start_date: startDate,
+        end_date: endDate,
+        tenure_days: tenureDays,
+        payload_sensor: selectedPayload,
+        assigned_contacts: assignedContacts.filter((c) => c.name.trim() !== ''),
+        kml_filename: kmlFiles.map((f) => f.name).join(', ') || null,
+        scope_filename: scopeFiles.map((f) => f.name).join(', ') || null,
+        kml_files: kmlFiles,
+        scope_files: scopeFiles,
+        attachments: [
+          ...kmlFiles.map((f) => ({
+            name: f.name,
+            size: f.size || '—',
+            type: f.name.endsWith('.kmz') ? 'KMZ' : 'KML',
+            category: 'Boundary',
+            date: new Date().toISOString().split('T')[0],
+          })),
+          ...scopeFiles.map((f) => ({
+            name: f.name,
+            size: f.size || '—',
+            type: f.name.endsWith('.pdf') ? 'PDF' : 'Document',
+            category: 'Scope Document',
+            date: new Date().toISOString().split('T')[0],
+          })),
+        ],
+        remarks: remarks,
+        is_draft: true,
+      };
+
+      let targetId = currentDraftId || rawProjectId;
+      if (targetId) {
+        await projectApi.updateProject(targetId, {
+          title: draftTitle,
+          description: remarks || `Draft request: ${draftTitle}`,
+          status: ProjectStatus.DRAFT,
+          requirements_payload: payloadPayload,
+          survey_location: finalLocation,
+          survey_type: selectedPayload || 'topography',
+        });
+      } else {
+        const created = await projectApi.createProject({
+          title: draftTitle,
+          description: remarks || `Draft request: ${draftTitle}`,
+          survey_location: finalLocation,
+          survey_type: selectedPayload || 'topography',
+          target_area_sqkm: 50.0,
+          status: ProjectStatus.DRAFT,
+          is_draft: true,
+          requirements_payload: payloadPayload,
+        });
+        if (created?.id) {
+          targetId = created.id;
+          setCurrentDraftId(created.id);
+          setIsDraftMode(true);
+          if (typeof window !== 'undefined') {
+            window.history.replaceState(null, '', `?draftId=${created.id}`);
+          }
+        }
+      }
+
+      // Persist to local storage for instant return hydration
+      if (typeof window !== 'undefined') {
+        localStorage.setItem(
+          'latrics_ops_request_draft',
+          JSON.stringify({
+            ...payloadPayload,
+            projectName: draftTitle,
+            draftId: targetId,
+            savedAt: new Date().toISOString(),
+          })
+        );
+      }
+
+      setDraftSavedMessage('Draft saved successfully to workspace!');
+      setDraftToast(true);
+      setTimeout(() => {
+        setDraftToast(false);
+        setDraftSavedMessage(null);
+      }, 4000);
+    } catch (err: any) {
+      console.error('Failed to save draft:', err);
+      setErrorMessage(err.message || 'Failed to save draft.');
+    } finally {
+      setIsSavingDraft(false);
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setIsSubmitting(true);
-    setTimeout(() => {
-      setIsSubmitting(false);
+    setErrorMessage(null);
+
+    if (!projectName.trim()) {
+      setErrorMessage('Project Name is required.');
+      return;
+    }
+
+    if (!locationAddress.trim()) {
+      setErrorMessage('Project Location / Site Address is required.');
+      return;
+    }
+
+    if (!city.trim()) {
+      setErrorMessage('City is required.');
+      return;
+    }
+
+    if (!state.trim()) {
+      setErrorMessage('State is required.');
+      return;
+    }
+
+    const hasDeliverable = Object.values(deliverables).some(Boolean);
+    if (!hasDeliverable) {
+      setErrorMessage('Please select at least one deliverable.');
+      return;
+    }
+
+    try {
+      setIsSubmitting(true);
+      const trimmedAddress = locationAddress.trim();
+      const trimmedCity = city.trim();
+      const trimmedState = state.trim();
+      const finalLocation = trimmedAddress || (trimmedCity && trimmedState ? `${trimmedCity}, ${trimmedState}` : 'Survey Location');
+
+      const deliverablesList = Object.keys(deliverables).filter((k) => deliverables[k]);
+      if (deliverables.other && otherDeliverableText.trim()) {
+        deliverablesList.push(`Other: ${otherDeliverableText.trim()}`);
+      }
+
+      const payloadPayload = {
+        address: trimmedAddress,
+        location_address: trimmedAddress,
+        city: trimmedCity,
+        state: trimmedState,
+        survey_location: trimmedAddress,
+        deliverables: deliverablesList,
+        other_deliverable: otherDeliverableText,
+        primary_contact: primaryContact,
+        alternate_contact: alternateContact,
+        start_date: startDate,
+        end_date: endDate,
+        tenure_days: tenureDays,
+        payload_sensor: selectedPayload,
+        assigned_contacts: assignedContacts.filter((c) => c.name.trim() !== ''),
+        kml_filename: kmlFiles.map((f) => f.name).join(', ') || null,
+        scope_filename: scopeFiles.map((f) => f.name).join(', ') || null,
+        kml_files: kmlFiles,
+        scope_files: scopeFiles,
+        attachments: [
+          ...kmlFiles.map((f) => ({
+            name: f.name,
+            size: f.size || '—',
+            type: f.name.endsWith('.kmz') ? 'KMZ' : 'KML',
+            category: 'Boundary',
+            date: new Date().toISOString().split('T')[0],
+          })),
+          ...scopeFiles.map((f) => ({
+            name: f.name,
+            size: f.size || '—',
+            type: f.name.endsWith('.pdf') ? 'PDF' : 'Document',
+            category: 'Scope Document',
+            date: new Date().toISOString().split('T')[0],
+          })),
+        ],
+        remarks: remarks,
+      };
+
+      let targetId = currentDraftId || rawProjectId;
+      if (isDraftMode && targetId) {
+        await projectApi.updateProject(targetId, {
+          title: projectName.trim(),
+          description: remarks || `Survey request for ${projectName.trim()}`,
+          status: ProjectStatus.SUBMITTED,
+          survey_location: finalLocation,
+          survey_type: selectedPayload || 'topography',
+          requirements_payload: payloadPayload,
+        });
+      } else {
+        await projectApi.createProject({
+          title: projectName.trim(),
+          description: remarks || `Survey request for ${projectName.trim()}`,
+          survey_location: finalLocation,
+          survey_type: selectedPayload || 'topography',
+          target_area_sqkm: 50.0,
+          requirements_payload: payloadPayload,
+        });
+      }
+
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('latrics_ops_request_draft');
+      }
+
       setSuccessMessage(true);
       setTimeout(() => {
         router.push('/requests');
       }, 1500);
-    }, 800);
+    } catch (err: any) {
+      setErrorMessage(err.message || 'Failed to submit request to database.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -144,7 +719,9 @@ export default function NewProjectRequestPage() {
             <ChevronLeft size={14} /> Requests
           </Link>
           <span style={{ color: 'var(--text-muted)' }}>&gt;</span>
-          <span style={{ color: 'var(--text-secondary)' }}>New Request</span>
+          <span style={{ color: 'var(--text-secondary)' }}>
+            {isRevision ? 'Revise Request' : isDraftMode ? 'Edit Draft' : 'New Request'}
+          </span>
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
@@ -208,32 +785,112 @@ export default function NewProjectRequestPage() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1rem' }}>
         <div>
           <h1 style={{ fontSize: '1.4rem', fontWeight: 800, color: '#09090b' }}>
-            New Project Request
+            {isRevision ? 'Revise Project Request' : isDraftMode ? 'Edit Draft Request' : 'New Project Request'}
           </h1>
           <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '0.2rem' }}>
-            Submit a new survey / mapping request. All fields marked with <span style={{ color: '#ef4444' }}>*</span> are required.
+            {isRevision
+              ? 'Update survey specifications or requirements. Submitting will create an updated revision.'
+              : isDraftMode
+              ? 'Resume and update your saved draft request. You can save updates as draft or submit when ready.'
+              : 'Submit a new survey / mapping request. All fields marked with * are required.'}
           </p>
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
           <button
             type="button"
-            onClick={() => router.push('/requests')}
+            onClick={handleSaveDraft}
+            disabled={isSavingDraft || isSubmitting}
             className="btn btn-secondary"
             style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', height: '36px', fontSize: '0.8rem' }}
           >
-            <FileText size={14} /> Save Draft
+            {isSavingDraft ? <Loader2 size={14} className="animate-spin" /> : <FileText size={14} />}
+            <span>{isSavingDraft ? 'Saving Draft...' : 'Save Draft'}</span>
           </button>
           <button
             type="submit"
-            disabled={isSubmitting}
+            disabled={isSubmitting || isSavingDraft}
             className="btn btn-primary"
             style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', height: '36px', fontSize: '0.8rem' }}
           >
-            {isSubmitting ? 'Submitting...' : 'Submit Request'}
+            {isSubmitting ? 'Submitting...' : isRevision ? 'Submit Revision' : 'Submit Request'}
           </button>
         </div>
       </div>
+
+      {/* ── Active Draft Restored Banner ── */}
+      {isDraftMode && !isRevision && (
+        <div
+          style={{
+            padding: '0.75rem 1rem',
+            backgroundColor: '#f8fafc',
+            border: '1px solid #cbd5e1',
+            borderRadius: '6px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            fontSize: '0.8rem',
+            color: '#334155',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <FileText size={15} color="#0284c7" />
+            <span>
+              <strong>Draft Restored:</strong> Showing your previously saved draft details. All fields and documents have been restored.
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={handleDiscardDraft}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: '#dc2626',
+              fontWeight: 600,
+              fontSize: '0.75rem',
+              cursor: 'pointer',
+              textDecoration: 'underline',
+            }}
+          >
+            Discard Draft & Start Fresh
+          </button>
+        </div>
+      )}
+
+      {draftToast && draftSavedMessage && (
+        <div
+          style={{
+            padding: '0.85rem 1.25rem',
+            backgroundColor: '#f0fdf4',
+            border: '1px solid #16a34a',
+            borderRadius: '6px',
+            color: '#15803d',
+            fontWeight: 700,
+            fontSize: '0.85rem',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem',
+          }}
+        >
+          <Check size={16} /> {draftSavedMessage}
+        </div>
+      )}
+
+      {errorMessage && (
+        <div
+          style={{
+            padding: '0.85rem 1.25rem',
+            backgroundColor: '#fef2f2',
+            border: '1px solid #dc2626',
+            borderRadius: '6px',
+            color: '#dc2626',
+            fontWeight: 600,
+            fontSize: '0.85rem',
+          }}
+        >
+          {errorMessage}
+        </div>
+      )}
 
       {successMessage && (
         <div
@@ -255,7 +912,7 @@ export default function NewProjectRequestPage() {
       )}
 
       {/* ── 1. Project Details ── */}
-      <div className="wf-card" style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+      <div className="wf-card" style={{ display: 'flex', flexDirection: 'column', gap: '0.9rem' }}>
         <h2 className="wf-title" style={{ fontSize: '0.95rem' }}>1. Project Details</h2>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
           <label style={{ fontSize: '0.775rem', fontWeight: 600, color: '#09090b' }}>
@@ -270,6 +927,63 @@ export default function NewProjectRequestPage() {
             className="form-input"
             style={{ fontSize: '0.8rem', height: '36px' }}
           />
+        </div>
+
+        {/* Project Location (Address) */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+          <label style={{ fontSize: '0.775rem', fontWeight: 600, color: '#09090b' }}>
+            Project Location <span style={{ color: '#ef4444' }}>*</span>
+            <span style={{ fontSize: '0.725rem', fontWeight: 400, color: '#71717a', marginLeft: '0.45rem' }}>
+              (Enter the physical site address — do not use company or project name)
+            </span>
+          </label>
+          <input
+            type="text"
+            required
+            placeholder="Enter physical site address (e.g. Plot 42, Sector 18, Phase 1 Industrial Area)"
+            value={locationAddress}
+            onChange={(e) => setLocationAddress(e.target.value)}
+            className="form-input"
+            style={{ fontSize: '0.8rem', height: '36px' }}
+          />
+        </div>
+
+        {/* City & State Grid */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+            <label style={{ fontSize: '0.775rem', fontWeight: 600, color: '#09090b' }}>
+              City <span style={{ color: '#ef4444' }}>*</span>
+            </label>
+            <input
+              type="text"
+              required
+              placeholder="Enter city (e.g. Bengaluru, Mumbai, Ahmedabad)"
+              value={city}
+              onChange={(e) => setCity(e.target.value)}
+              className="form-input"
+              style={{ fontSize: '0.8rem', height: '36px' }}
+            />
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+            <label style={{ fontSize: '0.775rem', fontWeight: 600, color: '#09090b' }}>
+              State <span style={{ color: '#ef4444' }}>*</span>
+            </label>
+            <select
+              required
+              value={state}
+              onChange={(e) => setState(e.target.value)}
+              className="form-select"
+              style={{ fontSize: '0.8rem', height: '36px', backgroundColor: '#ffffff' }}
+            >
+              <option value="">Select state</option>
+              {INDIAN_STATES.map((st) => (
+                <option key={st} value={st}>
+                  {st}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
       </div>
 
@@ -489,37 +1203,102 @@ export default function NewProjectRequestPage() {
         </div>
       </div>
 
-      {/* ── 4. KML / Boundary Upload ── */}
+      {/* ── 4. KML / Boundary Upload (Multiple Files) ── */}
       <div className="wf-card" style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
-        <div>
-          <h2 className="wf-title" style={{ fontSize: '0.95rem' }}>
-            4. KML / Boundary Upload <span style={{ color: '#ef4444' }}>*</span>
-          </h2>
-          <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '0.15rem' }}>
-            Upload KML / KMZ file of the area of interest.
-          </p>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '0.5rem' }}>
+          <div>
+            <h2 className="wf-title" style={{ fontSize: '0.95rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <span>4. KML / Boundary Upload</span>
+              <span style={{ color: '#ef4444' }}>*</span>
+              {kmlFiles.length > 0 && (
+                <span
+                  style={{
+                    fontSize: '0.7rem',
+                    fontWeight: 600,
+                    backgroundColor: '#f4f4f5',
+                    color: '#09090b',
+                    padding: '0.1rem 0.45rem',
+                    borderRadius: '12px',
+                    border: '1px solid #d4d4d8',
+                  }}
+                >
+                  {kmlFiles.length} {kmlFiles.length === 1 ? 'file' : 'files'}
+                </span>
+              )}
+            </h2>
+            <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '0.15rem' }}>
+              Upload multiple KML, KMZ, or GeoJSON boundary files of the area of interest.
+            </p>
+          </div>
+
+          {kmlFiles.length > 0 && (
+            <div style={{ display: 'flex', gap: '0.4rem' }}>
+              <button
+                type="button"
+                onClick={() => setKmlFiles([])}
+                className="btn btn-secondary"
+                style={{ fontSize: '0.7rem', padding: '0.25rem 0.55rem', height: '28px', color: '#dc2626' }}
+              >
+                Clear All
+              </button>
+              <label
+                className="btn btn-secondary"
+                style={{ fontSize: '0.7rem', padding: '0.25rem 0.65rem', height: '28px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.3rem', cursor: 'pointer' }}
+              >
+                <Plus size={13} />
+                <span>Add More</span>
+                <input
+                  type="file"
+                  multiple
+                  accept=".kml,.kmz"
+                  style={{ display: 'none' }}
+                  onChange={(e) => {
+                    if (e.target.files && e.target.files.length > 0) {
+                      handleAddKmlFiles(e.target.files);
+                      e.target.value = '';
+                    }
+                  }}
+                />
+              </label>
+            </div>
+          )}
         </div>
 
         <div
+          onDragOver={(e) => {
+            e.preventDefault();
+            setIsDraggingKml(true);
+          }}
+          onDragLeave={() => setIsDraggingKml(false)}
+          onDrop={(e) => {
+            e.preventDefault();
+            setIsDraggingKml(false);
+            if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+              handleAddKmlFiles(e.dataTransfer.files);
+            }
+          }}
           style={{
-            border: '1.5px dashed var(--border-color)',
+            border: isDraggingKml ? '2px dashed #09090b' : '1.5px dashed var(--border-color)',
             borderRadius: '6px',
-            padding: '1.5rem',
-            backgroundColor: '#fafafa',
+            padding: kmlFiles.length > 0 ? '1rem 1.25rem' : '1.5rem',
+            backgroundColor: isDraggingKml ? '#f4f4f5' : '#fafafa',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
             gap: '1rem',
+            transition: 'all 0.15s ease',
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
             <UploadCloud size={28} color="#71717a" />
             <div style={{ display: 'flex', flexDirection: 'column' }}>
               <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#09090b' }}>
-                {kmlFileName ? kmlFileName : 'Drag and drop your file here, or browse'}
+                {kmlFiles.length > 0
+                  ? `${kmlFiles.length} boundary file(s) selected`
+                  : 'Drag and drop your file(s) here, or browse'}
               </span>
               <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.1rem' }}>
-                Supports KML, KMZ files up to 50MB
+                Supports multiple KML, KMZ files up to 50MB each
               </span>
             </div>
           </div>
@@ -531,16 +1310,57 @@ export default function NewProjectRequestPage() {
             Browse Files
             <input
               type="file"
+              multiple
               accept=".kml,.kmz"
               style={{ display: 'none' }}
               onChange={(e) => {
-                if (e.target.files && e.target.files[0]) {
-                  setKmlFileName(e.target.files[0].name);
+                if (e.target.files && e.target.files.length > 0) {
+                  handleAddKmlFiles(e.target.files);
+                  e.target.value = '';
                 }
               }}
             />
           </label>
         </div>
+
+        {/* Selected KML Files List */}
+        {kmlFiles.length > 0 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.45rem', marginTop: '0.2rem' }}>
+            {kmlFiles.map((file, idx) => (
+              <div
+                key={`kml-${idx}`}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '0.5rem 0.75rem',
+                  backgroundColor: '#f4f4f5',
+                  border: '1px solid #e4e4e7',
+                  borderRadius: '5px',
+                  fontSize: '0.775rem',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.55rem', minWidth: 0 }}>
+                  <Paperclip size={14} color="#52525b" style={{ flexShrink: 0 }} />
+                  <span style={{ fontWeight: 600, color: '#09090b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {file.name}
+                  </span>
+                  <span style={{ fontSize: '0.7rem', color: '#71717a' }}>
+                    {file.size} • Ready to upload
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleRemoveKmlFile(idx)}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px', color: '#71717a' }}
+                  title="Remove file"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* ── Sections 5 & 6 (Two-Column Split) ── */}
@@ -624,37 +1444,102 @@ export default function NewProjectRequestPage() {
 
       {/* ── Sections 7 & 8 (Two-Column Split) ── */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.25rem' }}>
-        {/* 7. Scope Document */}
+        {/* 7. Scope Document (Multiple Files) */}
         <div className="wf-card" style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
-          <div>
-            <h2 className="wf-title" style={{ fontSize: '0.95rem' }}>
-              7. Scope Document <span style={{ color: '#ef4444' }}>*</span>
-            </h2>
-            <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '0.15rem' }}>
-              Upload the scope of work / survey requirements.
-            </p>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '0.5rem' }}>
+            <div>
+              <h2 className="wf-title" style={{ fontSize: '0.95rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <span>7. Scope Document</span>
+                <span style={{ color: '#ef4444' }}>*</span>
+                {scopeFiles.length > 0 && (
+                  <span
+                    style={{
+                      fontSize: '0.7rem',
+                      fontWeight: 600,
+                      backgroundColor: '#f4f4f5',
+                      color: '#09090b',
+                      padding: '0.1rem 0.45rem',
+                      borderRadius: '12px',
+                      border: '1px solid #d4d4d8',
+                    }}
+                  >
+                    {scopeFiles.length} {scopeFiles.length === 1 ? 'doc' : 'docs'}
+                  </span>
+                )}
+              </h2>
+              <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '0.15rem' }}>
+                Upload scope of work, survey specifications, or reference documents.
+              </p>
+            </div>
+
+            {scopeFiles.length > 0 && (
+              <div style={{ display: 'flex', gap: '0.4rem' }}>
+                <button
+                  type="button"
+                  onClick={() => setScopeFiles([])}
+                  className="btn btn-secondary"
+                  style={{ fontSize: '0.7rem', padding: '0.25rem 0.55rem', height: '28px', color: '#dc2626' }}
+                >
+                  Clear All
+                </button>
+                <label
+                  className="btn btn-secondary"
+                  style={{ fontSize: '0.7rem', padding: '0.25rem 0.65rem', height: '28px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.3rem', cursor: 'pointer' }}
+                >
+                  <Plus size={13} />
+                  <span>Add More</span>
+                  <input
+                    type="file"
+                    multiple
+                    accept=".pdf,.doc,.docx,.xls,.xlsx"
+                    style={{ display: 'none' }}
+                    onChange={(e) => {
+                      if (e.target.files && e.target.files.length > 0) {
+                        handleAddScopeFiles(e.target.files);
+                        e.target.value = '';
+                      }
+                    }}
+                  />
+                </label>
+              </div>
+            )}
           </div>
 
           <div
+            onDragOver={(e) => {
+              e.preventDefault();
+              setIsDraggingScope(true);
+            }}
+            onDragLeave={() => setIsDraggingScope(false)}
+            onDrop={(e) => {
+              e.preventDefault();
+              setIsDraggingScope(false);
+              if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                handleAddScopeFiles(e.dataTransfer.files);
+              }
+            }}
             style={{
-              border: '1.5px dashed var(--border-color)',
+              border: isDraggingScope ? '2px dashed #09090b' : '1.5px dashed var(--border-color)',
               borderRadius: '6px',
-              padding: '1.25rem',
-              backgroundColor: '#fafafa',
+              padding: scopeFiles.length > 0 ? '1rem 1.25rem' : '1.25rem',
+              backgroundColor: isDraggingScope ? '#f4f4f5' : '#fafafa',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'space-between',
               gap: '1rem',
+              transition: 'all 0.15s ease',
             }}
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
               <UploadCloud size={26} color="#71717a" />
               <div style={{ display: 'flex', flexDirection: 'column' }}>
                 <span style={{ fontSize: '0.775rem', fontWeight: 600, color: '#09090b' }}>
-                  {scopeFileName ? scopeFileName : 'Drag and drop file here, or browse'}
+                  {scopeFiles.length > 0
+                    ? `${scopeFiles.length} document(s) selected`
+                    : 'Drag and drop file(s) here, or browse'}
                 </span>
                 <span style={{ fontSize: '0.675rem', color: 'var(--text-muted)' }}>
-                  Supports PDF, DOC, DOCX, XLS, XLSX up to 50MB
+                  Supports multiple PDF, DOC, DOCX, XLS, XLSX up to 50MB each
                 </span>
               </div>
             </div>
@@ -666,16 +1551,57 @@ export default function NewProjectRequestPage() {
               Browse Files
               <input
                 type="file"
+                multiple
                 accept=".pdf,.doc,.docx,.xls,.xlsx"
                 style={{ display: 'none' }}
                 onChange={(e) => {
-                  if (e.target.files && e.target.files[0]) {
-                    setScopeFileName(e.target.files[0].name);
+                  if (e.target.files && e.target.files.length > 0) {
+                    handleAddScopeFiles(e.target.files);
+                    e.target.value = '';
                   }
                 }}
               />
             </label>
           </div>
+
+          {/* Selected Scope Documents List */}
+          {scopeFiles.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.45rem', marginTop: '0.2rem' }}>
+              {scopeFiles.map((file, idx) => (
+                <div
+                  key={`scope-${idx}`}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '0.5rem 0.75rem',
+                    backgroundColor: '#f4f4f5',
+                    border: '1px solid #e4e4e7',
+                    borderRadius: '5px',
+                    fontSize: '0.775rem',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.55rem', minWidth: 0 }}>
+                    <FileText size={14} color="#52525b" style={{ flexShrink: 0 }} />
+                    <span style={{ fontWeight: 600, color: '#09090b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {file.name}
+                    </span>
+                    <span style={{ fontSize: '0.7rem', color: '#71717a' }}>
+                      {file.size} • Ready to upload
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveScopeFile(idx)}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px', color: '#71717a' }}
+                    title="Remove document"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* 8. Remarks / Instructions */}
@@ -844,5 +1770,13 @@ export default function NewProjectRequestPage() {
         <span>Please review all details before submitting. You can save as draft and submit later.</span>
       </div>
     </form>
+  );
+}
+
+export default function NewProjectRequestPage() {
+  return (
+    <Suspense fallback={<div style={{ padding: '2rem', textAlign: 'center', color: '#71717a' }}>Loading request form...</div>}>
+      <NewProjectRequestPageContent />
+    </Suspense>
   );
 }

@@ -12,7 +12,8 @@ export interface Sector {
   project_id: string;
   plan_id: string;
   sector_code: string;
-  status: SectorStatus;
+  name?: string;
+  status: SectorStatus | string;
   polygon_coordinates?: Record<string, any> | null;
   target_area_sqkm?: number | null;
   estimated_flight_minutes?: number | null;
@@ -33,5 +34,5 @@ export interface SectorBatchCreate {
 }
 
 export interface SectorStatusUpdate {
-  status: SectorStatus;
+  status: SectorStatus | string;
 }

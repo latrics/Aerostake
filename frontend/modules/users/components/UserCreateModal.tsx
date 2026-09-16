@@ -120,7 +120,8 @@ export function UserCreateModal({ isOpen, onClose, onSubmit }: UserCreateModalPr
               <option value={Role.PILOT}>Drone Pilot (Flight telemetry & field missions)</option>
               <option value={Role.OPERATIONS}>Operations Manager (Planning & dispatch)</option>
               <option value={Role.ADMIN}>Platform Administrator (Full authority)</option>
-              <option value={Role.CLIENT}>Client (Survey requester)</option>
+              <option value={Role.CLIENT_PRIMARY}>Client Primary (Organization owner / admin)</option>
+              <option value={Role.CLIENT_SUB}>Client Subordinate (Team member)</option>
             </select>
           </div>
 

@@ -14,9 +14,11 @@ export const SubmitRequestModal: React.FC<SubmitRequestModalProps> = ({
   onSubmit,
   currentVersionNumber = 0,
 }) => {
-  const nextVersionFormatted = `#${String(currentVersionNumber + 1).padStart(3, '0')}`;
+  const nextVersionFormatted = `${currentVersionNumber + 1}`;
 
   const [surveyLocation, setSurveyLocation] = useState('');
+  const [city, setCity] = useState('');
+  const [state, setState] = useState('');
   const [surveyType, setSurveyType] = useState('thermal');
   const [targetArea, setTargetArea] = useState<string>('10.5');
   const [resolutionGSD, setResolutionGSD] = useState('1.5 cm/px');
@@ -30,7 +32,17 @@ export const SubmitRequestModal: React.FC<SubmitRequestModalProps> = ({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!surveyLocation.trim()) {
-      setError('Please provide the survey location / geographic coordinate anchor');
+      setError('Please provide the Project Location (physical site address).');
+      return;
+    }
+
+    if (!city.trim()) {
+      setError('Please provide the City.');
+      return;
+    }
+
+    if (!state.trim()) {
+      setError('Please provide the State.');
       return;
     }
 
@@ -44,11 +56,20 @@ export const SubmitRequestModal: React.FC<SubmitRequestModalProps> = ({
       setLoading(true);
       setError(null);
 
+      const trimmedLocation = surveyLocation.trim();
+      const trimmedCity = city.trim();
+      const trimmedState = state.trim();
+
       const payload: RequestVersionCreate = {
-        survey_location: surveyLocation.trim(),
+        survey_location: trimmedLocation,
         survey_type: surveyType,
         target_area_sqkm: areaNum,
         requirements_payload: {
+          address: trimmedLocation,
+          location_address: trimmedLocation,
+          city: trimmedCity || undefined,
+          state: trimmedState || undefined,
+          survey_location: trimmedLocation,
           gsd_resolution: resolutionGSD,
           sensor_payload: sensorPayload,
           client_notes: notes.trim() || undefined,
@@ -139,16 +160,48 @@ export const SubmitRequestModal: React.FC<SubmitRequestModalProps> = ({
 
         <form onSubmit={handleSubmit}>
           <div className="form-group">
-            <label className="form-label">Geographic Survey Location *</label>
+            <label className="form-label">
+              Project Location *
+              <span style={{ fontSize: '0.75rem', fontWeight: 400, color: 'var(--text-secondary)', marginLeft: '0.4rem' }}>
+                (Enter physical site address)
+              </span>
+            </label>
             <input
               type="text"
               className="form-input"
-              placeholder="e.g. Khavda Ultra Mega Solar Park, Sector 4, Gujarat"
+              placeholder="Enter physical site address (do not enter company or project name)"
               value={surveyLocation}
               onChange={(e) => setSurveyLocation(e.target.value)}
               disabled={loading}
               required
             />
+          </div>
+
+          <div className="grid-2">
+            <div className="form-group">
+              <label className="form-label">City *</label>
+              <input
+                type="text"
+                className="form-input"
+                placeholder="e.g. Khavda / Bhuj"
+                value={city}
+                onChange={(e) => setCity(e.target.value)}
+                disabled={loading}
+                required
+              />
+            </div>
+            <div className="form-group">
+              <label className="form-label">State *</label>
+              <input
+                type="text"
+                className="form-input"
+                placeholder="e.g. Gujarat"
+                value={state}
+                onChange={(e) => setState(e.target.value)}
+                disabled={loading}
+                required
+              />
+            </div>
           </div>
 
           <div className="grid-2">
