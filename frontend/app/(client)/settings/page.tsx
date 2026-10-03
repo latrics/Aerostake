@@ -17,6 +17,9 @@ import {
   EyeOff,
   CheckCircle2,
   ArrowRight,
+  Award,
+  Calendar,
+  CreditCard as IdCard,
   ShieldCheck,
   LogOut,
   Trash2,
@@ -26,6 +29,7 @@ import {
 import { usersApi } from '@/modules/users/api';
 import { useAuth, authService } from '@/lib/auth';
 import { setCookie } from '@/lib/api-client';
+import { PageHeader } from '@/components/PageHeader';
 
 export default function ClientSettingsPage() {
   const { user: authUser, refreshProfile } = useAuth();
@@ -39,6 +43,10 @@ export default function ClientSettingsPage() {
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [designation, setDesignation] = useState('');
+  // Pilot Profile Credentials State
+  const [age, setAge] = useState<string | number>('');
+  const [aadhaarNumber, setAadhaarNumber] = useState('');
+  const [dgcaLicenseNumber, setDgcaLicenseNumber] = useState('');
   const [savingProfile, setSavingProfile] = useState(false);
   const [profileSuccess, setProfileSuccess] = useState(false);
   const [profileError, setProfileError] = useState<string | null>(null);
@@ -101,6 +109,18 @@ export default function ClientSettingsPage() {
             null
         );
         setUserRole(userData.role?.toString() || 'client');
+
+        // Load Pilot Credentials if available
+        if (userData.pilot_profile) {
+          setAge(userData.pilot_profile.age ?? '');
+          setAadhaarNumber(userData.pilot_profile.aadhaar_number ?? '');
+          setDgcaLicenseNumber(userData.pilot_profile.dgca_license_number ?? '');
+        } else if (userData.company_profile && (userData.company_profile as any).pilot_profile) {
+          const pp = (userData.company_profile as any).pilot_profile;
+          setAge(pp.age ?? '');
+          setAadhaarNumber(pp.aadhaar_number ?? '');
+          setDgcaLicenseNumber(pp.dgca_license_number ?? '');
+        }
       })
 
       .catch((err: any) => {
@@ -129,13 +149,26 @@ export default function ClientSettingsPage() {
       return;
     }
 
+    const isPilot = userRole === 'pilot' || authUser?.role === 'pilot' || authUser?.role?.toString() === 'pilot';
+
     try {
-      await usersApi.updateProfile({
+      const updatePayload: any = {
         full_name: fullName.trim() || undefined,
         email: email.trim().toLowerCase(),
         phone_number: phone.trim() || undefined,
-        designation: designation.trim() || undefined,
-      });
+      };
+
+      if (isPilot) {
+        updatePayload.pilot_profile = {
+          age: age ? String(age).trim() : undefined,
+          aadhaar_number: aadhaarNumber.trim() || undefined,
+          dgca_license_number: dgcaLicenseNumber.trim() || undefined,
+        };
+      } else {
+        updatePayload.designation = designation.trim() || undefined;
+      }
+
+      await usersApi.updateProfile(updatePayload);
 
       if (refreshProfile) {
         await refreshProfile();
@@ -260,14 +293,10 @@ export default function ClientSettingsPage() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', maxWidth: '850px', paddingBottom: '3rem' }}>
       {/* Page Header */}
-      <div>
-        <h2 style={{ fontSize: '1.35rem', fontWeight: 800, color: '#09090b', letterSpacing: '-0.01em' }}>
-          Personal Settings
-        </h2>
-        <p style={{ fontSize: '0.825rem', color: 'var(--text-secondary)', marginTop: '0.2rem' }}>
-          Update your personal credentials, contact details, job designation, and password security.
-        </p>
-      </div>
+      <PageHeader
+        title="Personal Settings"
+        subtitle="Update your personal credentials, contact details, job designation, and password security."
+      />
 
       {/* Global Error Banner if initial load failed */}
       {error && (
@@ -277,8 +306,8 @@ export default function ClientSettingsPage() {
             alignItems: 'center',
             gap: '0.5rem',
             padding: '0.75rem 1rem',
-            backgroundColor: 'rgba(239, 68, 68, 0.1)',
-            border: '1px solid rgba(239, 68, 68, 0.3)',
+            backgroundColor: '#f4f4f5',
+            border: '1px solid #09090b',
             borderRadius: 'var(--radius-sm)',
             color: 'var(--error)',
             fontSize: '0.85rem',
@@ -289,80 +318,158 @@ export default function ClientSettingsPage() {
         </div>
       )}
 
-      {/* Company Profile Quick Navigation Banner */}
-      <div
-        className="wf-card"
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          flexWrap: 'wrap',
-          gap: '1rem',
-          padding: '1rem 1.25rem',
-          backgroundColor: '#fafafa',
-          border: '1.5px solid #09090b',
-          borderRadius: '8px',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
-          <div
-            style={{
-              width: '38px',
-              height: '38px',
-              borderRadius: '6px',
-              backgroundColor: '#ffffff',
-              border: '1px solid #d4d4d8',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              flexShrink: 0,
-            }}
-          >
-            <Building size={20} color="#09090b" />
-          </div>
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <span style={{ fontSize: '0.875rem', fontWeight: 700, color: '#09090b' }}>
-                Company & Organization Profile
-              </span>
-              <span
-                style={{
-                  fontSize: '0.675rem',
-                  fontWeight: 700,
-                  padding: '0.1rem 0.4rem',
-                  backgroundColor: '#09090b',
-                  color: '#ffffff',
-                  borderRadius: '4px',
-                }}
-              >
-                {authUser?.company_name || 'Organization'}
-              </span>
-            </div>
-            <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '0.15rem' }}>
-              Looking to manage company registration, GST number, business address, or team invitations?
-            </p>
-          </div>
-        </div>
-
-        <Link
-          href="/company-profile"
-          className="btn btn-outline"
+      {/* Quick Navigation Banner: Pilot Certification vs Company Profile */}
+      {userRole === 'pilot' || authUser?.role === 'pilot' ? (
+        <div
+          className="wf-card"
           style={{
-            fontSize: '0.8rem',
-            height: '36px',
-            padding: '0 1rem',
-            display: 'inline-flex',
+            display: 'flex',
+            justifyContent: 'space-between',
             alignItems: 'center',
-            gap: '0.4rem',
-            textDecoration: 'none',
-            fontWeight: 700,
-            backgroundColor: '#ffffff',
+            flexWrap: 'wrap',
+            gap: '1rem',
+            padding: '1rem 1.25rem',
+            backgroundColor: '#fafafa',
+            border: '1.5px solid #09090b',
+            borderRadius: '8px',
           }}
         >
-          <span>Open Company Profile</span>
-          <ArrowRight size={14} />
-        </Link>
-      </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
+            <div
+              style={{
+                width: '40px',
+                height: '40px',
+                borderRadius: '8px',
+                backgroundColor: '#ffffff',
+                border: '1px solid #d4d4d8',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0,
+              }}
+            >
+              <Award size={22} color="#09090b" />
+            </div>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <span style={{ fontSize: '0.875rem', fontWeight: 800, color: '#09090b' }}>
+                  DGCA Remote Pilot Certification & Identity
+                </span>
+                <span
+                  style={{
+                    fontSize: '0.675rem',
+                    fontWeight: 700,
+                    padding: '0.1rem 0.45rem',
+                    backgroundColor: '#09090b',
+                    color: '#ffffff',
+                    borderRadius: '4px',
+                  }}
+                >
+                  Active Pilot Roster
+                </span>
+              </div>
+              <p style={{ fontSize: '0.75rem', color: '#71717a', marginTop: '0.15rem' }}>
+                Commercial drone pilot licensed under DGCA / DigitalSky regulations and affiliated with LATRICS Flight Operations.
+              </p>
+            </div>
+          </div>
+
+          <Link
+            href="/schedule"
+            className="btn btn-outline"
+            style={{
+              fontSize: '0.8rem',
+              height: '36px',
+              padding: '0 1rem',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '0.4rem',
+              textDecoration: 'none',
+              fontWeight: 700,
+              backgroundColor: '#ffffff',
+            }}
+          >
+            <span>My Flight Schedule</span>
+            <ArrowRight size={14} />
+          </Link>
+        </div>
+      ) : (
+        <div
+          className="wf-card"
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            gap: '1rem',
+            padding: '1rem 1.25rem',
+            backgroundColor: '#fafafa',
+            border: '1.5px solid #09090b',
+            borderRadius: '8px',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
+            <div
+              style={{
+                width: '38px',
+                height: '38px',
+                borderRadius: '6px',
+                backgroundColor: '#ffffff',
+                border: '1px solid #d4d4d8',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0,
+              }}
+            >
+              <Building size={20} color="#09090b" />
+            </div>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <span style={{ fontSize: '0.875rem', fontWeight: 700, color: '#09090b' }}>
+                  Company & Organization Profile
+                </span>
+                <span
+                  style={{
+                    fontSize: '0.675rem',
+                    fontWeight: 700,
+                    padding: '0.1rem 0.4rem',
+                    backgroundColor: '#09090b',
+                    color: '#ffffff',
+                    borderRadius: '4px',
+                  }}
+                >
+                  {authUser?.company_name || 'Organization'}
+                </span>
+              </div>
+              <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '0.15rem' }}>
+                {authUser?.role === 'client_sub'
+                  ? 'Your organization\'s company profile is managed by the Primary Client. Click to view details.'
+                  : 'Looking to manage company registration, GST number, business address, or team invitations?'}
+              </p>
+            </div>
+          </div>
+
+          <Link
+            href="/company-profile"
+            className="btn btn-outline"
+            style={{
+              fontSize: '0.8rem',
+              height: '36px',
+              padding: '0 1rem',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '0.4rem',
+              textDecoration: 'none',
+              fontWeight: 700,
+              backgroundColor: '#ffffff',
+            }}
+          >
+            <span>Open Company Profile</span>
+            <ArrowRight size={14} />
+          </Link>
+        </div>
+      )}
 
       {/* ── SECTION 1: Personal Credentials & Information ── */}
       <div className="wf-card">
@@ -388,8 +495,8 @@ export default function ClientSettingsPage() {
               gap: '0.5rem',
               marginTop: '1rem',
               padding: '0.75rem 1rem',
-              backgroundColor: 'rgba(239, 68, 68, 0.08)',
-              border: '1px solid rgba(239, 68, 68, 0.25)',
+              backgroundColor: '#f4f4f5',
+              border: '1px solid #09090b',
               borderRadius: '6px',
               color: 'var(--error)',
               fontSize: '0.825rem',
@@ -408,94 +515,246 @@ export default function ClientSettingsPage() {
               gap: '0.5rem',
               marginTop: '1rem',
               padding: '0.75rem 1rem',
-              backgroundColor: '#f0fdf4',
-              border: '1px solid #bbf7d0',
+              backgroundColor: '#f4f4f5',
+              border: '1px solid #d4d4d8',
               borderRadius: '6px',
-              color: '#166534',
+              color: '#09090b',
               fontSize: '0.825rem',
               fontWeight: 600,
             }}
           >
-            <CheckCircle2 size={16} color="#166534" style={{ flexShrink: 0 }} />
+            <CheckCircle2 size={16} color="#09090b" style={{ flexShrink: 0 }} />
             <span>Personal profile details updated successfully!</span>
           </div>
         )}
 
         <form onSubmit={handleSaveProfile} style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginTop: '1.25rem' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1rem' }}>
-            {/* Full Name */}
-            <div>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.775rem', fontWeight: 700, marginBottom: '0.35rem', color: '#09090b' }}>
-                <UserIcon size={14} color="#71717a" />
-                <span>Full Name</span>
-                <span style={{ color: '#ef4444' }}>*</span>
-              </label>
-              <input
-                type="text"
-                placeholder="e.g. John Doe"
-                value={fullName}
-                onChange={(e) => setFullName(e.target.value)}
-                required
-                className="form-input"
-                style={{ width: '100%', height: '38px', fontSize: '0.85rem' }}
-              />
-            </div>
+          {userRole === 'pilot' || authUser?.role === 'pilot' ? (
+            <>
+              {/* Pilot Credentials Row 1: Name & Contact no. */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1rem' }}>
+                {/* Name */}
+                <div>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.775rem', fontWeight: 700, marginBottom: '0.35rem', color: '#09090b' }}>
+                    <UserIcon size={14} color="#71717a" />
+                    <span>Pilot Name</span>
+                    <span style={{ color: '#09090b' }}>*</span>
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Vikramaditya Singh"
+                    value={fullName}
+                    onChange={(e) => setFullName(e.target.value)}
+                    required
+                    className="form-input"
+                    style={{ width: '100%', height: '38px', fontSize: '0.85rem' }}
+                  />
+                </div>
 
-            {/* Email Address */}
-            <div>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.775rem', fontWeight: 700, marginBottom: '0.35rem', color: '#09090b' }}>
-                <Mail size={14} color="#71717a" />
-                <span>Email Address (Login Credential)</span>
-                <span style={{ color: '#ef4444' }}>*</span>
-              </label>
-              <input
-                type="email"
-                placeholder="e.g. john.doe@company.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-                className="form-input"
-                style={{ width: '100%', height: '38px', fontSize: '0.85rem' }}
-              />
-              <span style={{ display: 'block', fontSize: '0.7rem', color: 'var(--text-secondary)', marginTop: '0.25rem' }}>
-                Used for account sign in, portal notifications, and project communications.
-              </span>
-            </div>
-          </div>
+                {/* Contact no. */}
+                <div>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.775rem', fontWeight: 700, marginBottom: '0.35rem', color: '#09090b' }}>
+                    <Phone size={14} color="#71717a" />
+                    <span>Contact Number</span>
+                    <span style={{ color: '#09090b' }}>*</span>
+                  </label>
+                  <input
+                    type="tel"
+                    placeholder="e.g. +91 98765 43210"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    required
+                    className="form-input"
+                    style={{ width: '100%', height: '38px', fontSize: '0.85rem' }}
+                  />
+                </div>
+              </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1rem' }}>
-            {/* Phone Number */}
-            <div>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.775rem', fontWeight: 700, marginBottom: '0.35rem', color: '#09090b' }}>
-                <Phone size={14} color="#71717a" />
-                <span>Contact Phone Number</span>
-              </label>
-              <input
-                type="tel"
-                placeholder="e.g. +91 98765 43210"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                className="form-input"
-                style={{ width: '100%', height: '38px', fontSize: '0.85rem' }}
-              />
-            </div>
+              {/* Pilot Credentials Row 2: Age & Email */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1rem' }}>
+                {/* Age */}
+                <div>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.775rem', fontWeight: 700, marginBottom: '0.35rem', color: '#09090b' }}>
+                    <Calendar size={14} color="#71717a" />
+                    <span>Age (Years)</span>
+                    <span style={{ color: '#09090b' }}>*</span>
+                  </label>
+                  <input
+                    type="number"
+                    min="18"
+                    max="75"
+                    placeholder="e.g. 28"
+                    value={age}
+                    onChange={(e) => setAge(e.target.value)}
+                    required
+                    className="form-input"
+                    style={{ width: '100%', height: '38px', fontSize: '0.85rem' }}
+                  />
+                  <span style={{ display: 'block', fontSize: '0.7rem', color: 'var(--text-secondary)', marginTop: '0.25rem' }}>
+                    Standard pilot flight eligibility under civil aviation rules.
+                  </span>
+                </div>
 
-            {/* Designation / Department */}
-            <div>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.775rem', fontWeight: 700, marginBottom: '0.35rem', color: '#09090b' }}>
-                <Briefcase size={14} color="#71717a" />
-                <span>Job Designation / Department</span>
-              </label>
-              <input
-                type="text"
-                placeholder="e.g. Project Manager, Lead Surveyor, GIS Specialist"
-                value={designation}
-                onChange={(e) => setDesignation(e.target.value)}
-                className="form-input"
-                style={{ width: '100%', height: '38px', fontSize: '0.85rem' }}
-              />
-            </div>
-          </div>
+                {/* Email Address */}
+                <div>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.775rem', fontWeight: 700, marginBottom: '0.35rem', color: '#09090b' }}>
+                    <Mail size={14} color="#71717a" />
+                    <span>Email Address (Login Credential)</span>
+                    <span style={{ color: '#09090b' }}>*</span>
+                  </label>
+                  <input
+                    type="email"
+                    placeholder="e.g. pilot@latrics.com"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    required
+                    className="form-input"
+                    style={{ width: '100%', height: '38px', fontSize: '0.85rem' }}
+                  />
+                </div>
+              </div>
+
+              {/* Pilot Credentials Row 3: Aadhaar no. & DGCA lisence no. */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1rem' }}>
+                {/* Aadhaar no. */}
+                <div>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.775rem', fontWeight: 700, marginBottom: '0.35rem', color: '#09090b' }}>
+                    <IdCard size={14} color="#71717a" />
+                    <span>Aadhaar Number</span>
+                    <span style={{ color: '#09090b' }}>*</span>
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. 5432 1098 7654"
+                    value={aadhaarNumber}
+                    onChange={(e) => setAadhaarNumber(e.target.value)}
+                    required
+                    className="form-input"
+                    style={{ width: '100%', height: '38px', fontSize: '0.85rem' }}
+                  />
+                  <span style={{ display: 'block', fontSize: '0.7rem', color: 'var(--text-secondary)', marginTop: '0.25rem' }}>
+                    12-digit UIDAI identity verification number.
+                  </span>
+                </div>
+
+                {/* DGCA lisence no. */}
+                <div>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.775rem', fontWeight: 700, marginBottom: '0.35rem', color: '#09090b' }}>
+                    <Award size={14} color="#71717a" />
+                    <span>DGCA License No. (RPC)</span>
+                    <span style={{ color: '#09090b' }}>*</span>
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. DGCA-RPC-2024-88419"
+                    value={dgcaLicenseNumber}
+                    onChange={(e) => setDgcaLicenseNumber(e.target.value)}
+                    required
+                    className="form-input"
+                    style={{ width: '100%', height: '38px', fontSize: '0.85rem' }}
+                  />
+                  <span style={{ display: 'block', fontSize: '0.7rem', color: 'var(--text-secondary)', marginTop: '0.25rem' }}>
+                    Remote Pilot Certificate (RPC) issued under DGCA DigitalSky.
+                  </span>
+                </div>
+              </div>
+            </>
+          ) : (
+            <>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1rem' }}>
+                {/* Full Name */}
+                <div>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.775rem', fontWeight: 700, marginBottom: '0.35rem', color: '#09090b' }}>
+                    <UserIcon size={14} color="#71717a" />
+                    <span>Full Name</span>
+                    <span style={{ color: '#09090b' }}>*</span>
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. John Doe"
+                    value={fullName}
+                    onChange={(e) => setFullName(e.target.value)}
+                    required
+                    className="form-input"
+                    style={{ width: '100%', height: '38px', fontSize: '0.85rem' }}
+                  />
+                </div>
+
+                {/* Email Address */}
+                <div>
+                  <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.775rem', fontWeight: 700, marginBottom: '0.35rem', color: '#09090b' }}>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}>
+                      <Mail size={14} color="#71717a" />
+                      <span>Email Address (Login Credential)</span>
+                      <span style={{ color: '#09090b' }}>*</span>
+                    </span>
+                    {authUser?.role === 'client_sub' && (
+                      <span style={{ fontSize: '0.675rem', color: '#71717a', display: 'inline-flex', alignItems: 'center', gap: '3px', fontWeight: 500 }}>
+                        <Lock size={10} /> Locked to invitation
+                      </span>
+                    )}
+                  </label>
+                  <input
+                    type="email"
+                    disabled={authUser?.role === 'client_sub'}
+                    readOnly={authUser?.role === 'client_sub'}
+                    placeholder="e.g. john.doe@company.com"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    required
+                    className="form-input"
+                    style={{
+                      width: '100%',
+                      height: '38px',
+                      fontSize: '0.85rem',
+                      backgroundColor: authUser?.role === 'client_sub' ? '#f4f4f5' : '#ffffff',
+                      cursor: authUser?.role === 'client_sub' ? 'not-allowed' : undefined,
+                      color: '#09090b',
+                    }}
+                  />
+                  <span style={{ display: 'block', fontSize: '0.7rem', color: 'var(--text-secondary)', marginTop: '0.25rem' }}>
+                    {authUser?.role === 'client_sub'
+                      ? 'Bound to your organization workspace invitation.'
+                      : 'Used for account sign in, portal notifications, and project communications.'}
+                  </span>
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1rem' }}>
+                {/* Phone Number */}
+                <div>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.775rem', fontWeight: 700, marginBottom: '0.35rem', color: '#09090b' }}>
+                    <Phone size={14} color="#71717a" />
+                    <span>Contact Phone Number</span>
+                  </label>
+                  <input
+                    type="tel"
+                    placeholder="e.g. +91 98765 43210"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    className="form-input"
+                    style={{ width: '100%', height: '38px', fontSize: '0.85rem' }}
+                  />
+                </div>
+
+                {/* Designation / Department */}
+                <div>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.775rem', fontWeight: 700, marginBottom: '0.35rem', color: '#09090b' }}>
+                    <Briefcase size={14} color="#71717a" />
+                    <span>Job Designation / Department</span>
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Project Manager, Lead Surveyor, GIS Specialist"
+                    value={designation}
+                    onChange={(e) => setDesignation(e.target.value)}
+                    className="form-input"
+                    style={{ width: '100%', height: '38px', fontSize: '0.85rem' }}
+                  />
+                </div>
+              </div>
+            </>
+          )}
 
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start', paddingTop: '0.5rem' }}>
             <button
@@ -543,8 +802,8 @@ export default function ClientSettingsPage() {
               gap: '0.5rem',
               marginTop: '1rem',
               padding: '0.75rem 1rem',
-              backgroundColor: 'rgba(239, 68, 68, 0.08)',
-              border: '1px solid rgba(239, 68, 68, 0.25)',
+              backgroundColor: '#f4f4f5',
+              border: '1px solid #09090b',
               borderRadius: '6px',
               color: 'var(--error)',
               fontSize: '0.825rem',
@@ -563,15 +822,15 @@ export default function ClientSettingsPage() {
               gap: '0.5rem',
               marginTop: '1rem',
               padding: '0.75rem 1rem',
-              backgroundColor: '#f0fdf4',
-              border: '1px solid #bbf7d0',
+              backgroundColor: '#f4f4f5',
+              border: '1px solid #d4d4d8',
               borderRadius: '6px',
-              color: '#166534',
+              color: '#09090b',
               fontSize: '0.825rem',
               fontWeight: 600,
             }}
           >
-            <ShieldCheck size={16} color="#166534" style={{ flexShrink: 0 }} />
+            <ShieldCheck size={16} color="#09090b" style={{ flexShrink: 0 }} />
             <span>Password updated successfully! Your account credentials have been updated.</span>
           </div>
         )}
@@ -580,7 +839,7 @@ export default function ClientSettingsPage() {
           {/* Current Password */}
           <div style={{ maxWidth: '400px' }}>
             <label style={{ display: 'block', fontSize: '0.775rem', fontWeight: 700, marginBottom: '0.35rem', color: '#09090b' }}>
-              Current Password <span style={{ color: '#ef4444' }}>*</span>
+              Current Password <span style={{ color: '#09090b' }}>*</span>
             </label>
             <div style={{ position: 'relative' }}>
               <input
@@ -617,7 +876,7 @@ export default function ClientSettingsPage() {
             {/* New Password */}
             <div>
               <label style={{ display: 'block', fontSize: '0.775rem', fontWeight: 700, marginBottom: '0.35rem', color: '#09090b' }}>
-                New Password <span style={{ color: '#ef4444' }}>*</span>
+                New Password <span style={{ color: '#09090b' }}>*</span>
               </label>
               <div style={{ position: 'relative' }}>
                 <input
@@ -653,7 +912,7 @@ export default function ClientSettingsPage() {
             {/* Confirm New Password */}
             <div>
               <label style={{ display: 'block', fontSize: '0.775rem', fontWeight: 700, marginBottom: '0.35rem', color: '#09090b' }}>
-                Confirm New Password <span style={{ color: '#ef4444' }}>*</span>
+                Confirm New Password <span style={{ color: '#09090b' }}>*</span>
               </label>
               <div style={{ position: 'relative' }}>
                 <input
@@ -733,15 +992,15 @@ export default function ClientSettingsPage() {
               gap: '0.5rem',
               marginTop: '1rem',
               padding: '0.75rem 1rem',
-              backgroundColor: '#f0fdf4',
-              border: '1px solid #bbf7d0',
+              backgroundColor: '#f4f4f5',
+              border: '1px solid #d4d4d8',
               borderRadius: '6px',
-              color: '#166534',
+              color: '#09090b',
               fontSize: '0.825rem',
               fontWeight: 600,
             }}
           >
-            <CheckCircle2 size={16} color="#166534" style={{ flexShrink: 0 }} />
+            <CheckCircle2 size={16} color="#09090b" style={{ flexShrink: 0 }} />
             <span>Notification preferences saved successfully!</span>
           </div>
         )}
@@ -828,155 +1087,157 @@ export default function ClientSettingsPage() {
       </div>
 
       {/* ── SECTION 4: Organization Membership & Workspace ── */}
-      <div className="wf-card">
-        <div className="wf-card-header" style={{ paddingBottom: '0.75rem', borderBottom: '1px solid var(--border-color)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <Building size={18} color="#09090b" />
-            <div>
-              <h3 className="wf-title" style={{ fontSize: '0.95rem' }}>
-                Organization & Company Workspace
-              </h3>
-              <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '0.1rem' }}>
-                View your current company affiliation and manage workspace membership.
-              </p>
+      {userRole !== 'pilot' && (
+        <div className="wf-card">
+          <div className="wf-card-header" style={{ paddingBottom: '0.75rem', borderBottom: '1px solid var(--border-color)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <Building size={18} color="#09090b" />
+              <div>
+                <h3 className="wf-title" style={{ fontSize: '0.95rem' }}>
+                  Organization & Company Workspace
+                </h3>
+                <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '0.1rem' }}>
+                  View your current company affiliation and manage workspace membership.
+                </p>
+              </div>
             </div>
           </div>
-        </div>
 
-        {leaveOrgSuccess && (
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.5rem',
-              marginTop: '1rem',
-              padding: '0.75rem 1rem',
-              backgroundColor: '#f0fdf4',
-              border: '1px solid #bbf7d0',
-              borderRadius: '6px',
-              color: '#166534',
-              fontSize: '0.825rem',
-              fontWeight: 600,
-            }}
-          >
-            <CheckCircle2 size={16} color="#166534" style={{ flexShrink: 0 }} />
-            <span>You have successfully left the organization workspace. Your account has returned to an individual client profile.</span>
-          </div>
-        )}
+          {leaveOrgSuccess && (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.5rem',
+                marginTop: '1rem',
+                padding: '0.75rem 1rem',
+                backgroundColor: '#f4f4f5',
+                border: '1px solid #d4d4d8',
+                borderRadius: '6px',
+                color: '#09090b',
+                fontSize: '0.825rem',
+                fontWeight: 600,
+              }}
+            >
+              <CheckCircle2 size={16} color="#09090b" style={{ flexShrink: 0 }} />
+              <span>You have successfully left the organization workspace. Your account has returned to an individual client profile.</span>
+            </div>
+          )}
 
-        {leaveOrgError && (
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.5rem',
-              marginTop: '1rem',
-              padding: '0.75rem 1rem',
-              backgroundColor: '#fef2f2',
-              border: '1px solid #fecaca',
-              borderRadius: '6px',
-              color: '#991b1b',
-              fontSize: '0.825rem',
-              fontWeight: 600,
-            }}
-          >
-            <AlertCircle size={16} color="#dc2626" style={{ flexShrink: 0 }} />
-            <span>{leaveOrgError}</span>
-          </div>
-        )}
+          {leaveOrgError && (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.5rem',
+                marginTop: '1rem',
+                padding: '0.75rem 1rem',
+                backgroundColor: '#f4f4f5',
+                border: '1px solid #d4d4d8',
+                borderRadius: '6px',
+                color: '#09090b',
+                fontSize: '0.825rem',
+                fontWeight: 600,
+              }}
+            >
+              <AlertCircle size={16} color="#09090b" style={{ flexShrink: 0 }} />
+              <span>{leaveOrgError}</span>
+            </div>
+          )}
 
-        <div style={{ marginTop: '1.25rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-          <div
-            style={{
-              padding: '1rem',
-              borderRadius: '6px',
-              backgroundColor: '#f8fafc',
-              border: '1px solid var(--border-color)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              gap: '1rem',
-              flexWrap: 'wrap',
-            }}
-          >
-            <div>
-              <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                CURRENT COMPANY / WORKSPACE
+          <div style={{ marginTop: '1.25rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <div
+              style={{
+                padding: '1rem',
+                borderRadius: '6px',
+                backgroundColor: '#fafafa',
+                border: '1px solid var(--border-color)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: '1rem',
+                flexWrap: 'wrap',
+              }}
+            >
+              <div>
+                <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                  CURRENT COMPANY / WORKSPACE
+                </div>
+                <div style={{ fontSize: '1.05rem', fontWeight: 700, color: '#09090b', marginTop: '0.2rem' }}>
+                  {companyName || 'Individual Account (No Company Linked)'}
+                </div>
+                <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: '0.25rem' }}>
+                  Role: <span style={{ fontWeight: 600, color: '#09090b' }}>
+                    {userRole === 'client_sub' ? 'Client Team Member' : userRole === 'client_primary' ? 'Primary Client' : 'Individual Client'}
+                  </span>
+                </div>
               </div>
-              <div style={{ fontSize: '1.05rem', fontWeight: 700, color: '#09090b', marginTop: '0.2rem' }}>
-                {companyName || 'Individual Account (No Company Linked)'}
-              </div>
-              <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: '0.25rem' }}>
-                Role: <span style={{ fontWeight: 600, color: '#09090b' }}>
-                  {userRole === 'client_sub' ? 'Client Team Member' : userRole === 'client_primary' ? 'Primary Client' : 'Individual Client'}
+
+              {companyName ? (
+                <button
+                  type="button"
+                  onClick={() => setShowLeaveOrgModal(true)}
+                  style={{
+                    padding: '0.5rem 1rem',
+                    borderRadius: '6px',
+                    border: '1px solid #d4d4d8',
+                    backgroundColor: '#ffffff',
+                    color: '#09090b',
+                    fontSize: '0.825rem',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.45rem',
+                    transition: 'background-color 0.15s ease',
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#f4f4f5')}
+                  onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = '#ffffff')}
+                >
+                  <LogOut size={15} color="#09090b" />
+                  <span>Leave Organization</span>
+                </button>
+              ) : (
+                <span
+                  style={{
+                    fontSize: '0.8rem',
+                    color: 'var(--text-secondary)',
+                    backgroundColor: '#ffffff',
+                    border: '1px solid var(--border-color)',
+                    padding: '0.35rem 0.75rem',
+                    borderRadius: '6px',
+                  }}
+                >
+                  Independent Client
                 </span>
-              </div>
+              )}
             </div>
 
-            {companyName ? (
-              <button
-                type="button"
-                onClick={() => setShowLeaveOrgModal(true)}
-                style={{
-                  padding: '0.5rem 1rem',
-                  borderRadius: '6px',
-                  border: '1px solid #cbd5e1',
-                  backgroundColor: '#ffffff',
-                  color: '#b91c1c',
-                  fontSize: '0.825rem',
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.45rem',
-                  transition: 'background-color 0.15s ease',
-                }}
-                onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#fef2f2')}
-                onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = '#ffffff')}
-              >
-                <LogOut size={15} color="#b91c1c" />
-                <span>Leave Organization</span>
-              </button>
-            ) : (
-              <span
-                style={{
-                  fontSize: '0.8rem',
-                  color: 'var(--text-secondary)',
-                  backgroundColor: '#ffffff',
-                  border: '1px solid var(--border-color)',
-                  padding: '0.35rem 0.75rem',
-                  borderRadius: '6px',
-                }}
-              >
-                Independent Client
-              </span>
-            )}
+            <p style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', margin: 0, lineHeight: 1.5 }}>
+              {companyName
+                ? 'Leaving this organization will disconnect your user account from team project communications and shared company data. You will retain your personal login credentials as an individual client.'
+                : 'You are currently an individual client. If invited to an organization by an enterprise client, your team workspace affiliation will appear here.'}
+            </p>
           </div>
-
-          <p style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', margin: 0, lineHeight: 1.5 }}>
-            {companyName
-              ? 'Leaving this organization will disconnect your user account from team project communications and shared company data. You will retain your personal login credentials as an individual client.'
-              : 'You are currently an individual client. If invited to an organization by an enterprise client, your team workspace affiliation will appear here.'}
-          </p>
         </div>
-      </div>
+      )}
 
       {/* ── SECTION 5: Danger Zone ── */}
       <div
         className="wf-card"
         style={{
-          border: '1px solid #fecaca',
-          backgroundColor: '#fffafb',
+          border: '1px solid #d4d4d8',
+          backgroundColor: '#fafafa',
         }}
       >
-        <div className="wf-card-header" style={{ paddingBottom: '0.75rem', borderBottom: '1px solid #fee2e2' }}>
+        <div className="wf-card-header" style={{ paddingBottom: '0.75rem', borderBottom: '1px solid #f4f4f5' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <AlertTriangle size={18} color="#dc2626" />
+            <AlertTriangle size={18} color="#09090b" />
             <div>
-              <h3 className="wf-title" style={{ fontSize: '0.95rem', color: '#991b1b' }}>
+              <h3 className="wf-title" style={{ fontSize: '0.95rem', color: '#09090b' }}>
                 Danger Zone
               </h3>
-              <p style={{ fontSize: '0.75rem', color: '#b91c1c', marginTop: '0.1rem' }}>
+              <p style={{ fontSize: '0.75rem', color: '#09090b', marginTop: '0.1rem' }}>
                 Irreversible account deletion and deactivation
               </p>
             </div>
@@ -991,15 +1252,15 @@ export default function ClientSettingsPage() {
               gap: '0.5rem',
               marginTop: '1rem',
               padding: '0.75rem 1rem',
-              backgroundColor: '#fef2f2',
-              border: '1px solid #fecaca',
+              backgroundColor: '#f4f4f5',
+              border: '1px solid #d4d4d8',
               borderRadius: '6px',
-              color: '#991b1b',
+              color: '#09090b',
               fontSize: '0.825rem',
               fontWeight: 600,
             }}
           >
-            <AlertCircle size={16} color="#dc2626" style={{ flexShrink: 0 }} />
+            <AlertCircle size={16} color="#09090b" style={{ flexShrink: 0 }} />
             <span>{deleteAccountError}</span>
           </div>
         )}
@@ -1015,10 +1276,10 @@ export default function ClientSettingsPage() {
           }}
         >
           <div>
-            <div style={{ fontSize: '0.875rem', fontWeight: 700, color: '#991b1b' }}>
+            <div style={{ fontSize: '0.875rem', fontWeight: 700, color: '#09090b' }}>
               Delete Personal Account
             </div>
-            <div style={{ fontSize: '0.78rem', color: '#7f1d1d', marginTop: '0.2rem', maxWidth: '520px', lineHeight: 1.4 }}>
+            <div style={{ fontSize: '0.78rem', color: '#09090b', marginTop: '0.2rem', maxWidth: '520px', lineHeight: 1.4 }}>
               Permanently deactivate and delete your account. You will immediately lose access to the Aerostake portal, active projects, and joint ownership features.
             </div>
           </div>
@@ -1029,8 +1290,8 @@ export default function ClientSettingsPage() {
             style={{
               padding: '0.5rem 1.15rem',
               borderRadius: '6px',
-              border: '1px solid #dc2626',
-              backgroundColor: '#dc2626',
+              border: '1px solid #09090b',
+              backgroundColor: '#09090b',
               color: '#ffffff',
               fontSize: '0.825rem',
               fontWeight: 700,
@@ -1070,14 +1331,14 @@ export default function ClientSettingsPage() {
               maxWidth: '460px',
               width: '100%',
               boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)',
-              border: '1px solid #e2e8f0',
+              border: '1px solid #e4e4e7',
               overflow: 'hidden',
             }}
           >
             <div
               style={{
                 padding: '1.25rem 1.5rem',
-                borderBottom: '1px solid #e2e8f0',
+                borderBottom: '1px solid #e4e4e7',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'space-between',
@@ -1092,31 +1353,31 @@ export default function ClientSettingsPage() {
               <button
                 type="button"
                 onClick={() => setShowLeaveOrgModal(false)}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8' }}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#71717a' }}
               >
                 <X size={18} />
               </button>
             </div>
 
             <div style={{ padding: '1.25rem 1.5rem' }}>
-              <p style={{ fontSize: '0.875rem', color: '#334155', lineHeight: 1.5, margin: 0 }}>
+              <p style={{ fontSize: '0.875rem', color: '#27272a', lineHeight: 1.5, margin: 0 }}>
                 Are you sure you want to leave <strong>{companyName || 'your company'}</strong>?
               </p>
               <div
                 style={{
                   marginTop: '1rem',
                   padding: '0.75rem 1rem',
-                  backgroundColor: '#fffbeb',
-                  border: '1px solid #fef3c7',
+                  backgroundColor: '#fafafa',
+                  border: '1px solid #f4f4f5',
                   borderRadius: '6px',
                   fontSize: '0.8rem',
-                  color: '#92400e',
+                  color: '#27272a',
                   display: 'flex',
                   alignItems: 'flex-start',
                   gap: '0.5rem',
                 }}
               >
-                <AlertTriangle size={16} color="#d97706" style={{ flexShrink: 0, marginTop: '2px' }} />
+                <AlertTriangle size={16} color="#09090b" style={{ flexShrink: 0, marginTop: '2px' }} />
                 <span>
                   You will lose access to team project communications and shared company deliverables. Your account will revert to an individual profile.
                 </span>
@@ -1126,8 +1387,8 @@ export default function ClientSettingsPage() {
             <div
               style={{
                 padding: '1rem 1.5rem',
-                backgroundColor: '#f8fafc',
-                borderTop: '1px solid #e2e8f0',
+                backgroundColor: '#fafafa',
+                borderTop: '1px solid #e4e4e7',
                 display: 'flex',
                 justifyContent: 'flex-end',
                 gap: '0.75rem',
@@ -1140,9 +1401,9 @@ export default function ClientSettingsPage() {
                 style={{
                   padding: '0.5rem 1rem',
                   borderRadius: '6px',
-                  border: '1px solid #cbd5e1',
+                  border: '1px solid #d4d4d8',
                   backgroundColor: '#ffffff',
-                  color: '#334155',
+                  color: '#27272a',
                   fontSize: '0.825rem',
                   fontWeight: 600,
                   cursor: 'pointer',
@@ -1200,53 +1461,53 @@ export default function ClientSettingsPage() {
               maxWidth: '460px',
               width: '100%',
               boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)',
-              border: '1px solid #e2e8f0',
+              border: '1px solid #e4e4e7',
               overflow: 'hidden',
             }}
           >
             <div
               style={{
                 padding: '1.25rem 1.5rem',
-                borderBottom: '1px solid #e2e8f0',
+                borderBottom: '1px solid #e4e4e7',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'space-between',
               }}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <Trash2 size={18} color="#dc2626" />
-                <h3 style={{ fontSize: '1rem', fontWeight: 700, margin: 0, color: '#991b1b' }}>
+                <Trash2 size={18} color="#09090b" />
+                <h3 style={{ fontSize: '1rem', fontWeight: 700, margin: 0, color: '#09090b' }}>
                   Delete Account Confirmation
                 </h3>
               </div>
               <button
                 type="button"
                 onClick={() => setShowDeleteAccountModal(false)}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8' }}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#71717a' }}
               >
                 <X size={18} />
               </button>
             </div>
 
             <div style={{ padding: '1.25rem 1.5rem' }}>
-              <p style={{ fontSize: '0.875rem', color: '#334155', lineHeight: 1.5, margin: 0 }}>
+              <p style={{ fontSize: '0.875rem', color: '#27272a', lineHeight: 1.5, margin: 0 }}>
                 Are you sure you want to permanently delete your account (<strong>{email}</strong>)?
               </p>
               <div
                 style={{
                   marginTop: '1rem',
                   padding: '0.75rem 1rem',
-                  backgroundColor: '#fef2f2',
-                  border: '1px solid #fecaca',
+                  backgroundColor: '#f4f4f5',
+                  border: '1px solid #d4d4d8',
                   borderRadius: '6px',
                   fontSize: '0.8rem',
-                  color: '#991b1b',
+                  color: '#09090b',
                   display: 'flex',
                   alignItems: 'flex-start',
                   gap: '0.5rem',
                 }}
               >
-                <AlertTriangle size={16} color="#dc2626" style={{ flexShrink: 0, marginTop: '2px' }} />
+                <AlertTriangle size={16} color="#09090b" style={{ flexShrink: 0, marginTop: '2px' }} />
                 <span>
                   This action is permanent and cannot be undone. All active sessions and credentials will be terminated immediately.
                 </span>
@@ -1256,8 +1517,8 @@ export default function ClientSettingsPage() {
             <div
               style={{
                 padding: '1rem 1.5rem',
-                backgroundColor: '#f8fafc',
-                borderTop: '1px solid #e2e8f0',
+                backgroundColor: '#fafafa',
+                borderTop: '1px solid #e4e4e7',
                 display: 'flex',
                 justifyContent: 'flex-end',
                 gap: '0.75rem',
@@ -1270,9 +1531,9 @@ export default function ClientSettingsPage() {
                 style={{
                   padding: '0.5rem 1rem',
                   borderRadius: '6px',
-                  border: '1px solid #cbd5e1',
+                  border: '1px solid #d4d4d8',
                   backgroundColor: '#ffffff',
-                  color: '#334155',
+                  color: '#27272a',
                   fontSize: '0.825rem',
                   fontWeight: 600,
                   cursor: 'pointer',
@@ -1288,7 +1549,7 @@ export default function ClientSettingsPage() {
                   padding: '0.5rem 1.25rem',
                   borderRadius: '6px',
                   border: 'none',
-                  backgroundColor: '#dc2626',
+                  backgroundColor: '#09090b',
                   color: '#ffffff',
                   fontSize: '0.825rem',
                   fontWeight: 700,

@@ -1,10 +1,12 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/lib/auth';
 import { isLatricsRole } from '@/lib/role';
 import { LatricsOperationsDashboard } from '@/modules/dashboard/components/LatricsOperationsDashboard';
+import { PilotDashboardView } from '@/modules/dashboard/components/PilotDashboardView';
+import { PageHeader } from '@/components/PageHeader';
 import {
   Calendar,
   FileText,
@@ -17,13 +19,14 @@ import {
   ArrowRight,
   Layers,
   FolderPlus,
+  ChevronDown,
 } from 'lucide-react';
 import { projectApi } from '@/modules/projects/api';
 import { sectorApi } from '@/modules/sectors/api';
 import { paymentsApi } from '@/modules/payments/api';
 import { Project } from '@/modules/projects/types';
 import { Sector } from '@/modules/sectors/types';
-import { PaymentRecord } from '@/modules/payments/types';
+import { PaymentRecord, ClientWalletSummary } from '@/modules/payments/types';
 
 // Drone Quadcopter Icon
 function DroneIcon({ size = 20, color = '#09090b' }: { size?: number; color?: string }) {
@@ -64,6 +67,11 @@ export default function ClientDashboardPage() {
     );
   }
 
+  // If user is Pilot, render the dedicated Pilot Dashboard View
+  if (user && (user.role === 'pilot' || user.role?.toString() === 'pilot')) {
+    return <PilotDashboardView />;
+  }
+
   // If user is Admin or Operations, render the Latrics Operations & Admin Dashboard
   if (user && isLatricsRole(user.role)) {
     return <LatricsOperationsDashboard />;
@@ -78,6 +86,9 @@ function ClientDashboardView() {
   const [selectedProjectId, setSelectedProjectId] = useState<string>('');
   const [realSectors, setRealSectors] = useState<Sector[]>([]);
   const [payments, setPayments] = useState<PaymentRecord[]>([]);
+  const [wallet, setWallet] = useState<ClientWalletSummary | null>(null);
+  const [isTxDropdownOpen, setIsTxDropdownOpen] = useState(false);
+  const txDropdownRef = useRef<HTMLDivElement>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   // Sector Stats Metric Selection (from right-hand radio panel)
@@ -87,19 +98,38 @@ function ClientDashboardView() {
   const [mapZoom, setMapZoom] = useState(1);
   const [hoveredSectorId, setHoveredSectorId] = useState<string | null>(null);
 
+  // Close transaction dropdown on click outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (txDropdownRef.current && !txDropdownRef.current.contains(event.target as Node)) {
+        setIsTxDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
   const loadProjectDetails = useCallback(async (projectId: string) => {
     if (!projectId) {
       setRealSectors([]);
       setPayments([]);
+      setWallet(null);
       return;
     }
     try {
-      const [secData, payData] = await Promise.allSettled([
+      const [secData, payData, walletData] = await Promise.allSettled([
         sectorApi.listProjectSectors(projectId),
         paymentsApi.listProjectPayments(projectId),
+        paymentsApi.getMyWallet(),
       ]);
       if (secData.status === 'fulfilled') setRealSectors(secData.value || []);
       if (payData.status === 'fulfilled') setPayments(payData.value || []);
+      if (walletData.status === 'fulfilled' && walletData.value) {
+        setWallet(walletData.value);
+      } else {
+        const myW = await paymentsApi.getMyWallet().catch(() => null);
+        setWallet(myW);
+      }
     } catch (err) {
       console.error('Error loading project details:', err);
     }
@@ -119,6 +149,8 @@ function ClientDashboardView() {
         setSelectedProjectId('');
         setRealSectors([]);
         setPayments([]);
+        const myW = await paymentsApi.getMyWallet().catch(() => null);
+        setWallet(myW);
       }
     } catch (err) {
       console.error('Error fetching dashboard initial data:', err);
@@ -245,23 +277,30 @@ function ClientDashboardView() {
     };
   }, [selectedProject, realSectors]);
 
-  // ── 4. Outstanding Balance Calculation (from real payment records) ──
+  // ── 4. Outstanding Balance Calculation (from real cumulative wallet across all projects) ──
   const outstandingInfo = useMemo(() => {
-    const pendingPayments = payments.filter((p) => p.status === 'pending');
-    const totalPending = pendingPayments.reduce((acc, p) => {
-      const amount = p.amount_inr || p.amount_usd || 0;
-      return acc + amount;
-    }, 0);
+    const balance = wallet ? wallet.current_balance : 0;
+    const isDue = balance > 0;
+    const isCredit = balance < 0;
+    const ledger = wallet?.ledger_entries || [];
+    const recentTransactions = ledger.slice(-3).reverse();
 
     return {
-      amountFormatted: `₹ ${totalPending.toLocaleString('en-IN')}`,
-      count: pendingPayments.length,
-      note:
-        pendingPayments.length > 0
-          ? `From ${pendingPayments.length} pending transaction${pendingPayments.length > 1 ? 's' : ''}`
-          : 'No outstanding balance',
+      balance,
+      amountFormatted: `₹ ${Math.abs(balance).toLocaleString('en-IN', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      })}`,
+      isDue,
+      isCredit,
+      note: isDue
+        ? 'Payment pending on running balance (all projects)'
+        : isCredit
+        ? `Surplus credit of ₹${Math.abs(balance).toLocaleString('en-IN', { minimumFractionDigits: 2 })} (all projects)`
+        : 'No outstanding balance (all projects settled)',
+      recentTransactions,
     };
-  }, [payments]);
+  }, [wallet]);
 
   // ── 5. Formatted Sector Cards Data (Strictly from real DB Sector records) ──
   const displayedSectors = useMemo(() => {
@@ -347,14 +386,10 @@ function ClientDashboardView() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', paddingBottom: '2rem' }}>
       {/* ── Page Header ── */}
-      <div>
-        <h1 style={{ fontSize: '1.45rem', fontWeight: 800, color: '#09090b', letterSpacing: '-0.02em', margin: 0 }}>
-          Dashboard
-        </h1>
-        <p style={{ fontSize: '0.8rem', color: '#71717a', marginTop: '0.25rem', margin: 0 }}>
-          Overview of your survey operations and project activity.
-        </p>
-      </div>
+      <PageHeader
+        title="Dashboard"
+        subtitle="Overview of your survey operations and project activity."
+      />
 
       {/* ── Top Metrics Cards (Row of 4) ── */}
       <div
@@ -559,34 +594,170 @@ function ClientDashboardView() {
             flexDirection: 'column',
             justifyContent: 'space-between',
             minHeight: '140px',
+            position: 'relative',
           }}
+          ref={txDropdownRef}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
-            <div
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+              <div
+                style={{
+                  width: '30px',
+                  height: '30px',
+                  borderRadius: '6px',
+                  border: '1px solid #e4e4e7',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  backgroundColor: '#fcfcfc',
+                }}
+              >
+                <FileText size={16} color="#09090b" />
+              </div>
+              <span style={{ fontSize: '0.775rem', fontWeight: 600, color: '#71717a' }}>Outstanding Balance</span>
+            </div>
+
+            {/* Dropdown toggle for last 3 transactions */}
+            <button
+              onClick={() => setIsTxDropdownOpen(!isTxDropdownOpen)}
+              title="View last 3 transactions"
               style={{
-                width: '30px',
-                height: '30px',
-                borderRadius: '6px',
-                border: '1px solid #e4e4e7',
-                display: 'flex',
+                display: 'inline-flex',
                 alignItems: 'center',
-                justifyContent: 'center',
-                backgroundColor: '#fcfcfc',
+                gap: '0.25rem',
+                fontSize: '0.7rem',
+                fontWeight: 600,
+                color: '#52525b',
+                backgroundColor: isTxDropdownOpen ? '#f4f4f5' : 'transparent',
+                border: '1px solid #e4e4e7',
+                borderRadius: '6px',
+                padding: '0.2rem 0.45rem',
+                cursor: 'pointer',
+                transition: 'all 0.15s ease',
               }}
             >
-              <FileText size={16} color="#09090b" />
-            </div>
-            <span style={{ fontSize: '0.775rem', fontWeight: 600, color: '#71717a' }}>Outstanding Balance</span>
+              <span>Recent (3)</span>
+              <ChevronDown
+                size={12}
+                style={{
+                  transform: isTxDropdownOpen ? 'rotate(180deg)' : 'none',
+                  transition: 'transform 0.15s ease',
+                }}
+              />
+            </button>
           </div>
 
           <div style={{ marginTop: '0.4rem' }}>
-            <div style={{ fontSize: '1.35rem', fontWeight: 800, color: '#09090b', lineHeight: 1.15 }}>
+            <div
+              style={{
+                fontSize: '1.35rem',
+                fontWeight: 800,
+                fontFamily: 'monospace',
+                color: outstandingInfo.isDue ? '#dc2626' : '#16a34a',
+                lineHeight: 1.15,
+              }}
+            >
               {outstandingInfo.amountFormatted}
             </div>
             <div style={{ fontSize: '0.75rem', color: '#71717a', marginTop: '0.3rem' }}>
               {outstandingInfo.note}
             </div>
           </div>
+
+          {/* Dropdown Menu showing Last 3 Transactions */}
+          {isTxDropdownOpen && (
+            <div
+              style={{
+                position: 'absolute',
+                top: 'calc(100% + 6px)',
+                right: 0,
+                left: 0,
+                backgroundColor: '#ffffff',
+                border: '1px solid #e4e4e7',
+                borderRadius: '8px',
+                padding: '0.75rem',
+                boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.05)',
+                zIndex: 100,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '0.5rem',
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #f4f4f5', paddingBottom: '0.4rem' }}>
+                <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#71717a', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                  Last 3 Transactions
+                </span>
+                <span style={{ fontSize: '0.675rem', color: '#a1a1aa' }}>
+                  Cumulative Wallet
+                </span>
+              </div>
+
+              {outstandingInfo.recentTransactions.length === 0 ? (
+                <div style={{ padding: '0.75rem 0.5rem', textAlign: 'center', fontSize: '0.75rem', color: '#71717a' }}>
+                  No transactions recorded yet
+                </div>
+              ) : (
+                outstandingInfo.recentTransactions.map((tx) => (
+                  <div
+                    key={tx.id}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      padding: '0.35rem 0',
+                      borderBottom: '1px dashed #f4f4f5',
+                      fontSize: '0.75rem',
+                    }}
+                  >
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                        <span style={{ fontWeight: 600, color: '#09090b', fontSize: '0.75rem' }}>
+                          {tx.type === 'bill' ? 'Digital Bill' : 'Payment'}
+                        </span>
+                        <span style={{ color: '#71717a', fontFamily: 'monospace', fontSize: '0.7rem' }}>
+                          {tx.reference}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: '0.675rem', color: '#a1a1aa', marginTop: '0.15rem' }}>
+                        {tx.date}
+                      </div>
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                      <div
+                        style={{
+                          fontWeight: 800,
+                          fontFamily: 'monospace',
+                          color: tx.type === 'bill' ? '#dc2626' : '#16a34a',
+                        }}
+                      >
+                        {tx.type === 'bill'
+                          ? `+₹${tx.amount_billed.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`
+                          : `-₹${tx.amount_paid.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`}
+                      </div>
+                      <div style={{ fontSize: '0.65rem', color: '#71717a', fontFamily: 'monospace' }}>
+                        Bal: ₹{tx.running_balance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+
+              <div style={{ paddingTop: '0.35rem', textAlign: 'right' }}>
+                <Link
+                  href="/payments"
+                  style={{
+                    fontSize: '0.725rem',
+                    fontWeight: 700,
+                    color: '#09090b',
+                    textDecoration: 'none',
+                  }}
+                  className="hover:underline"
+                >
+                  View full wallet ledger &rarr;
+                </Link>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -762,7 +933,7 @@ function ClientDashboardView() {
                       <g key={sec.id}>
                         <polygon
                           points={cfg.points}
-                          fill={isHovered ? 'rgba(9, 9, 11, 0.35)' : 'rgba(240, 240, 242, 0.72)'}
+                          fill={isHovered ? 'rgba(0, 0, 0, 0.35)' : 'rgba(240, 240, 240, 0.72)'}
                           stroke="#18181b"
                           strokeWidth="1.5"
                           onMouseEnter={() => setHoveredSectorId(sec.id)}
@@ -836,7 +1007,7 @@ function ClientDashboardView() {
                   bottom: '12px',
                   right: '12px',
                   backgroundColor: '#ffffff',
-                  border: '1px solid #cbd5e1',
+                  border: '1px solid #d4d4d8',
                   borderRadius: '4px',
                   padding: '0.3rem 0.6rem',
                   fontSize: '0.7rem',
@@ -922,7 +1093,7 @@ function ClientDashboardView() {
                           <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#09090b' }}>
                             {sec.lastLanding}
                           </div>
-                          <div style={{ fontSize: '0.675rem', color: sec.status === 'completed' ? '#16a34a' : '#71717a', fontWeight: 600, marginTop: '0.1rem' }}>
+                          <div style={{ fontSize: '0.675rem', color: sec.status === 'completed' ? '#09090b' : '#71717a', fontWeight: 600, marginTop: '0.1rem' }}>
                             {sec.status === 'completed' ? 'Survey Verified' : 'Pending Flight'}
                           </div>
                           <div style={{ width: '100%', height: '6px', backgroundColor: '#e4e4e7', borderRadius: '3px', marginTop: '0.35rem', overflow: 'hidden' }}>
@@ -960,7 +1131,7 @@ function ClientDashboardView() {
                       )}
 
                       {/* Footer stats */}
-                      <div style={{ marginTop: '0.65rem', borderTop: '1px solid #f1f5f9', paddingTop: '0.45rem', display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                      <div style={{ marginTop: '0.65rem', borderTop: '1px solid #f4f4f5', paddingTop: '0.45rem', display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem' }}>
                           <span style={{ color: '#71717a' }}>Landings</span>
                           <span style={{ color: '#09090b', fontWeight: 600 }}>{sec.landings.toLocaleString()}</span>
@@ -1229,7 +1400,7 @@ function ClientDashboardView() {
               fontSize: '0.7rem',
               color: '#71717a',
               marginTop: '1.25rem',
-              borderTop: '1px solid #f1f5f9',
+              borderTop: '1px solid #f4f4f5',
               paddingTop: '0.75rem',
             }}
           >
@@ -1315,7 +1486,7 @@ function ClientDashboardView() {
                   <tr
                     key={proj.id}
                     style={{
-                      borderBottom: idx === displayedRecentProjects.length - 1 ? 'none' : '1px solid #f1f5f9',
+                      borderBottom: idx === displayedRecentProjects.length - 1 ? 'none' : '1px solid #f4f4f5',
                       transition: 'background-color 0.15s ease',
                     }}
                     className="hover:bg-slate-50"

@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import { PageHeader } from '@/components/PageHeader';
 
 export default function ClientHelpDeskPage() {
   const [ticketSubject, setTicketSubject] = useState('');
@@ -37,14 +38,11 @@ export default function ClientHelpDeskPage() {
 
   return (
     <div>
-      <div style={{ marginBottom: '2rem' }}>
-        <h2 style={{ fontSize: '1.75rem', fontWeight: 700, marginBottom: '0.35rem' }}>
-          Client Support & Operations Help Desk
-        </h2>
-        <p style={{ color: 'var(--text-secondary)' }}>
-          Access documentation, operational FAQs, or reach out directly to the Latrics flight dispatch team.
-        </p>
-      </div>
+      {/* ── Page Header ── */}
+      <PageHeader
+        title="Client Support & Operations Help Desk"
+        subtitle="Access documentation, operational FAQs, or reach out directly to the Latrics flight dispatch team."
+      />
 
       <div className="grid-3" style={{ marginBottom: '2rem' }}>
         <div className="glass-card">
@@ -55,7 +53,7 @@ export default function ClientHelpDeskPage() {
           <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '0.75rem' }}>
             Direct coordination for live field missions and airspace clearance.
           </p>
-          <div style={{ fontSize: '0.85rem', color: '#3b82f6', fontWeight: 600 }}>
+          <div style={{ fontSize: '0.85rem', color: '#09090b', fontWeight: 600 }}>
             ops@latrics.com • +91 (80) 4120-9988
           </div>
         </div>
@@ -68,7 +66,7 @@ export default function ClientHelpDeskPage() {
           <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '0.75rem' }}>
             Digital Sky green zone permissions and safety auditing.
           </p>
-          <div style={{ fontSize: '0.85rem', color: '#10b981', fontWeight: 600 }}>
+          <div style={{ fontSize: '0.85rem', color: '#18181b', fontWeight: 600 }}>
             compliance@latrics.com
           </div>
         </div>
@@ -81,7 +79,7 @@ export default function ClientHelpDeskPage() {
           <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '0.75rem' }}>
             Assistance with GeoTIFFs, orthomosaics, and thermal analysis formats.
           </p>
-          <div style={{ fontSize: '0.85rem', color: '#f59e0b', fontWeight: 600 }}>
+          <div style={{ fontSize: '0.85rem', color: '#27272a', fontWeight: 600 }}>
             gis-support@latrics.com
           </div>
         </div>
@@ -103,7 +101,7 @@ export default function ClientHelpDeskPage() {
                   className="glass-panel"
                   style={{
                     overflow: 'hidden',
-                    borderColor: isOpen ? 'rgba(59, 130, 246, 0.4)' : undefined,
+                    borderColor: isOpen ? '#09090b' : undefined,
                   }}
                 >
                   <button
@@ -163,8 +161,8 @@ export default function ClientHelpDeskPage() {
               style={{
                 padding: '2rem',
                 textAlign: 'center',
-                backgroundColor: 'rgba(16, 185, 129, 0.1)',
-                border: '1px solid rgba(16, 185, 129, 0.3)',
+                backgroundColor: '#f4f4f5',
+                border: '1px solid #09090b',
                 borderRadius: 'var(--radius-md)',
               }}
             >
