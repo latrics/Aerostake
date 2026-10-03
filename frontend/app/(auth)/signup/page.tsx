@@ -42,7 +42,7 @@ export default function SignupPage() {
       } else if (userRole === 'operations') {
         window.location.href = '/allocations';
       } else if (userRole === 'pilot') {
-        window.location.href = '/my-assignments';
+        window.location.href = '/dashboard';
       }
     } catch (err: any) {
       setLoading(false);
@@ -58,8 +58,8 @@ export default function SignupPage() {
       {(validationError || authError) && (
         <div
           style={{
-            backgroundColor: 'rgba(239, 68, 68, 0.1)',
-            border: '1px solid rgba(239, 68, 68, 0.3)',
+            backgroundColor: '#f4f4f5',
+            border: '1px solid #09090b',
             borderRadius: 'var(--radius-sm)',
             padding: '0.75rem',
             marginBottom: '1.25rem',
@@ -137,7 +137,7 @@ export default function SignupPage() {
 
       <div style={{ marginTop: '1.5rem', textAlign: 'center', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
         Already have an account?{' '}
-        <Link href="/login" style={{ color: '#3b82f6', fontWeight: 600 }}>
+        <Link href="/login" style={{ color: '#09090b', fontWeight: 600, textDecoration: 'underline' }}>
           Log in instead
         </Link>
       </div>

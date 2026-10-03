@@ -37,6 +37,12 @@ export interface CompanyProfileData {
   is_onboarded?: boolean;
 }
 
+export interface PilotProfileData {
+  age?: number | string;
+  aadhaar_number?: string;
+  dgca_license_number?: string;
+}
+
 export interface UserProfile {
   id: string;
   email: string;
@@ -47,8 +53,12 @@ export interface UserProfile {
   phone_number?: string | null;
   designation?: string | null;
   company_profile?: CompanyProfileData | null;
+  pilot_profile?: PilotProfileData | null;
   organization_id?: string | null;
   device_token?: string | null;
+  has_authenticated?: boolean;
+  invitation_status?: string | null;
+  invitation_id?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -60,6 +70,7 @@ export interface UserProfileUpdate {
   phone_number?: string;
   designation?: string;
   company_profile?: CompanyProfileData;
+  pilot_profile?: PilotProfileData;
 }
 
 export interface ChangePasswordPayload {

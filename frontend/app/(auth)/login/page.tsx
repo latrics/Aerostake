@@ -1,19 +1,29 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, Suspense } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { useAuth } from '@/lib/auth';
 
-export default function LoginPage() {
+function LoginForm() {
   const { login, error: authError } = useAuth();
+  const searchParams = useSearchParams();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [validationError, setValidationError] = useState('');
+  const [sessionExpired, setSessionExpired] = useState(false);
+
+  useEffect(() => {
+    if (searchParams.get('session_expired') === 'true') {
+      setSessionExpired(true);
+    }
+  }, [searchParams]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setValidationError('');
+    setSessionExpired(false);
     
     if (!email || !password) {
       setValidationError('Please fill in all fields.');
@@ -40,7 +50,7 @@ export default function LoginPage() {
       } else if (role === 'operations') {
         window.location.href = '/allocations';
       } else if (role === 'pilot') {
-        window.location.href = '/my-assignments';
+        window.location.href = '/dashboard';
       }
     } catch (err: any) {
       // Errors handled by useAuth hook and displayed via authError
@@ -54,11 +64,28 @@ export default function LoginPage() {
         Account Login
       </h2>
 
+      {sessionExpired && (
+        <div
+          style={{
+            backgroundColor: '#18181b',
+            color: '#fafafa',
+            border: '1px solid #27272a',
+            borderRadius: 'var(--radius-sm)',
+            padding: '0.75rem',
+            marginBottom: '1.25rem',
+            fontSize: '0.85rem',
+            lineHeight: 1.4,
+          }}
+        >
+          <strong>Session Expired:</strong> Your session has timed out. Please sign in again to continue.
+        </div>
+      )}
+
       {(validationError || authError) && (
         <div
           style={{
-            backgroundColor: 'rgba(239, 68, 68, 0.1)',
-            border: '1px solid rgba(239, 68, 68, 0.3)',
+            backgroundColor: '#f4f4f5',
+            border: '1px solid #09090b',
             borderRadius: 'var(--radius-sm)',
             padding: '0.75rem',
             marginBottom: '1.25rem',
@@ -113,7 +140,7 @@ export default function LoginPage() {
 
       <div style={{ marginTop: '1.5rem', textAlign: 'center', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
         Don&apos;t have an account?{' '}
-        <Link href="/signup" style={{ color: '#3b82f6', fontWeight: 600 }}>
+        <Link href="/signup" style={{ color: '#09090b', fontWeight: 600, textDecoration: 'underline' }}>
           Create one here
         </Link>
       </div>
@@ -125,17 +152,26 @@ export default function LoginPage() {
           paddingTop: '1rem',
           fontSize: '0.75rem',
           color: 'var(--text-muted)',
-          lineHeight: '1.4',
+          lineHeight: '1.5',
         }}
       >
-        <strong>Demo Accounts (Seeded):</strong>
-        <ul style={{ paddingLeft: '1.2rem', marginTop: '0.25rem' }}>
-          <li>Admin: <code>admin@latrics.com</code> / password</li>
-          <li>Ops: <code>ops@latrics.com</code> / password</li>
-          <li>Pilot: <code>pilot@latrics.com</code> / password</li>
-          <li>Client: <code>client@latrics.com</code> / password</li>
+        <strong>Available System Accounts:</strong>
+        <ul style={{ paddingLeft: '1.2rem', marginTop: '0.35rem', listStyleType: 'disc' }}>
+          <li>Admin: <code>aditya.paul@latrics.com</code> (Password: <code>Password123!</code>)</li>
+          <li>Operations: <code>ops@latrics.com</code> (Password: <code>Password123!</code>)</li>
+          <li>Client Primary: <code>client1@email.com</code> (Password: <code>Password123!</code>)</li>
+          <li>Client Sub-User: <code>sub1@email.com</code> (Password: <code>Password123!</code>)</li>
+          <li>Pilot: <code>pilot1@email.com</code> (Password: <code>Password123!</code>)</li>
         </ul>
       </div>
     </form>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={<div style={{ textAlign: 'center', padding: '2rem', fontSize: '0.875rem' }}>Loading login...</div>}>
+      <LoginForm />
+    </Suspense>
   );
 }

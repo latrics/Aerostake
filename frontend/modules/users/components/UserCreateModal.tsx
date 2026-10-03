@@ -64,10 +64,10 @@ export function UserCreateModal({ isOpen, onClose, onSubmit }: UserCreateModalPr
           <div
             style={{
               padding: '0.75rem 1rem',
-              background: 'rgba(239, 68, 68, 0.15)',
+              background: '#f4f4f5',
               border: '1px solid var(--accent-danger)',
               borderRadius: '8px',
-              color: '#fca5a5',
+              color: '#09090b',
               fontSize: '0.875rem',
               marginBottom: '1.25rem',
             }}

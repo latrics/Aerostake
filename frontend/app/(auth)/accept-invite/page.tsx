@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { invitationsApi } from '@/modules/invitations/api';
 import { apiClient, setCookie } from '@/lib/api-client';
 import { setCachedUser } from '@/lib/auth';
-import { CheckCircle2, AlertCircle, Loader2, ArrowRight, ShieldCheck, Lock, User, Phone } from 'lucide-react';
+import { CheckCircle2, AlertCircle, Loader2, ArrowRight, ShieldCheck, Lock, User, Phone, Mail } from 'lucide-react';
 
 function AcceptInviteForm() {
   const router = useRouter();
@@ -91,7 +91,7 @@ function AcceptInviteForm() {
         if (role === 'admin' || role === 'operations') {
           router.push('/dashboard');
         } else if (role === 'pilot') {
-          router.push('/my-assignments');
+          router.push('/dashboard');
         } else if (role === 'client_primary' || role === 'client') {
           if (!isOnboarded) {
             router.push('/company-profile?first_time=true');
@@ -141,9 +141,9 @@ function AcceptInviteForm() {
             width: '56px',
             height: '56px',
             borderRadius: '50%',
-            backgroundColor: '#fef2f2',
-            border: '1px solid #fecaca',
-            color: '#b91c1c',
+            backgroundColor: '#f4f4f5',
+            border: '1px solid #d4d4d8',
+            color: '#09090b',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -155,7 +155,7 @@ function AcceptInviteForm() {
         <h2 style={{ fontSize: '1.25rem', fontWeight: 700, color: '#09090b', marginBottom: '0.5rem' }}>
           Invalid or Expired Invitation
         </h2>
-        <p style={{ fontSize: '0.875rem', color: '#64748b', marginBottom: '1.5rem' }}>
+        <p style={{ fontSize: '0.875rem', color: '#52525b', marginBottom: '1.5rem' }}>
           {error}
         </p>
         <Link
@@ -186,9 +186,9 @@ function AcceptInviteForm() {
             width: '56px',
             height: '56px',
             borderRadius: '50%',
-            backgroundColor: '#f0fdf4',
-            border: '1px solid #bbf7d0',
-            color: '#15803d',
+            backgroundColor: '#f4f4f5',
+            border: '1px solid #d4d4d8',
+            color: '#09090b',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -200,7 +200,7 @@ function AcceptInviteForm() {
         <h2 style={{ fontSize: '1.25rem', fontWeight: 700, color: '#09090b', marginBottom: '0.5rem' }}>
           Account Activated Successfully!
         </h2>
-        <p style={{ fontSize: '0.875rem', color: '#64748b' }}>
+        <p style={{ fontSize: '0.875rem', color: '#52525b' }}>
           Redirecting you to your portal dashboard...
         </p>
       </div>
@@ -217,10 +217,10 @@ function AcceptInviteForm() {
             gap: '0.4rem',
             padding: '0.35rem 0.75rem',
             borderRadius: '20px',
-            backgroundColor: '#f1f5f9',
+            backgroundColor: '#f4f4f5',
             fontSize: '0.78rem',
             fontWeight: 600,
-            color: '#334155',
+            color: '#27272a',
             marginBottom: '0.75rem',
           }}
         >
@@ -230,7 +230,7 @@ function AcceptInviteForm() {
         <h2 style={{ fontSize: '1.45rem', fontWeight: 800, color: '#09090b', letterSpacing: '-0.02em', margin: 0 }}>
           Complete Your Registration
         </h2>
-        <p style={{ fontSize: '0.875rem', color: '#64748b', marginTop: '0.35rem' }}>
+        <p style={{ fontSize: '0.875rem', color: '#52525b', marginTop: '0.35rem' }}>
           You are joining as <b>{invitation?.email}</b>
         </p>
       </div>
@@ -239,10 +239,10 @@ function AcceptInviteForm() {
         <div
           style={{
             padding: '0.75rem 1rem',
-            backgroundColor: '#fef2f2',
-            border: '1px solid #fecaca',
+            backgroundColor: '#f4f4f5',
+            border: '1px solid #d4d4d8',
             borderRadius: '8px',
-            color: '#b91c1c',
+            color: '#09090b',
             fontSize: '0.85rem',
             marginBottom: '1.25rem',
             display: 'flex',
@@ -256,13 +256,46 @@ function AcceptInviteForm() {
       )}
 
       <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+        {/* Email Address (Auto-filled and Locked) */}
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.35rem' }}>
+            <label style={{ fontSize: '0.82rem', fontWeight: 600, color: '#09090b' }}>
+              Email Address
+            </label>
+            <span style={{ fontSize: '0.72rem', color: '#71717a', display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+              <Lock size={11} /> Locked to invitation
+            </span>
+          </div>
+          <div style={{ position: 'relative' }}>
+            <Mail size={16} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: '#71717a' }} />
+            <input
+              type="email"
+              value={invitation?.email || ''}
+              disabled
+              readOnly
+              style={{
+                width: '100%',
+                padding: '0.65rem 0.85rem 0.65rem 2.25rem',
+                backgroundColor: '#f4f4f5',
+                border: '1px solid #d4d4d8',
+                borderRadius: '6px',
+                fontSize: '0.875rem',
+                color: '#09090b',
+                fontWeight: 600,
+                boxSizing: 'border-box',
+                cursor: 'not-allowed',
+              }}
+            />
+          </div>
+        </div>
+
         {/* Full Name */}
         <div>
           <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: '#09090b', marginBottom: '0.35rem' }}>
             Full Name
           </label>
           <div style={{ position: 'relative' }}>
-            <User size={16} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+            <User size={16} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: '#71717a' }} />
             <input
               type="text"
               placeholder="e.g. Aarav Sharma"
@@ -271,11 +304,11 @@ function AcceptInviteForm() {
               style={{
                 width: '100%',
                 padding: '0.65rem 0.85rem 0.65rem 2.25rem',
-                border: '1px solid #cbd5e1',
+                border: '1px solid #d4d4d8',
                 borderRadius: '6px',
                 fontSize: '0.875rem',
                 outline: 'none',
-                color: '#0f172a',
+                color: '#09090b',
                 boxSizing: 'border-box',
               }}
             />
@@ -288,7 +321,7 @@ function AcceptInviteForm() {
             Phone Number
           </label>
           <div style={{ position: 'relative' }}>
-            <Phone size={16} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+            <Phone size={16} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: '#71717a' }} />
             <input
               type="tel"
               placeholder="e.g. +91 98765 43210"
@@ -297,11 +330,11 @@ function AcceptInviteForm() {
               style={{
                 width: '100%',
                 padding: '0.65rem 0.85rem 0.65rem 2.25rem',
-                border: '1px solid #cbd5e1',
+                border: '1px solid #d4d4d8',
                 borderRadius: '6px',
                 fontSize: '0.875rem',
                 outline: 'none',
-                color: '#0f172a',
+                color: '#09090b',
                 boxSizing: 'border-box',
               }}
             />
@@ -314,7 +347,7 @@ function AcceptInviteForm() {
             Create Password *
           </label>
           <div style={{ position: 'relative' }}>
-            <Lock size={16} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+            <Lock size={16} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: '#71717a' }} />
             <input
               type="password"
               required
@@ -325,11 +358,11 @@ function AcceptInviteForm() {
               style={{
                 width: '100%',
                 padding: '0.65rem 0.85rem 0.65rem 2.25rem',
-                border: '1px solid #cbd5e1',
+                border: '1px solid #d4d4d8',
                 borderRadius: '6px',
                 fontSize: '0.875rem',
                 outline: 'none',
-                color: '#0f172a',
+                color: '#09090b',
                 boxSizing: 'border-box',
               }}
             />
@@ -342,7 +375,7 @@ function AcceptInviteForm() {
             Confirm Password *
           </label>
           <div style={{ position: 'relative' }}>
-            <Lock size={16} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+            <Lock size={16} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: '#71717a' }} />
             <input
               type="password"
               required
@@ -353,11 +386,11 @@ function AcceptInviteForm() {
               style={{
                 width: '100%',
                 padding: '0.65rem 0.85rem 0.65rem 2.25rem',
-                border: '1px solid #cbd5e1',
+                border: '1px solid #d4d4d8',
                 borderRadius: '6px',
                 fontSize: '0.875rem',
                 outline: 'none',
-                color: '#0f172a',
+                color: '#09090b',
                 boxSizing: 'border-box',
               }}
             />

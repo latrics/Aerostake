@@ -50,11 +50,11 @@ export default function NotificationBanner() {
               alignItems: 'center',
               gap: '0.35rem',
               padding: '0.25rem 0.6rem',
-              background: 'rgba(16, 185, 129, 0.15)',
-              border: '1px solid rgba(16, 185, 129, 0.3)',
+              background: '#18181b',
+              border: '1px solid #18181b',
               borderRadius: '6px',
               fontSize: '0.75rem',
-              color: '#34d399',
+              color: '#ffffff',
               fontWeight: 500,
             }}
             title="Push notifications active"
@@ -71,10 +71,10 @@ export default function NotificationBanner() {
               alignItems: 'center',
               gap: '0.4rem',
               padding: '0.3rem 0.75rem',
-              background: 'rgba(59, 130, 246, 0.15)',
-              border: '1px solid rgba(59, 130, 246, 0.35)',
+              background: '#09090b',
+              border: '1px solid #09090b',
               borderRadius: '6px',
-              color: '#60a5fa',
+              color: '#ffffff',
               fontSize: '0.75rem',
               fontWeight: 600,
               cursor: 'pointer',
@@ -95,8 +95,8 @@ export default function NotificationBanner() {
             bottom: '24px',
             right: '24px',
             maxWidth: '380px',
-            background: '#1a2234',
-            border: '1px solid rgba(59, 130, 246, 0.4)',
+            background: '#18181b',
+            border: '1px solid #27272a',
             borderRadius: '10px',
             boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.5)',
             padding: '1rem 1.25rem',
@@ -107,12 +107,12 @@ export default function NotificationBanner() {
             animation: 'fadeIn 0.3s ease-out',
           }}
         >
-          <CheckCircle2 size={20} style={{ color: '#34d399', flexShrink: 0, marginTop: '2px' }} />
+          <CheckCircle2 size={20} style={{ color: '#ffffff', flexShrink: 0, marginTop: '2px' }} />
           <div style={{ flex: 1 }}>
-            <div style={{ fontWeight: 600, fontSize: '0.9rem', color: '#f8fafc', marginBottom: '0.2rem' }}>
+            <div style={{ fontWeight: 600, fontSize: '0.9rem', color: '#ffffff', marginBottom: '0.2rem' }}>
               {toastMessage.title}
             </div>
-            <div style={{ fontSize: '0.8rem', color: '#94a3b8', lineHeight: 1.4 }}>
+            <div style={{ fontSize: '0.8rem', color: '#a1a1aa', lineHeight: 1.4 }}>
               {toastMessage.body}
             </div>
           </div>
@@ -121,7 +121,7 @@ export default function NotificationBanner() {
             style={{
               background: 'transparent',
               border: 'none',
-              color: '#64748b',
+              color: '#a1a1aa',
               cursor: 'pointer',
               fontSize: '1rem',
               lineHeight: 1,

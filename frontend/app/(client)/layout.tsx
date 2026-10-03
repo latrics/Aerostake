@@ -11,17 +11,16 @@ import {
   Folder,
   FileText,
   CreditCard,
-  Files,
   HelpCircle,
   Settings,
-  Bell,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
   LogOut,
   Building,
-  User as UserIcon,
+  Loader2,
 } from 'lucide-react';
+import { ClientLiveWalletSyncBadge } from '@/modules/payments/components/ClientLiveWalletSyncBadge';
 
 export default function ClientLayout({
   children,
@@ -32,9 +31,28 @@ export default function ClientLayout({
   const router = useRouter();
   const { user, loading: authLoading, logout } = useAuth();
   const [isCollapsed, setIsCollapsed] = useState(false);
-  const [isOrgDropdownOpen, setIsOrgDropdownOpen] = useState(false);
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
   const profileMenuRef = useRef<HTMLDivElement>(null);
+
+  const displayName = user?.full_name?.split(' ')[0] || user?.email?.split('@')[0] || 'Client';
+  const companyLabel = user?.company_name || (user?.role === 'client_primary' ? 'Primary Client' : 'Client Workspace');
+  const displayEmail = user?.email || '';
+  const userInitials = user?.full_name
+    ? user.full_name
+        .split(' ')
+        .map((n) => n[0])
+        .join('')
+        .toUpperCase()
+        .slice(0, 2)
+    : user?.email?.slice(0, 2).toUpperCase() || 'CL';
+
+  // Session Timeout Guard:
+  // If session has expired or user is not logged in, immediately redirect to login page
+  useEffect(() => {
+    if (!authLoading && !user) {
+      router.replace('/login?session_expired=true');
+    }
+  }, [authLoading, user, router]);
 
   // First-time Onboarding Guard:
   // When entering the application for the first time, clients must see the profile form
@@ -63,6 +81,18 @@ export default function ClientLayout({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  // If session is loading or user is unauthenticated, do NOT display base layout
+  if (authLoading || !user) {
+    return (
+      <div style={{ display: 'flex', height: '100vh', width: '100vw', alignItems: 'center', justifyContent: 'center', backgroundColor: '#ffffff' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.75rem' }}>
+          <Loader2 size={32} className="spinner" color="#09090b" />
+          <span style={{ fontSize: '0.8rem', color: '#71717a', fontWeight: 500 }}>Authenticating session...</span>
+        </div>
+      </div>
+    );
+  }
+
   // If user is Admin or Operations or Pilot, use Latrics Layout
   if (user && isLatricsRole(user.role)) {
     return <LatricsLayout>{children}</LatricsLayout>;
@@ -70,19 +100,11 @@ export default function ClientLayout({
 
   const menuItems = [
     { label: 'Dashboard', path: '/dashboard', icon: Folder },
+    { label: 'Requests', path: '/requests', icon: FileText },
     { label: 'Projects', path: '/projects', icon: Folder },
-    { label: 'Daily logs', path: '/activity-logs', icon: FileText },
+    { label: 'Report', path: '/activity-logs', icon: FileText },
     { label: 'Payments', path: '/payments', icon: CreditCard },
-    { label: 'Documents', path: '/documents', icon: Files },
-    { label: 'Help Desk', path: '/help-desk', icon: HelpCircle },
   ];
-
-  const getPageTitle = () => {
-    if (pathname.startsWith('/settings')) return 'Settings';
-    if (pathname.startsWith('/company-profile')) return 'Company Profile';
-    const matched = menuItems.find((item) => pathname.startsWith(item.path));
-    return matched ? matched.label : 'Dashboard';
-  };
 
   return (
     <div className="portal-layout">
@@ -135,86 +157,229 @@ export default function ClientLayout({
           })}
         </nav>
 
-        {/* Sidebar Footer Organization Badge & Collapse Toggle */}
-        <div className="sidebar-footer" style={{ padding: isCollapsed ? '0.75rem 0.5rem' : '1rem' }}>
-          {!isCollapsed ? (
-            <>
-              <div
-                onClick={() => setIsOrgDropdownOpen(!isOrgDropdownOpen)}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.75rem',
-                  padding: '0.5rem',
-                  border: '1px solid var(--border-color)',
-                  borderRadius: '6px',
-                  cursor: 'pointer',
-                  backgroundColor: '#ffffff',
-                  position: 'relative',
-                }}
-              >
-                <WireframeBox width={28} height={28} style={{ borderRadius: '4px', flexShrink: 0 }} />
-                <div style={{ display: 'flex', flexDirection: 'column', flexGrow: 1, overflow: 'hidden' }}>
-                  <span style={{ fontSize: '0.8rem', fontWeight: 700, whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>
-                    {user?.company_name || 'Organization Workspace'}
-                  </span>
-                  <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>
-                    {user?.role === 'client_primary' ? 'Primary Client' : 'Client Workspace'}
-                  </span>
-                </div>
-                <ChevronDown size={14} color="#71717a" />
-              </div>
+        {/* Real-time Client Wallet Sync Widget */}
+        <div style={{ padding: isCollapsed ? '0.5rem 0.4rem' : '0 0.75rem 0.75rem' }}>
+          <ClientLiveWalletSyncBadge collapsed={isCollapsed} variant="sidebar" />
+        </div>
 
-              {isOrgDropdownOpen && (
+        {/* Sidebar Footer — Claude-style User Dropdown Menu & Collapse */}
+        <div style={{ padding: isCollapsed ? '0.75rem 0.5rem' : '0.75rem 0.75rem', display: 'flex', flexDirection: 'column', gap: '0.4rem', borderTop: '1px solid #f4f4f5' }}>
+          {/* Claude-style User Button & Dropdown */}
+          <div style={{ position: 'relative' }} ref={profileMenuRef}>
+            <button
+              onClick={() => setIsProfileMenuOpen(!isProfileMenuOpen)}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: isCollapsed ? 'center' : 'space-between',
+                gap: '0.5rem',
+                width: '100%',
+                padding: isCollapsed ? '0.45rem' : '0.45rem 0.55rem',
+                backgroundColor: isProfileMenuOpen ? '#f4f4f5' : 'transparent',
+                border: 'none',
+                borderRadius: '8px',
+                cursor: 'pointer',
+                transition: 'background-color 0.15s ease',
+                textAlign: 'left',
+              }}
+              onMouseEnter={(e) => {
+                if (!isProfileMenuOpen) e.currentTarget.style.backgroundColor = '#f4f4f5';
+              }}
+              onMouseLeave={(e) => {
+                if (!isProfileMenuOpen) e.currentTarget.style.backgroundColor = 'transparent';
+              }}
+              title={isCollapsed ? `${displayName} · ${companyLabel}` : undefined}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.55rem', minWidth: 0, flex: 1 }}>
                 <div
                   style={{
-                    backgroundColor: '#ffffff',
-                    border: '1px solid var(--border-color)',
+                    width: '30px',
+                    height: '30px',
                     borderRadius: '6px',
-                    padding: '0.35rem',
-                    boxShadow: 'var(--shadow-md)',
+                    border: '1px solid #e4e4e7',
+                    backgroundColor: '#fafafa',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: '0.75rem',
+                    fontWeight: 800,
+                    color: '#09090b',
+                    flexShrink: 0,
                   }}
                 >
-                  <button
-                    onClick={logout}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '0.5rem',
-                      width: '100%',
-                      padding: '0.4rem 0.6rem',
-                      background: 'none',
-                      border: 'none',
-                      fontSize: '0.8rem',
-                      color: '#09090b',
-                      cursor: 'pointer',
-                      borderRadius: '4px',
-                    }}
-                    onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#f4f4f5')}
-                    onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
-                  >
-                    <LogOut size={14} /> Sign Out
-                  </button>
+                  {userInitials}
                 </div>
+                {!isCollapsed && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', minWidth: 0, flex: 1, overflow: 'hidden' }}>
+                    <span style={{ fontSize: '0.825rem', fontWeight: 600, color: '#09090b', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>
+                      {displayName}
+                    </span>
+                    <span style={{ color: '#a1a1aa', fontSize: '0.8rem' }}>·</span>
+                    <span style={{ fontSize: '0.8rem', color: '#71717a', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>
+                      {companyLabel}
+                    </span>
+                  </div>
+                )}
+              </div>
+              {!isCollapsed && (
+                <ChevronDown
+                  size={14}
+                  color="#71717a"
+                  style={{
+                    flexShrink: 0,
+                    transform: isProfileMenuOpen ? 'rotate(180deg)' : 'none',
+                    transition: 'transform 0.15s ease',
+                  }}
+                />
               )}
+            </button>
 
-              <button
-                onClick={() => setIsCollapsed(true)}
+            {/* Claude-style Dropdown Menu Popup (Image 5) */}
+            {isProfileMenuOpen && (
+              <div
                 style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.4rem',
-                  background: 'none',
-                  border: 'none',
-                  fontSize: '0.775rem',
-                  color: 'var(--text-secondary)',
-                  cursor: 'pointer',
-                  padding: '0.25rem 0',
+                  position: 'absolute',
+                  bottom: 'calc(100% + 8px)',
+                  left: isCollapsed ? '0' : '0',
+                  width: isCollapsed ? '220px' : '100%',
+                  minWidth: '210px',
+                  backgroundColor: '#ffffff',
+                  border: '1px solid #e4e4e7',
+                  borderRadius: '12px',
+                  padding: '0.35rem',
+                  boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.08)',
+                  zIndex: 1000,
                 }}
               >
-                <ChevronLeft size={14} /> Collapse
-              </button>
-            </>
+                {/* User email header in subtle gray */}
+                <div style={{ padding: '0.45rem 0.65rem 0.25rem', fontSize: '0.75rem', color: '#71717a', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {displayEmail}
+                </div>
+
+                <div style={{ height: '1px', backgroundColor: '#f4f4f5', margin: '0.3rem 0' }} />
+
+                {/* Company Profile */}
+                <Link
+                  href="/company-profile"
+                  onClick={() => setIsProfileMenuOpen(false)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.65rem',
+                    padding: '0.5rem 0.65rem',
+                    fontSize: '0.8rem',
+                    fontWeight: 500,
+                    color: '#09090b',
+                    textDecoration: 'none',
+                    borderRadius: '6px',
+                    transition: 'background-color 0.15s ease',
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#f4f4f5')}
+                  onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                >
+                  <Building size={15} color="#52525b" />
+                  <span>Company profile</span>
+                </Link>
+
+                {/* Settings */}
+                <Link
+                  href="/settings"
+                  onClick={() => setIsProfileMenuOpen(false)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.65rem',
+                    padding: '0.5rem 0.65rem',
+                    fontSize: '0.8rem',
+                    fontWeight: 500,
+                    color: '#09090b',
+                    textDecoration: 'none',
+                    borderRadius: '6px',
+                    transition: 'background-color 0.15s ease',
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#f4f4f5')}
+                  onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                >
+                  <Settings size={15} color="#52525b" />
+                  <span>Settings</span>
+                </Link>
+
+                {/* Get Help */}
+                <Link
+                  href="/help-desk"
+                  onClick={() => setIsProfileMenuOpen(false)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.65rem',
+                    padding: '0.5rem 0.65rem',
+                    fontSize: '0.8rem',
+                    fontWeight: 500,
+                    color: '#09090b',
+                    textDecoration: 'none',
+                    borderRadius: '6px',
+                    transition: 'background-color 0.15s ease',
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#f4f4f5')}
+                  onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                >
+                  <HelpCircle size={15} color="#52525b" />
+                  <span>Get help</span>
+                </Link>
+
+                <div style={{ height: '1px', backgroundColor: '#f4f4f5', margin: '0.3rem 0' }} />
+
+                {/* Log out */}
+                <button
+                  onClick={logout}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.65rem',
+                    width: '100%',
+                    background: 'none',
+                    border: 'none',
+                    padding: '0.5rem 0.65rem',
+                    fontSize: '0.8rem',
+                    fontWeight: 500,
+                    color: '#09090b',
+                    borderRadius: '6px',
+                    cursor: 'pointer',
+                    transition: 'background-color 0.15s ease',
+                    textAlign: 'left',
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#f4f4f5')}
+                  onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                >
+                  <LogOut size={15} color="#09090b" />
+                  <span>Log out</span>
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Sidebar Collapse Toggle */}
+          {!isCollapsed ? (
+            <button
+              onClick={() => setIsCollapsed(true)}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.4rem',
+                background: 'none',
+                border: 'none',
+                fontSize: '0.75rem',
+                color: 'var(--text-secondary)',
+                cursor: 'pointer',
+                padding: '0.2rem 0.4rem',
+                borderRadius: '4px',
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.color = '#09090b')}
+              onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--text-secondary)')}
+            >
+              <ChevronLeft size={14} />
+              <span>Collapse</span>
+            </button>
           ) : (
             <button
               onClick={() => setIsCollapsed(false)}
@@ -225,8 +390,9 @@ export default function ClientLayout({
                 background: 'none',
                 border: 'none',
                 cursor: 'pointer',
-                padding: '0.5rem 0',
+                padding: '0.25rem 0',
                 color: 'var(--text-secondary)',
+                borderRadius: '4px',
               }}
               title="Expand Sidebar"
             >
@@ -238,175 +404,8 @@ export default function ClientLayout({
 
       {/* ── Main Content Viewport ── */}
       <div className="main-container">
-        {/* Top Header Bar */}
-        <header className="top-bar">
-          <h1 style={{ fontSize: '1.25rem', fontWeight: 800, color: '#09090b' }}>
-            {getPageTitle()}
-          </h1>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem' }}>
-            {/* Notification Bell with Unread Dot */}
-            <div style={{ position: 'relative', cursor: 'pointer' }} title="Notifications">
-              <Bell size={20} color="#09090b" />
-              <span
-                style={{
-                  position: 'absolute',
-                  top: '-2px',
-                  right: '-2px',
-                  width: '7px',
-                  height: '7px',
-                  backgroundColor: '#09090b',
-                  borderRadius: '50%',
-                }}
-              />
-            </div>
-
-            {/* User Profile Capsule with Interactive Dropdown Menu */}
-            <div ref={profileMenuRef} style={{ position: 'relative' }}>
-              <div
-                onClick={() => setIsProfileMenuOpen(!isProfileMenuOpen)}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.65rem',
-                  cursor: 'pointer',
-                  padding: '0.35rem 0.5rem',
-                  borderRadius: '6px',
-                  backgroundColor: isProfileMenuOpen ? '#f4f4f5' : 'transparent',
-                  transition: 'background-color 0.15s ease',
-                }}
-              >
-                <div
-                  style={{
-                    width: '34px',
-                    height: '34px',
-                    borderRadius: '50%',
-                    border: '1px solid #09090b',
-                    backgroundColor: '#fafafa',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: '0.8rem',
-                    fontWeight: 700,
-                  }}
-                >
-                  {user?.full_name
-                    ? user.full_name
-                        .split(' ')
-                        .map((n) => n[0])
-                        .join('')
-                        .toUpperCase()
-                        .slice(0, 2)
-                    : user?.email?.slice(0, 2).toUpperCase() || 'JD'}
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column' }}>
-                  <span style={{ fontSize: '0.825rem', fontWeight: 700, lineHeight: 1.2, color: '#09090b' }}>
-                    {user?.full_name || 'John Doe'}
-                  </span>
-                  <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>
-                    {user?.company_name || 'Acme Industries'}
-                  </span>
-                </div>
-                <ChevronDown size={14} color="#71717a" />
-              </div>
-
-              {/* Top-Right Profile Dropdown Popover */}
-              {isProfileMenuOpen && (
-                <div
-                  style={{
-                    position: 'absolute',
-                    top: '48px',
-                    right: 0,
-                    width: '180px',
-                    backgroundColor: '#ffffff',
-                    border: '1px solid var(--border-color)',
-                    borderRadius: '8px',
-                    boxShadow: '0 4px 16px rgba(0,0,0,0.1)',
-                    zIndex: 100,
-                    padding: '0.4rem',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '0.2rem',
-                  }}
-                >
-                  <Link
-                    href="/company-profile"
-                    onClick={() => setIsProfileMenuOpen(false)}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '0.6rem',
-                      padding: '0.55rem 0.75rem',
-                      fontSize: '0.8rem',
-                      fontWeight: 600,
-                      color: '#09090b',
-                      borderRadius: '4px',
-                      textDecoration: 'none',
-                    }}
-                    onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#f4f4f5')}
-                    onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
-                  >
-                    <Building size={15} color="#09090b" />
-                    <span>Company Profile</span>
-                  </Link>
-
-                  <Link
-                    href="/settings"
-                    onClick={() => setIsProfileMenuOpen(false)}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '0.6rem',
-                      padding: '0.55rem 0.75rem',
-                      fontSize: '0.8rem',
-                      fontWeight: 500,
-                      color: '#09090b',
-                      borderRadius: '4px',
-                      textDecoration: 'none',
-                    }}
-                    onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#f4f4f5')}
-                    onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
-                  >
-                    <Settings size={15} color="#09090b" />
-                    <span>Settings</span>
-                  </Link>
-
-                  <div style={{ height: '1px', backgroundColor: 'var(--border-color)', margin: '0.2rem 0' }} />
-
-                  <button
-                    onClick={() => {
-                      setIsProfileMenuOpen(false);
-                      logout();
-                    }}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '0.6rem',
-                      padding: '0.55rem 0.75rem',
-                      fontSize: '0.8rem',
-                      fontWeight: 500,
-                      color: '#09090b',
-                      background: 'none',
-                      border: 'none',
-                      borderRadius: '4px',
-                      cursor: 'pointer',
-                      width: '100%',
-                      textAlign: 'left',
-                    }}
-                    onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#f4f4f5')}
-                    onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
-                  >
-                    <LogOut size={15} color="#09090b" />
-                    <span>Sign Out</span>
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-        </header>
-
         {/* Content Area */}
-        <main className="content-area animate-fade-in">{children}</main>
+        <main className="content-area">{children}</main>
       </div>
     </div>
   );

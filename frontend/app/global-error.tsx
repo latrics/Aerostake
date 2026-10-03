@@ -20,7 +20,7 @@ export default function GlobalError({
           justifyContent: 'center',
           minHeight: '100vh',
           fontFamily: 'sans-serif',
-          backgroundColor: '#f8f9fa',
+          backgroundColor: '#fafafa',
         }}
       >
         <div

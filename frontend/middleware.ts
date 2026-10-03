@@ -22,6 +22,7 @@ export function middleware(request: NextRequest) {
   // Define route lists for route guarding
   const clientRoutes = [
     '/dashboard',
+    '/requests',
     '/projects',
     '/activity-logs',
     '/payments',
@@ -30,7 +31,6 @@ export function middleware(request: NextRequest) {
     '/settings',
   ];
   const latricsRoutes = [
-    '/requests',
     '/planning',
     '/allocations',
     '/sectors',
@@ -71,7 +71,7 @@ export function middleware(request: NextRequest) {
     } else if (isStaff) {
       return NextResponse.redirect(new URL('/dashboard', request.url));
     } else if (isPilot) {
-      return NextResponse.redirect(new URL('/my-assignments', request.url));
+      return NextResponse.redirect(new URL('/dashboard', request.url));
     }
   }
 
@@ -90,10 +90,20 @@ export function middleware(request: NextRequest) {
 
   // 4. Pilot Role Guard
   if (isPilot) {
-    const pilotAllowedRoutes = ['/my-assignments', '/sector-updates', '/help-desk'];
+    const pilotAllowedRoutes = [
+      '/dashboard',
+      '/projects',
+      '/schedule',
+      '/reports',
+      '/my-assignments',
+      '/sector-updates',
+      '/activity-logs',
+      '/help-desk',
+      '/settings',
+    ];
     const isAllowed = pilotAllowedRoutes.some((route) => pathname === route || pathname.startsWith(route + '/'));
     if (!isAllowed) {
-      return NextResponse.redirect(new URL('/my-assignments', request.url));
+      return NextResponse.redirect(new URL('/dashboard', request.url));
     }
   }
 

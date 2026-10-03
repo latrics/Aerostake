@@ -13,7 +13,7 @@ export default function AuthLayout({
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        background: 'radial-gradient(circle at top right, #1e1b4b, #090514, #020005)',
+        background: 'radial-gradient(circle at top right, #18181b, #09090b, #000000)',
         padding: '1.5rem',
       }}
     >
@@ -23,7 +23,7 @@ export default function AuthLayout({
           width: '100%',
           maxWidth: '440px',
           padding: '2.5rem 2rem',
-          boxShadow: '0 0 50px rgba(0, 0, 0, 0.6), 0 0 80px rgba(124, 58, 237, 0.1)',
+          boxShadow: '0 0 50px rgba(0, 0, 0, 0.6)',
         }}
       >
         <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
