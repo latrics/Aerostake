@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import { Portal } from '@/components/Portal';
 import { PaymentRecordCreate } from '../types';
 
 interface MilestoneChargeModalProps {
@@ -18,11 +19,11 @@ export function MilestoneChargeModal({
   onClose,
   onSubmit,
 }: MilestoneChargeModalProps) {
-  const [milestoneName, setMilestoneName] = useState('Mobilization Deposit (50%)');
-  const [amountUsd, setAmountUsd] = useState('2400');
+  const [milestoneName, setMilestoneName] = useState('');
+  const [amountUsd, setAmountUsd] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('Wire Transfer (SWIFT/ACH)');
   const [referenceCode, setReferenceCode] = useState('');
-  const [notes, setNotes] = useState('Due prior to pilot hardware field mobilization.');
+  const [notes, setNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -59,12 +60,30 @@ export function MilestoneChargeModal({
   };
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <Portal>
       <div
-        className="modal-content glass-panel"
-        onClick={(e) => e.stopPropagation()}
-        style={{ maxWidth: '540px' }}
+        className="viewport-modal-backdrop"
+        onClick={onClose}
+        style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          width: '100vw',
+          height: '100vh',
+          backgroundColor: 'rgba(9, 9, 11, 0.75)',
+          backdropFilter: 'blur(8px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 99999,
+          padding: '1.25rem',
+        }}
       >
+        <div
+          className="modal-content glass-panel animate-fade-in"
+          onClick={(e) => e.stopPropagation()}
+          style={{ maxWidth: '540px', width: '100%', borderRadius: '12px', padding: '1.75rem', backgroundColor: '#ffffff', border: '1px solid #e4e4e7' }}
+        >
         <div
           className="modal-header"
           style={{
@@ -93,10 +112,10 @@ export function MilestoneChargeModal({
           <div
             style={{
               padding: '0.75rem 1rem',
-              background: 'rgba(239, 68, 68, 0.15)',
+              background: '#f4f4f5',
               border: '1px solid var(--accent-danger)',
               borderRadius: '8px',
-              color: '#fca5a5',
+              color: '#09090b',
               fontSize: '0.875rem',
               marginBottom: '1.25rem',
             }}
@@ -207,5 +226,6 @@ export function MilestoneChargeModal({
         </form>
       </div>
     </div>
+    </Portal>
   );
 }
