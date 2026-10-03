@@ -72,6 +72,26 @@ class InvitationRepository:
         result = await db.execute(stmt)
         return result.scalar() or 0
 
+    async def list_by_organization(self, db: AsyncSession, organization_id: uuid.UUID) -> List[Invitation]:
+        """List all invitations associated with an organization."""
+        stmt = (
+            select(Invitation)
+            .where(Invitation.organization_id == organization_id)
+            .order_by(Invitation.created_at.desc())
+        )
+        result = await db.execute(stmt)
+        return list(result.scalars().all())
+
+    async def list_by_invited_by(self, db: AsyncSession, user_id: uuid.UUID) -> List[Invitation]:
+        """List all invitations dispatched by a specific user."""
+        stmt = (
+            select(Invitation)
+            .where(Invitation.invited_by == user_id)
+            .order_by(Invitation.created_at.desc())
+        )
+        result = await db.execute(stmt)
+        return list(result.scalars().all())
+
     async def get_or_create_organization(self, db: AsyncSession, name: str) -> Organization:
         """Get or create an organization by company name."""
         stmt = select(Organization).where(func.lower(Organization.name) == name.lower().strip())

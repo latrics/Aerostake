@@ -4,9 +4,9 @@ from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.notifications.service import notification_service
-from app.modules.planning.model import OperationalPlan, PlanStatusEnum
+from app.modules.planning.model import OperationalPlan, PlanStatusEnum, PlanningFormVersion, PlanningDraft
 from app.modules.planning.repository import planning_repository
-from app.modules.planning.schema import OperationalPlanCreate, PlanRevisionRequest
+from app.modules.planning.schema import OperationalPlanCreate, PlanRevisionRequest, PlanningFormVersionCreate, PlanningDraftCreateOrUpdate
 from app.modules.projects.model import Project, ProjectStatusEnum
 from app.modules.projects.repository import project_repository
 from app.modules.projects.service import project_service
@@ -299,5 +299,245 @@ class PlanningService:
 
         return updated_project
 
+    async def create_planning_version(
+        self,
+        db: AsyncSession,
+        current_user: User,
+        project_id: uuid.UUID,
+        version_in: PlanningFormVersionCreate,
+    ) -> PlanningFormVersion:
+        project = None
+        try:
+            project = await project_service.get_project_model(db, current_user, project_id)
+        except Exception:
+            project = None
+
+        if not project:
+            req_ver = await request_repository.get_by_id(db, project_id)
+            if req_ver:
+                project = await project_service.get_project_model(db, current_user, req_ver.project_id)
+                project_id = req_ver.project_id
+
+        if not project:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Project not found",
+            )
+
+        # RBAC: Pilot is forbidden from modifying planning versions or remarks
+        if current_user.role == RoleEnum.PILOT:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Pilots do not have permission to modify planning versions or remarks",
+            )
+
+        # Stage Locking: If project has moved past planning, planning is permanently locked
+        if project.status in [ProjectStatusEnum.APPROVED, ProjectStatusEnum.ACTIVE, ProjectStatusEnum.COMPLETED]:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Planning stage is completed and locked for this project. Historical records cannot be modified.",
+            )
+
+        # Determine sender role
+        sender_role = (
+            "ops"
+            if current_user.role in [RoleEnum.ADMIN, RoleEnum.OPERATIONS]
+            else "client"
+        )
+        sender_name = version_in.sender_name or current_user.full_name or ("LATRICS Ops" if sender_role == "ops" else "Client")
+
+        # Determine version number: Versions count how many submissions are done by Ops
+        latest_ops_ver = await planning_repository.get_latest_ops_version_number(db, project_id)
+        if sender_role == "ops":
+            next_ver_num = latest_ops_ver + 1
+        else:
+            # Client replies stay aligned with current Ops planning version
+            next_ver_num = max(1, latest_ops_ver)
+
+        # Format version code: ProjectName_V01, etc.
+        clean_title = (project.title or "Project").strip()
+        version_code = f"{clean_title}_V{str(next_ver_num).zfill(2)}"
+
+        # Create version snapshot
+        form_ver = await planning_repository.create_form_version(
+            db=db,
+            project_id=project_id,
+            version_number=next_ver_num,
+            version_code=version_code,
+            sender=sender_role,
+            sender_name=sender_name,
+            form_data=version_in.form_data,
+            stage_threads=version_in.stage_threads,
+            clarification_threads=version_in.clarification_threads,
+            attachments=version_in.attachments,
+            status=version_in.status or "under_review",
+            created_by=current_user.id,
+        )
+
+        # Update the background planning draft so DB draft and version snapshot stay completely aligned
+        await planning_repository.save_or_update_draft(
+            db=db,
+            project_id=project.id,
+            form_data=version_in.form_data,
+            stage_threads=version_in.stage_threads,
+            clarification_threads=version_in.clarification_threads,
+            stage_draft_saved={},
+            status=version_in.status or "under_review",
+            updated_by=current_user.id,
+        )
+
+        # If Ops created the first planning form, move project to PLANNING status (Under Review)
+        if project.status == ProjectStatusEnum.SUBMITTED and sender_role == "ops":
+            await project_repository.update(db=db, project=project, status=ProjectStatusEnum.PLANNING)
+            await timeline_service.log_event(
+                db=db,
+                category="planning",
+                action="stage_advanced_to_planning",
+                message=f"Survey request accepted by LATRICS Operations; flight planning & feasibility assessment initiated (Stage 2)",
+                project_id=project.id,
+                user_id=current_user.id,
+                metadata={"stage": 2, "status": "PLANNING"},
+            )
+
+        # If project was previously cancelled/on-hold and Ops resumes planning (e.g. Need More Clarity)
+        if project.status == ProjectStatusEnum.CANCELLED and sender_role == "ops" and version_in.status in ["awaiting_clarity", "under_review", "feasible_pending_client_confirmation", "feasible"]:
+            await project_repository.update(db=db, project=project, status=ProjectStatusEnum.PLANNING)
+
+        # If status indicates rejection, move to CANCELLED
+        if version_in.status in ["cancelled", "not_feasible", "no"]:
+            await project_repository.update(db=db, project=project, status=ProjectStatusEnum.CANCELLED)
+
+        # If status indicates mobilization / acknowledgement, move to APPROVED
+        if version_in.status in ["mobilising", "mobilizing", "approved"]:
+            await project_repository.update(db=db, project=project, status=ProjectStatusEnum.APPROVED)
+            await timeline_service.log_event(
+                db=db,
+                category="approval",
+                action="request_converted_to_project",
+                message=f"Survey Request converted to active Project '{project.title}' upon client feasibility sign-off; advanced to Stage 3 (Mobilising)",
+                project_id=project.id,
+                user_id=current_user.id,
+                metadata={
+                    "version_code": version_code,
+                    "status": "APPROVED",
+                    "stage": 3,
+                },
+            )
+        elif version_in.status in ["clarification_submitted", "need_clarity", "awaiting_clarity"] and sender_role == "client":
+            await timeline_service.log_event(
+                db=db,
+                category="planning",
+                action="clarification_submitted",
+                message=f"Client submitted operational clarification details and notes for {version_code}",
+                project_id=project.id,
+                user_id=current_user.id,
+                metadata={
+                    "version_code": version_code,
+                    "status": form_ver.status,
+                    "sender": "client",
+                },
+            )
+        elif sender_role == "ops":
+            is_rev = next_ver_num > 1
+            act_name = "planning_revision_formulated" if is_rev else "operational_plan_formulated"
+            act_msg = f"Operational plan revision {version_code} formulated by {sender_name}" if is_rev else f"Initial operational plan {version_code} formulated by {sender_name}"
+            await timeline_service.log_event(
+                db=db,
+                category="planning",
+                action=act_name,
+                message=act_msg,
+                project_id=project.id,
+                user_id=current_user.id,
+                metadata={
+                    "version_number": next_ver_num,
+                    "version_code": version_code,
+                    "sender": "ops",
+                    "status": form_ver.status,
+                },
+            )
+        else:
+            await timeline_service.log_event(
+                db=db,
+                category="planning",
+                action="client_planning_feedback",
+                message=f"Client submitted planning feedback for {version_code}",
+                project_id=project.id,
+                user_id=current_user.id,
+                metadata={
+                    "version_code": version_code,
+                    "sender": sender_role,
+                    "status": form_ver.status,
+                },
+            )
+
+        return form_ver
+
+    async def _resolve_project(
+        self,
+        db: AsyncSession,
+        current_user: User,
+        project_id: uuid.UUID,
+    ) -> Project:
+        project = None
+        try:
+            project = await project_service.get_project_model(db, current_user, project_id)
+        except Exception:
+            project = None
+
+        if not project:
+            req_ver = await request_repository.get_by_id(db, project_id)
+            if req_ver:
+                project = await project_service.get_project_model(db, current_user, req_ver.project_id)
+
+        if not project:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Project not found",
+            )
+        return project
+
+    async def list_planning_versions(
+        self,
+        db: AsyncSession,
+        current_user: User,
+        project_id: uuid.UUID,
+    ) -> List[PlanningFormVersion]:
+        project = await self._resolve_project(db, current_user, project_id)
+        return await planning_repository.list_form_versions_by_project(db, project.id)
+
+    async def get_planning_draft(
+        self,
+        db: AsyncSession,
+        current_user: User,
+        project_id: uuid.UUID,
+    ) -> Optional[PlanningDraft]:
+        project = await self._resolve_project(db, current_user, project_id)
+        return await planning_repository.get_draft_by_project(db, project.id)
+
+    async def save_planning_draft(
+        self,
+        db: AsyncSession,
+        current_user: User,
+        project_id: uuid.UUID,
+        draft_in: PlanningDraftCreateOrUpdate,
+    ) -> PlanningDraft:
+        project = await self._resolve_project(db, current_user, project_id)
+        if current_user.role == RoleEnum.PILOT:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Drone pilots have view-only access and cannot save planning drafts.",
+            )
+        return await planning_repository.save_or_update_draft(
+            db=db,
+            project_id=project.id,
+            form_data=draft_in.form_data,
+            stage_threads=draft_in.stage_threads,
+            clarification_threads=draft_in.clarification_threads,
+            stage_draft_saved=draft_in.stage_draft_saved,
+            status=draft_in.status,
+            updated_by=current_user.id,
+        )
+
 
 planning_service = PlanningService()
+

@@ -24,3 +24,6 @@ class TimelineEventOut(BaseModel):
     message: str
     event_metadata: Optional[Dict[str, Any]] = None
     created_at: Optional[datetime] = None
+    actor_name: Optional[str] = None
+    actor_role: Optional[str] = None
+    actor_email: Optional[str] = None

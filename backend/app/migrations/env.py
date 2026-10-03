@@ -14,7 +14,7 @@ from app.modules.users.model import User  # Registers User model in Base.metadat
 from app.modules.timeline.model import TimelineEvent  # Registers TimelineEvent in Base.metadata
 from app.modules.projects.model import Project, ProjectStatusHistory  # Registers Project models
 from app.modules.requests.model import RequestVersion  # Registers RequestVersion in Base.metadata
-from app.modules.planning.model import OperationalPlan  # Registers OperationalPlan in Base.metadata
+from app.modules.planning.model import OperationalPlan, PlanningFormVersion  # Registers OperationalPlan & PlanningFormVersion in Base.metadata
 from app.modules.sectors.model import Sector  # Registers Sector model in Base.metadata
 from app.modules.allocations.model import SectorAllocation  # Registers SectorAllocation in Base.metadata
 from app.modules.payments.model import PaymentRecord  # Registers PaymentRecord in Base.metadata

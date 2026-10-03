@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Body, Depends, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -92,8 +93,45 @@ async def rbac_admin_test(
 )
 async def get_me(
     current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
-    """Retrieve profile details for the currently authenticated user."""
+    """Retrieve profile details for the currently authenticated user.
+    For Sub-clients (RoleEnum.CLIENT_SUB), inherits the company_name and company_profile
+    from the Primary Client of their organization.
+    """
+    if current_user.role == RoleEnum.CLIENT_SUB and (current_user.organization_id or current_user.invited_by):
+        primary_client = None
+        if current_user.organization_id:
+            stmt = (
+                select(User)
+                .where(
+                    User.organization_id == current_user.organization_id,
+                    User.role == RoleEnum.CLIENT_PRIMARY,
+                    User.is_active == True,
+                )
+                .order_by(User.created_at.asc())
+            )
+            res = await db.execute(stmt)
+            primary_client = res.scalars().first()
+
+        if not primary_client and current_user.invited_by:
+            stmt_inviter = select(User).where(User.id == current_user.invited_by)
+            res_inviter = await db.execute(stmt_inviter)
+            primary_client = res_inviter.scalars().first()
+
+        if primary_client:
+            # Sync company_name if missing on current_user
+            if not current_user.company_name and primary_client.company_name:
+                current_user.company_name = primary_client.company_name
+                await db.commit()
+                await db.refresh(current_user)
+
+            user_out = UserOut.model_validate(current_user)
+            user_data = user_out.model_dump()
+            user_data["company_name"] = primary_client.company_name or current_user.company_name
+            user_data["company_profile"] = primary_client.company_profile
+            return UserOut(**user_data)
+
     return current_user
 
 
@@ -118,6 +156,7 @@ async def update_me(
         phone_number=profile_in.phone_number,
         designation=profile_in.designation,
         company_profile=profile_in.company_profile,
+        pilot_profile=profile_in.pilot_profile,
     )
 
 

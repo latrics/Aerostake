@@ -96,7 +96,7 @@ class MockUserRepoInv:
         mock_test_users[str(u_id)] = user
         return user
 
-    async def update_profile(self, db, user, full_name=None, email=None, company_name=None, phone_number=None, designation=None, company_profile=None):
+    async def update_profile(self, db, user, full_name=None, email=None, company_name=None, phone_number=None, designation=None, company_profile=None, pilot_profile=None, **kwargs):
         if full_name:
             user.full_name = full_name
         if email:

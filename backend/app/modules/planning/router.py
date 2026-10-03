@@ -1,5 +1,5 @@
 import uuid
-from typing import List
+from typing import List, Optional
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -8,6 +8,10 @@ from app.modules.planning.schema import (
     OperationalPlanCreate,
     OperationalPlanOut,
     PlanRevisionRequest,
+    PlanningFormVersionCreate,
+    PlanningFormVersionOut,
+    PlanningDraftCreateOrUpdate,
+    PlanningDraftOut,
 )
 from app.modules.planning.service import planning_service
 from app.modules.projects.schema import ProjectOut
@@ -134,3 +138,84 @@ async def request_plan_revision(
         project_id=project_id,
         revision_in=revision_in,
     )
+
+
+@planning_router.post(
+    "/projects/{project_id}/planning-versions",
+    response_model=PlanningFormVersionOut,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create a new immutable planning form version snapshot",
+)
+async def create_planning_version(
+    project_id: uuid.UUID,
+    version_in: PlanningFormVersionCreate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Save an immutable snapshot of an updated planning form (with answers, remarks, attachments, and sender tag)."""
+    return await planning_service.create_planning_version(
+        db=db,
+        current_user=current_user,
+        project_id=project_id,
+        version_in=version_in,
+    )
+
+
+@planning_router.get(
+    "/projects/{project_id}/planning-versions",
+    response_model=List[PlanningFormVersionOut],
+    status_code=status.HTTP_200_OK,
+    summary="List all planning form versions for a project",
+)
+async def list_planning_versions(
+    project_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Retrieve full chronological planning form version history (latest on top, oldest at bottom)."""
+    return await planning_service.list_planning_versions(
+        db=db,
+        current_user=current_user,
+        project_id=project_id,
+    )
+
+
+@planning_router.get(
+    "/projects/{project_id}/planning-draft",
+    response_model=Optional[PlanningDraftOut],
+    status_code=status.HTTP_200_OK,
+    summary="Get background planning draft for a project",
+)
+async def get_planning_draft(
+    project_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Retrieve the background planning draft (form data, threads, draft saves) if one exists."""
+    return await planning_service.get_planning_draft(
+        db=db,
+        current_user=current_user,
+        project_id=project_id,
+    )
+
+
+@planning_router.post(
+    "/projects/{project_id}/planning-draft",
+    response_model=PlanningDraftOut,
+    status_code=status.HTTP_200_OK,
+    summary="Save or update background planning draft for a project",
+)
+async def save_planning_draft(
+    project_id: uuid.UUID,
+    draft_in: PlanningDraftCreateOrUpdate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Save or update background planning draft. Does NOT create a history version or increment version count."""
+    return await planning_service.save_planning_draft(
+        db=db,
+        current_user=current_user,
+        project_id=project_id,
+        draft_in=draft_in,
+    )
+

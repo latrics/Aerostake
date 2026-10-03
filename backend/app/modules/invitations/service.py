@@ -207,5 +207,56 @@ class InvitationService:
             user=UserOut.model_validate(user),
         )
 
+    async def list_organization_invitations(
+        self,
+        db: AsyncSession,
+        current_user: User,
+    ) -> list[Invitation]:
+        seen = set()
+        invites = []
+        if current_user.organization_id:
+            org_invites = await invitation_repository.list_by_organization(db, current_user.organization_id)
+            for inv in org_invites:
+                if inv.id not in seen:
+                    seen.add(inv.id)
+                    invites.append(inv)
+        user_invites = await invitation_repository.list_by_invited_by(db, current_user.id)
+        for inv in user_invites:
+            if inv.id not in seen:
+                seen.add(inv.id)
+                invites.append(inv)
+        return invites
+
+    async def refresh_member_invitation(
+        self,
+        db: AsyncSession,
+        current_user: User,
+        email: str,
+    ) -> Invitation:
+        clean_email = email.strip().lower()
+        token = secrets.token_urlsafe(32)
+        expires_at = datetime.now(timezone.utc) + timedelta(days=1)
+        pending_invite = await invitation_repository.get_pending_by_email(db, clean_email)
+        if pending_invite:
+            pending_invite.token = token
+            pending_invite.expires_at = expires_at
+            pending_invite.status = InvitationStatusEnum.PENDING
+            if current_user.organization_id and not pending_invite.organization_id:
+                pending_invite.organization_id = current_user.organization_id
+            pending_invite.invited_by = current_user.id
+            await db.flush()
+            invitation = pending_invite
+        else:
+            invitation = await invitation_repository.create(
+                db=db,
+                email=clean_email,
+                role=RoleEnum.CLIENT_SUB,
+                token=token,
+                invited_by=current_user.id,
+                expires_at=expires_at,
+                organization_id=current_user.organization_id,
+            )
+        return invitation
+
 
 invitation_service = InvitationService()

@@ -1,10 +1,11 @@
 import pytest
 import uuid
+from datetime import datetime, timezone
 from unittest.mock import patch
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.modules.planning.model import OperationalPlan, PlanStatusEnum
+from app.modules.planning.model import OperationalPlan, PlanStatusEnum, PlanningFormVersion, PlanningDraft
 from app.modules.projects.model import Project, ProjectStatusEnum
 from app.modules.requests.model import RequestVersion
 from app.modules.timeline.model import TimelineEvent
@@ -18,6 +19,8 @@ mock_users = {}
 mock_projects = {}
 mock_requests = {}
 mock_plans = {}
+mock_planning_versions = {}
+mock_planning_drafts = {}
 mock_timeline = []
 
 
@@ -100,6 +103,87 @@ class MockPlanningRepo:
         plan.status = new_status
         mock_plans[str(plan.id)] = plan
         return plan
+
+    async def get_latest_version_number(self, db, project_id):
+        vers = [v.version_number for v in mock_planning_versions.values() if v.project_id == project_id]
+        return max(vers) if vers else 0
+
+    async def get_latest_ops_version_number(self, db, project_id):
+        ops_vers = [v.version_number for v in mock_planning_versions.values() if v.project_id == project_id and getattr(v, "sender", None) == "ops"]
+        return max(ops_vers) if ops_vers else 0
+
+    async def create_form_version(
+        self, db, project_id, version_number, version_code, sender, sender_name=None,
+        form_data=None, stage_threads=None, clarification_threads=None, attachments=None,
+        status="under_review", created_by=None,
+    ):
+        v_id = uuid.uuid4()
+        ver = PlanningFormVersion(
+            id=v_id,
+            project_id=project_id,
+            version_number=version_number,
+            version_code=version_code,
+            sender=sender,
+            sender_name=sender_name,
+            form_data=form_data or {},
+            stage_threads=stage_threads or {},
+            clarification_threads=clarification_threads or [],
+            attachments=attachments or [],
+            status=status,
+            created_by=created_by,
+            created_at=datetime.now(timezone.utc),
+        )
+        mock_planning_versions[str(v_id)] = ver
+        return ver
+
+    async def list_form_versions_by_project(self, db, project_id):
+        vers = [v for v in mock_planning_versions.values() if v.project_id == project_id]
+        vers.sort(key=lambda x: x.version_number, reverse=True)
+        return vers
+
+    async def get_latest_form_version(self, db, project_id):
+        vers = [v for v in mock_planning_versions.values() if v.project_id == project_id and getattr(v, "status", None) != "draft"]
+        if not vers:
+            return None
+        vers.sort(key=lambda x: x.version_number, reverse=True)
+        return vers[0]
+
+    async def get_draft_by_project(self, db, project_id):
+        return mock_planning_drafts.get(str(project_id))
+
+    async def save_or_update_draft(
+        self, db, project_id, form_data=None, stage_threads=None,
+        clarification_threads=None, stage_draft_saved=None, status=None, updated_by=None
+    ):
+        draft = mock_planning_drafts.get(str(project_id))
+        if not draft:
+            draft = PlanningDraft(
+                id=uuid.uuid4(),
+                project_id=project_id,
+                form_data=form_data or {},
+                stage_threads=stage_threads or {},
+                clarification_threads=clarification_threads or [],
+                stage_draft_saved=stage_draft_saved or {},
+                status=status or "under_review",
+                updated_by=updated_by,
+                updated_at=datetime.now(timezone.utc),
+            )
+            mock_planning_drafts[str(project_id)] = draft
+        else:
+            if form_data is not None:
+                draft.form_data = form_data
+            if stage_threads is not None:
+                draft.stage_threads = stage_threads
+            if clarification_threads is not None:
+                draft.clarification_threads = clarification_threads
+            if stage_draft_saved is not None:
+                draft.stage_draft_saved = stage_draft_saved
+            if status is not None:
+                draft.status = status
+            draft.updated_by = updated_by
+            draft.updated_at = datetime.now(timezone.utc)
+        return draft
+
 
 
 class MockTimelineService:
@@ -279,3 +363,118 @@ def test_planning_and_approval_full_lifecycle():
         assert "plan_published" in actions
         assert "plan_revision_requested" in actions
         assert "plan_approved" in actions
+
+
+def test_planning_form_versioning_and_request_filtering():
+    client_id = uuid.uuid4()
+    client_user = User(id=client_id, email="client2@latrics.com", role=RoleEnum.CLIENT, full_name="Acme Client", is_active=True)
+    mock_users[str(client_id)] = client_user
+
+    ops_id = uuid.uuid4()
+    ops_user = User(id=ops_id, email="ops2@latrics.com", role=RoleEnum.OPERATIONS, full_name="Latrics Ops Analyst", is_active=True)
+    mock_users[str(ops_id)] = ops_user
+
+    client_token = create_access_token({"sub": str(client_id), "email": client_user.email, "role": "client"})
+    ops_token = create_access_token({"sub": str(ops_id), "email": ops_user.email, "role": "operations"})
+
+    project_id = uuid.uuid4()
+    project = Project(
+        id=project_id,
+        title="Solar Farm Survey",
+        client_id=client_id,
+        status=ProjectStatusEnum.SUBMITTED,
+    )
+    mock_projects[str(project_id)] = project
+
+    req_id = uuid.uuid4()
+    request_ver = RequestVersion(
+        id=req_id,
+        project_id=project_id,
+        version=1,
+        survey_location="Rajasthan",
+        survey_type="Topography",
+    )
+    mock_requests[str(req_id)] = request_ver
+
+    with patch("app.security.auth.user_repository", MockUserRepo()), \
+         patch("app.modules.planning.service.user_repository", MockUserRepo()), \
+         patch("app.modules.projects.service.project_repository", MockProjectRepo()), \
+         patch("app.modules.planning.service.project_repository", MockProjectRepo()), \
+         patch("app.modules.planning.service.planning_repository", MockPlanningRepo()), \
+         patch("app.modules.requests.service.planning_repository", MockPlanningRepo()), \
+         patch("app.modules.requests.service.request_repository.list_all", return_value=[request_ver]), \
+         patch("app.modules.requests.service.user_repository", MockUserRepo()), \
+         patch("app.modules.requests.service.project_repository", MockProjectRepo()), \
+         patch("app.modules.planning.service.timeline_service.log_event", MockTimelineService().log_event):
+
+        # 1. Ops creates V01 (Initial Planning Form Snapshot)
+        v01_res = client.post(
+            f"/projects/{project_id}/planning-versions",
+            headers={"Authorization": f"Bearer {ops_token}"},
+            json={
+                "sender": "ops",
+                "form_data": {"numberOfLandings": "4", "plannedAltitudeMeters": "120"},
+                "status": "under_review",
+            }
+        )
+        assert v01_res.status_code == 201
+        v01_data = v01_res.json()
+        assert v01_data["version_number"] == 1
+        assert v01_data["version_code"] == "Solar Farm Survey_V01"
+        assert v01_data["sender"] == "ops"
+        assert mock_projects[str(project_id)].status == ProjectStatusEnum.PLANNING
+
+        # 2. Client submits clarification (belongs to current Ops version V01)
+        v02_res = client.post(
+            f"/projects/{project_id}/planning-versions",
+            headers={"Authorization": f"Bearer {client_token}"},
+            json={
+                "sender": "client",
+                "form_data": {"numberOfLandings": "4", "plannedAltitudeMeters": "120"},
+                "clarification_threads": [{"id": "power", "answer": "Grid power available on site"}],
+                "status": "under_review",
+            }
+        )
+        assert v02_res.status_code == 201
+        v02_data = v02_res.json()
+        assert v02_data["version_number"] == 1
+        assert v02_data["version_code"] == "Solar Farm Survey_V01"
+        assert v02_data["sender"] == "client"
+
+        # 3. Ops submits revised planning form V02
+        v03_res = client.post(
+            f"/projects/{project_id}/planning-versions",
+            headers={"Authorization": f"Bearer {ops_token}"},
+            json={
+                "sender": "ops",
+                "form_data": {"numberOfLandings": "4", "plannedAltitudeMeters": "120", "powerSource": "Grid"},
+                "status": "under_review",
+            }
+        )
+        assert v03_res.status_code == 201
+        v03_data = v03_res.json()
+        assert v03_data["version_number"] == 2
+        assert v03_data["version_code"] == "Solar Farm Survey_V02"
+        assert v03_data["sender"] == "ops"
+
+        # 4. List versions
+        list_res = client.get(
+            f"/projects/{project_id}/planning-versions",
+            headers={"Authorization": f"Bearer {ops_token}"}
+        )
+        assert list_res.status_code == 200
+        vers = list_res.json()
+        assert len(vers) == 3
+
+        # 5. Check Requests listing enriches latest version
+        reqs_res = client.get(
+            "/requests",
+            headers={"Authorization": f"Bearer {ops_token}"}
+        )
+        assert reqs_res.status_code == 200
+        req_list = reqs_res.json()
+        assert len(req_list) == 1
+        assert req_list[0]["latest_planning_version"] == "Solar Farm Survey_V02"
+        assert req_list[0]["planning_versions_count"] == 2
+        assert req_list[0]["planning_updated_by"] == "ops"
+

@@ -27,6 +27,10 @@ class InvitationOut(BaseModel):
     accepted_at: Optional[datetime] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+    organization_name: Optional[str] = None
+    invited_by_name: Optional[str] = None
+    invited_by_email: Optional[str] = None
+    has_user_record: Optional[bool] = None
 
 
 class AcceptInvitationRequest(BaseModel):

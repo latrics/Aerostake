@@ -85,5 +85,14 @@ class RequestRepository:
         result = await db.execute(stmt)
         return list(result.scalars().all())
 
+    async def get_by_id(
+        self,
+        db: AsyncSession,
+        request_id: uuid.UUID,
+    ) -> Optional[RequestVersion]:
+        stmt = select(RequestVersion).where(RequestVersion.id == request_id)
+        result = await db.execute(stmt)
+        return result.scalar_one_or_none()
+
 
 request_repository = RequestRepository()

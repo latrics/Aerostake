@@ -36,6 +36,7 @@ async def create_project(
 )
 async def list_projects(
     status_filter: Optional[ProjectStatusEnum] = Query(default=None, alias="status"),
+    include_unconverted: bool = Query(default=False, description="Include unconverted requests in planning"),
     skip: int = Query(default=0, ge=0),
     limit: int = Query(default=50, ge=1, le=100),
     current_user: User = Depends(get_current_user),
@@ -46,6 +47,7 @@ async def list_projects(
         db=db,
         current_user=current_user,
         status_filter=status_filter,
+        include_unconverted=include_unconverted,
         skip=skip,
         limit=limit,
     )

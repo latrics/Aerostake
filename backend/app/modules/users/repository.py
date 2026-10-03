@@ -100,6 +100,7 @@ class UserRepository:
         phone_number: Optional[str] = None,
         designation: Optional[str] = None,
         company_profile: Optional[dict] = None,
+        pilot_profile: Optional[dict] = None,
     ) -> User:
         if full_name is not None:
             user.full_name = full_name.strip() if full_name else None
@@ -117,6 +118,13 @@ class UserRepository:
             cp["designation"] = designation.strip() if designation else ""
             if "primary_contact" in cp and isinstance(cp["primary_contact"], dict):
                 cp["primary_contact"]["department"] = designation.strip() if designation else ""
+            user.company_profile = cp
+
+        if pilot_profile is not None:
+            cp = dict(user.company_profile or {})
+            existing_pilot = dict(cp.get("pilot_profile") or {})
+            existing_pilot.update(pilot_profile)
+            cp["pilot_profile"] = existing_pilot
             user.company_profile = cp
 
         await db.flush()

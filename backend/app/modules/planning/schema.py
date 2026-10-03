@@ -40,3 +40,56 @@ class OperationalPlanOut(BaseModel):
 
 class PlanRevisionRequest(BaseModel):
     feedback_notes: str = Field(..., min_length=5, description="Client feedback explaining requested plan revisions")
+
+
+class PlanningFormVersionCreate(BaseModel):
+    sender: str = Field(default="ops", description="'ops' or 'client'")
+    sender_name: Optional[str] = None
+    form_data: Optional[dict] = Field(default_factory=dict)
+    stage_threads: Optional[dict] = Field(default_factory=dict)
+    clarification_threads: Optional[list] = Field(default_factory=list)
+    attachments: Optional[list] = Field(default_factory=list)
+    status: Optional[str] = "under_review"
+
+
+class PlanningFormVersionOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    project_id: uuid.UUID
+    version_number: int
+    version_code: str
+    sender: str
+    sender_name: Optional[str] = None
+    form_data: Optional[dict] = None
+    stage_threads: Optional[dict] = None
+    clarification_threads: Optional[list] = None
+    attachments: Optional[list] = None
+    status: Optional[str] = None
+    created_by: Optional[uuid.UUID] = None
+    created_at: Optional[datetime] = None
+
+
+class PlanningDraftCreateOrUpdate(BaseModel):
+    form_data: Optional[dict] = Field(default_factory=dict)
+    stage_threads: Optional[dict] = Field(default_factory=dict)
+    clarification_threads: Optional[list] = Field(default_factory=list)
+    stage_draft_saved: Optional[dict] = Field(default_factory=dict)
+    status: Optional[str] = "under_review"
+
+
+class PlanningDraftOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    project_id: uuid.UUID
+    form_data: Optional[dict] = None
+    stage_threads: Optional[dict] = None
+    clarification_threads: Optional[list] = None
+    stage_draft_saved: Optional[dict] = None
+    status: Optional[str] = None
+    updated_by: Optional[uuid.UUID] = None
+    updated_at: Optional[datetime] = None
+
+
+

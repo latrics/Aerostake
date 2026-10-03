@@ -24,6 +24,30 @@ class SectorStatusUpdate(BaseModel):
     status: SectorStatusEnum = Field(..., description="Updated sector survey status")
 
 
+class SectorPlanningUpdate(BaseModel):
+    sector_code: Optional[str] = Field(default=None, min_length=1, max_length=50)
+    target_area_sqkm: Optional[float] = Field(default=None, ge=0.0)
+    planned_sorties: Optional[int] = Field(default=None, ge=0)
+    planned_start_date: Optional[str] = None
+    planned_end_date: Optional[str] = None
+    assigned_pilots: Optional[List[Any]] = None
+    assigned_drone: Optional[str] = None
+    priority: Optional[str] = None
+    terrain_note: Optional[str] = None
+    planning_remarks: Optional[str] = None
+
+
+class SectorDailyLogCreate(BaseModel):
+    date: Optional[str] = None
+    landings_today: int = Field(default=0, ge=0)
+    flight_start_time: Optional[str] = None
+    flight_end_time: Optional[str] = None
+    area_covered_today: Optional[float] = Field(default=0.0, ge=0.0)
+    sector_status: Optional[SectorStatusEnum] = None
+    weather_condition: Optional[str] = None
+    remarks: Optional[str] = None
+
+
 class SectorOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

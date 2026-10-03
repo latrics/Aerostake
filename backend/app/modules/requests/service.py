@@ -4,6 +4,7 @@ from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.notifications.service import notification_service
+from app.modules.planning.repository import planning_repository
 from app.modules.projects.model import ProjectStatusEnum
 from app.modules.projects.repository import project_repository
 from app.modules.projects.service import project_service
@@ -28,11 +29,24 @@ class RequestService:
         # Verify project exists and user has access permission
         project = await project_service.get_project_model(db, current_user, project_id)
 
-        # Disallow new request submission if project is already completed or cancelled
-        if project.status in [ProjectStatusEnum.COMPLETED, ProjectStatusEnum.CANCELLED]:
+        # RBAC Guard: Pilot cannot submit survey requests
+        if current_user.role == RoleEnum.PILOT:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Pilots do not have permission to submit survey requests",
+            )
+
+        # Disallow new request submission if project has moved past the initial request stage
+        if project.status in [
+            ProjectStatusEnum.PLANNING,
+            ProjectStatusEnum.APPROVED,
+            ProjectStatusEnum.ACTIVE,
+            ProjectStatusEnum.COMPLETED,
+            ProjectStatusEnum.CANCELLED,
+        ]:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Cannot submit new request version for project in '{project.status.value}' state",
+                detail=f"Request stage is completed and locked for project in '{project.status.value}' state",
             )
 
         latest_version = await request_repository.get_latest_version_number(db, project_id)
@@ -136,13 +150,14 @@ class RequestService:
         db: AsyncSession,
         current_user: User,
         skip: int = 0,
-        limit: int = 100,
+        limit: int = 1000,
     ) -> List[RequestVersion]:
         if current_user.role in [RoleEnum.CLIENT_PRIMARY, RoleEnum.CLIENT_SUB, RoleEnum.CLIENT]:
+            org_projects = []
             if current_user.organization_id:
-                projects = await project_repository.list_by_organization(db, current_user.organization_id, skip=0, limit=1000)
-            else:
-                projects = await project_repository.list_by_client(db, current_user.id, skip=0, limit=1000)
+                org_projects = await project_repository.list_by_organization(db, current_user.organization_id, skip=0, limit=1000)
+            client_projects = await project_repository.list_by_client(db, current_user.id, skip=0, limit=1000)
+            projects = list({p.id: p for p in (org_projects + client_projects)}.values())
             proj_dict = {p.id: p for p in projects}
             all_reqs = []
             for p_id in proj_dict:
@@ -160,7 +175,15 @@ class RequestService:
         results = []
         for r in all_reqs:
             proj = proj_dict.get(r.project_id)
+            if not proj:
+                continue
             client_user = await user_repository.get_by_id(db, proj.client_id) if proj else None
+
+            # Fetch latest planning form version
+            latest_plan_ver = await planning_repository.get_latest_form_version(db, r.project_id)
+            all_plan_vers = await planning_repository.list_form_versions_by_project(db, r.project_id)
+            ops_plan_vers = [v for v in all_plan_vers if getattr(v, 'sender', None) == 'ops']
+
             out_dict = {
                 "id": r.id,
                 "project_id": r.project_id,
@@ -176,6 +199,12 @@ class RequestService:
                 "client_email": client_user.email if client_user else None,
                 "client_name": client_user.full_name if client_user else None,
                 "client_company": client_user.company_name if client_user else None,
+                "latest_planning_version": latest_plan_ver.version_code if latest_plan_ver else (f"{proj.title}_V01" if proj and proj.title else "V01"),
+                "planning_updated_by": latest_plan_ver.sender if latest_plan_ver else "client",
+                "planning_updated_by_name": latest_plan_ver.sender_name if latest_plan_ver else (client_user.full_name if client_user else "Client"),
+                "planning_updated_at": latest_plan_ver.created_at if latest_plan_ver else r.created_at,
+                "planning_versions_count": len(ops_plan_vers),
+                "latest_planning_status": latest_plan_ver.status if latest_plan_ver else "submitted",
             }
             results.append(out_dict)
 
@@ -183,3 +212,4 @@ class RequestService:
 
 
 request_service = RequestService()
+

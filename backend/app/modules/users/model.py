@@ -106,3 +106,10 @@ class User(Base):
             if isinstance(primary_contact, dict):
                 return primary_contact.get("department") or primary_contact.get("designation")
         return None
+
+    @property
+    def pilot_profile(self) -> Optional[dict]:
+        if self.company_profile and isinstance(self.company_profile, dict):
+            return self.company_profile.get("pilot_profile")
+        return None
+

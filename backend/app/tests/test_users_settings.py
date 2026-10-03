@@ -34,6 +34,8 @@ class MockSettingsUserRepo:
         phone_number=None,
         designation=None,
         company_profile=None,
+        pilot_profile=None,
+        **kwargs,
     ):
         if full_name is not None:
             user.full_name = full_name
@@ -48,6 +50,12 @@ class MockSettingsUserRepo:
         if designation is not None:
             cp = dict(user.company_profile or {})
             cp["designation"] = designation
+            user.company_profile = cp
+        if pilot_profile is not None:
+            cp = dict(user.company_profile or {})
+            existing_pilot = dict(cp.get("pilot_profile") or {})
+            existing_pilot.update(pilot_profile)
+            cp["pilot_profile"] = existing_pilot
             user.company_profile = cp
         return user
 
@@ -285,4 +293,52 @@ def test_user_deletion_and_client_leave_organization():
             assert other_client.is_active is False
     finally:
         app.dependency_overrides.pop(get_db, None)
+
+
+@pytest.mark.asyncio
+async def test_pilot_profile_credentials_update():
+    pilot_id = uuid.uuid4()
+    pilot_user = User(
+        id=pilot_id,
+        email="pilot.vikram@latrics.com",
+        hashed_password=hash_password("PilotPass123!"),
+        role=RoleEnum.PILOT,
+        full_name="Vikram Singh",
+        phone_number="+91 98765 43210",
+        is_active=True,
+    )
+    mock_settings_users[str(pilot_id)] = pilot_user
+    pilot_token = create_access_token({"sub": str(pilot_id), "email": pilot_user.email, "role": "pilot"})
+
+    app.dependency_overrides[get_db] = override_get_db
+    repo = MockSettingsUserRepo()
+
+    try:
+        with patch("app.security.auth.user_repository", repo), \
+             patch("app.modules.users.service.user_repository", repo), \
+             patch("app.modules.users.repository.user_repository", repo):
+            # 1. Pilot updates profile with Name, Contact no., Age, Aadhaar no., and DGCA licence no.
+            res = client.patch(
+                "/users/me",
+                headers={"Authorization": f"Bearer {pilot_token}"},
+                json={
+                    "full_name": "Vikramaditya Singh",
+                    "phone_number": "+91 98111 22334",
+                    "pilot_profile": {
+                        "age": 29,
+                        "aadhaar_number": "5432 1098 7654",
+                        "dgca_license_number": "DGCA-RPC-2024-88419",
+                    },
+                },
+            )
+            assert res.status_code == 200, res.text
+            data = res.json()
+            assert data["full_name"] == "Vikramaditya Singh"
+            assert data["phone_number"] == "+91 98111 22334"
+            assert data["pilot_profile"]["age"] == 29
+            assert data["pilot_profile"]["aadhaar_number"] == "5432 1098 7654"
+            assert data["pilot_profile"]["dgca_license_number"] == "DGCA-RPC-2024-88419"
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+
 

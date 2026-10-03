@@ -37,8 +37,12 @@ class UserOut(BaseModel):
     phone_number: Optional[str] = None
     designation: Optional[str] = None
     company_profile: Optional[dict] = None
+    pilot_profile: Optional[dict] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+    has_authenticated: Optional[bool] = True
+    invitation_status: Optional[str] = None
+    invitation_id: Optional[uuid.UUID] = None
 
 
 class UserProfileUpdate(BaseModel):
@@ -48,6 +52,8 @@ class UserProfileUpdate(BaseModel):
     phone_number: Optional[str] = Field(default=None, max_length=50, description="Contact Phone Number")
     designation: Optional[str] = Field(default=None, max_length=150, description="Personal Job Designation / Department")
     company_profile: Optional[dict] = Field(default=None, description="Detailed company and team profile")
+    pilot_profile: Optional[dict] = Field(default=None, description="Pilot credentials including age, aadhaar_number, and dgca_license_number")
+
 
 
 class ChangePasswordRequest(BaseModel):

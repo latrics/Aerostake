@@ -64,13 +64,15 @@ class MockProjectRepo:
             res = [p for p in res if p.status == status]
         return res
 
-    async def update(self, db, project, title=None, description=None, status=None):
+    async def update(self, db, project, title=None, description=None, status=None, requirements_payload=None, **kwargs):
         if title is not None:
             project.title = title
         if description is not None:
             project.description = description
         if status is not None:
             project.status = status
+        if requirements_payload is not None:
+            project.requirements_payload = requirements_payload
         mock_projects[str(project.id)] = project
         return project
 
@@ -127,6 +129,17 @@ class MockTimelineService:
 
     async def list_by_project(self, db, project_id, limit=100):
         return [e for e in mock_timeline if e.project_id == project_id]
+
+
+class MockPlanningRepo:
+    async def get_latest_form_version(self, db, project_id):
+        return None
+
+    async def get_latest_ops_version_number(self, db, project_id):
+        return 0
+
+    async def list_form_versions_by_project(self, db, project_id):
+        return []
 
 
 def test_projects_and_requests_full_lifecycle():
@@ -282,6 +295,7 @@ def test_unified_project_and_request_creation():
          patch("app.modules.requests.service.project_repository", MockProjectRepo()), \
          patch("app.modules.requests.service.request_repository", MockRequestRepo()), \
          patch("app.modules.requests.service.user_repository", MockUserRepo()), \
+         patch("app.modules.requests.service.planning_repository", MockPlanningRepo()), \
          patch("app.modules.requests.service.timeline_service.log_event", MockTimelineService().log_event):
 
         # 1. Create Project with bundled Survey Request in a single call
@@ -324,4 +338,114 @@ def test_unified_project_and_request_creation():
         latest_r = [r for r in reqs if r["project_id"] == p_data["id"]][0]
         assert latest_r["survey_location"] == "Khavda, Kutch, Gujarat"
         assert latest_r["requirements_payload"]["sensor_payload"] == "LiDAR + High-Res RGB"
+
+
+@pytest.mark.asyncio
+async def test_mobilisation_responsibility_and_verification_gate():
+    user_c_id = uuid.uuid4()
+    user_ops_id = uuid.uuid4()
+
+    client_user = User(
+        id=user_c_id,
+        email="gate_client@latrics.com",
+        role=RoleEnum.CLIENT,
+        organization_id=uuid.uuid4(),
+        is_active=True,
+    )
+    ops_user = User(
+        id=user_ops_id,
+        email="gate_ops@latrics.com",
+        role=RoleEnum.OPERATIONS,
+        organization_id=uuid.uuid4(),
+        is_active=True,
+    )
+    mock_users[str(user_c_id)] = client_user
+    mock_users[str(user_ops_id)] = ops_user
+
+    token_c = create_access_token(data={"sub": str(user_c_id), "email": client_user.email, "role": "client"})
+    token_ops = create_access_token(data={"sub": str(user_ops_id), "email": ops_user.email, "role": "operations"})
+
+    with patch("app.security.auth.user_repository", MockUserRepo()), \
+         patch("app.modules.projects.service.project_repository", MockProjectRepo()), \
+         patch("app.modules.projects.service.user_repository", MockUserRepo()), \
+         patch("app.modules.projects.service.request_repository", MockRequestRepo()), \
+         patch("app.modules.projects.service.timeline_service.log_event", MockTimelineService().log_event), \
+         patch("app.modules.requests.service.request_repository", MockRequestRepo()), \
+         patch("app.modules.requests.service.project_repository", MockProjectRepo()), \
+         patch("app.modules.requests.service.user_repository", MockUserRepo()), \
+         patch("app.modules.requests.service.planning_repository", MockPlanningRepo()), \
+         patch("app.modules.requests.service.timeline_service.log_event", MockTimelineService().log_event):
+
+        # 1. Create a project
+        create_res = client.post(
+            "/projects",
+            headers={"Authorization": f"Bearer {token_c}"},
+            json={
+                "title": "Solar Mobilisation Gate Test",
+                "description": "Validating stage gate enforcement",
+                "survey_location": "Bhadla, Rajasthan",
+                "survey_type": "topography",
+                "target_area_sqkm": 8.0,
+            }
+        )
+        assert create_res.status_code == 201
+        p_id = create_res.json()["id"]
+
+        # 2. Ops approves project into APPROVED stage
+        mock_projects[p_id].status = ProjectStatusEnum.APPROVED
+
+        # 3. Attempt advance to ACTIVE with CLIENT responsibility but unapproved tickets -> 400
+        fail_client_gate = client.patch(
+            f"/projects/{p_id}",
+            headers={"Authorization": f"Bearer {token_ops}"},
+            json={
+                "status": "active",
+                "requirements_payload": {
+                    "mobilisation": {
+                        "responsibility": "CLIENT",
+                        "clientTicketApprovalStatus": "SUBMITTED",
+                    }
+                }
+            }
+        )
+        assert fail_client_gate.status_code == 400
+        client_err = fail_client_gate.json().get("message") or fail_client_gate.json().get("detail", "")
+        assert "tickets and bills have not been approved and validated by Operations" in client_err
+
+        # 4. Attempt advance to ACTIVE with LATRICS responsibility but unverified advance -> 400
+        fail_latrics_gate = client.patch(
+            f"/projects/{p_id}",
+            headers={"Authorization": f"Bearer {token_ops}"},
+            json={
+                "status": "active",
+                "requirements_payload": {
+                    "mobilisation": {
+                        "responsibility": "LATRICS",
+                        "latricsAdvancePaymentStatus": "SUBMITTED",
+                    }
+                }
+            }
+        )
+        assert fail_latrics_gate.status_code == 400
+        latrics_err = fail_latrics_gate.json().get("message") or fail_latrics_gate.json().get("detail", "")
+        assert "5,000 mobilization advance deposit transaction slip has not been verified by Operations" in latrics_err
+
+        # 5. Advance with LATRICS responsibility and VERIFIED advance -> Success (200)
+        success_advance = client.patch(
+            f"/projects/{p_id}",
+            headers={"Authorization": f"Bearer {token_ops}"},
+            json={
+                "status": "active",
+                "requirements_payload": {
+                    "mobilisation": {
+                        "responsibility": "LATRICS",
+                        "latricsAdvancePaymentStatus": "VERIFIED",
+                        "latricsAdvanceUtr": "UTR123456789",
+                    }
+                }
+            }
+        )
+        assert success_advance.status_code == 200
+        assert success_advance.json()["status"] == "active"
+
 

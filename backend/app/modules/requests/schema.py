@@ -31,3 +31,10 @@ class RequestVersionOut(BaseModel):
     client_email: Optional[str] = None
     client_name: Optional[str] = None
     client_company: Optional[str] = None
+    latest_planning_version: Optional[str] = None
+    planning_updated_by: Optional[str] = None
+    planning_updated_by_name: Optional[str] = None
+    planning_updated_at: Optional[datetime] = None
+    planning_versions_count: Optional[int] = 0
+    latest_planning_status: Optional[str] = None
+

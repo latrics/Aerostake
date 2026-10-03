@@ -3,10 +3,11 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 from fastapi import HTTPException, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
-from app.modules.invitations.model import InvitationStatusEnum
+from app.modules.invitations.model import Invitation, InvitationStatusEnum
 from app.modules.invitations.repository import invitation_repository
 from app.modules.notifications.service import notification_service
 from app.modules.users.model import RoleEnum, User
@@ -122,7 +123,28 @@ class UserService:
         limit: int = 100,
     ) -> List[UserOut]:
         users = await user_repository.list_users(db, role=role, skip=skip, limit=limit)
-        return [UserOut.model_validate(u) for u in users]
+
+        # Check invitation statuses to identify unauthenticated users
+        inv_res = await db.execute(select(Invitation))
+        all_invites = inv_res.scalars().all()
+
+        accepted_emails = {i.email.lower() for i in all_invites if i.status == InvitationStatusEnum.ACCEPTED}
+        pending_inv_map = {i.email.lower(): i for i in all_invites if i.status == InvitationStatusEnum.PENDING}
+
+        output: List[UserOut] = []
+        for u in users:
+            u_out = UserOut.model_validate(u)
+            email_lower = u.email.lower()
+            if email_lower in pending_inv_map and email_lower not in accepted_emails and u.role != RoleEnum.ADMIN:
+                u_out.has_authenticated = False
+                u_out.invitation_status = "pending"
+                u_out.invitation_id = pending_inv_map[email_lower].id
+            else:
+                u_out.has_authenticated = True
+                u_out.invitation_status = "accepted" if email_lower in accepted_emails else None
+            output.append(u_out)
+
+        return output
 
     async def create_user_admin(self, db: AsyncSession, user_in: UserCreate) -> UserOut:
         existing = await user_repository.get_by_email(db, user_in.email)
@@ -166,7 +188,26 @@ class UserService:
         phone_number: Optional[str] = None,
         designation: Optional[str] = None,
         company_profile: Optional[dict] = None,
+        pilot_profile: Optional[dict] = None,
     ) -> UserOut:
+        # Sub-clients cannot edit the organization's company profile or change company name
+        if current_user.role == RoleEnum.CLIENT_SUB:
+            if company_profile is not None:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Sub-clients cannot modify company profile. Company profile is managed exclusively by the primary client.",
+                )
+            if company_name is not None and current_user.company_name and company_name.strip() != current_user.company_name.strip():
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Sub-clients cannot modify company name. Company profile is managed exclusively by the primary client.",
+                )
+            if email is not None and email.strip().lower() != current_user.email.lower():
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Sub-client email address is bound to organization invitation and cannot be modified. Contact your primary client to reissue an invite with a new email.",
+                )
+
         # Check email uniqueness if email is changing
         if email is not None and email.strip().lower() != current_user.email.lower():
             clean_email = email.strip().lower()
@@ -187,16 +228,20 @@ class UserService:
             org = await invitation_repository.get_or_create_organization(db, effective_company_name)
             current_user.organization_id = org.id
 
-        updated_user = await user_repository.update_profile(
-            db=db,
-            user=current_user,
-            full_name=full_name,
-            email=email,
-            company_name=effective_company_name,
-            phone_number=phone_number,
-            designation=designation,
-            company_profile=company_profile,
-        )
+        update_kwargs = {
+            "db": db,
+            "user": current_user,
+            "full_name": full_name,
+            "email": email,
+            "company_name": effective_company_name,
+            "phone_number": phone_number,
+            "designation": designation,
+            "company_profile": company_profile,
+        }
+        if pilot_profile is not None:
+            update_kwargs["pilot_profile"] = pilot_profile
+
+        updated_user = await user_repository.update_profile(**update_kwargs)
 
         # 2. If company_profile has team_members, issue 1-day invitations & send invite emails
         if company_profile and isinstance(company_profile, dict):
@@ -214,22 +259,9 @@ class UserService:
                     member_phone = member.get("phone_number") or member.get("phone")
                     member_dept = member.get("department") or member.get("designation")
 
-                    # Check or provision user record for project communication dropdowns
+                    # Only update profile details on existing user if they already exist
                     existing_user = await user_repository.get_by_email(db, clean_email)
-                    if not existing_user:
-                        hashed_temp = hash_password(secrets.token_urlsafe(16))
-                        await user_repository.create(
-                            db=db,
-                            email=clean_email,
-                            hashed_password=hashed_temp,
-                            role=RoleEnum.CLIENT_SUB,
-                            organization_id=current_user.organization_id,
-                            invited_by=current_user.id,
-                            full_name=member_name,
-                            company_name=effective_company_name,
-                            phone_number=member_phone,
-                        )
-                    else:
+                    if existing_user:
                         if not existing_user.organization_id and current_user.organization_id:
                             existing_user.organization_id = current_user.organization_id
                         if not existing_user.company_name and effective_company_name:
@@ -289,6 +321,32 @@ class UserService:
                             f"</div>"
                         ),
                     )
+
+        if updated_user.role == RoleEnum.CLIENT_SUB and (updated_user.organization_id or updated_user.invited_by):
+            primary_client = None
+            if updated_user.organization_id:
+                stmt = (
+                    select(User)
+                    .where(
+                        User.organization_id == updated_user.organization_id,
+                        User.role == RoleEnum.CLIENT_PRIMARY,
+                        User.is_active == True,
+                    )
+                    .order_by(User.created_at.asc())
+                )
+                res = await db.execute(stmt)
+                primary_client = res.scalars().first()
+
+            if not primary_client and updated_user.invited_by:
+                stmt_inv = select(User).where(User.id == updated_user.invited_by)
+                res_inv = await db.execute(stmt_inv)
+                primary_client = res_inv.scalars().first()
+
+            if primary_client:
+                user_data = UserOut.model_validate(updated_user).model_dump()
+                user_data["company_name"] = primary_client.company_name or updated_user.company_name
+                user_data["company_profile"] = primary_client.company_profile
+                return UserOut(**user_data)
 
         return UserOut.model_validate(updated_user)
 

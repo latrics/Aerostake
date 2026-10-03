@@ -8,6 +8,8 @@ from app.modules.sectors.schema import (
     SectorBatchCreate,
     SectorOut,
     SectorStatusUpdate,
+    SectorPlanningUpdate,
+    SectorDailyLogCreate,
 )
 from app.modules.sectors.service import sector_service
 from app.modules.users.model import RoleEnum, User
@@ -94,4 +96,46 @@ async def update_sector_status(
         current_user=current_user,
         sector_id=sector_id,
         status_in=status_in,
+    )
+
+
+@sectors_router.patch(
+    "/sectors/{sector_id}/planning",
+    response_model=SectorOut,
+    status_code=status.HTTP_200_OK,
+    summary="Update sector planning parameters (Ops/Admin only)",
+)
+async def update_sector_planning(
+    sector_id: uuid.UUID,
+    planning_in: SectorPlanningUpdate,
+    current_user: User = Depends(require_role(RoleEnum.ADMIN, RoleEnum.OPERATIONS)),
+    db: AsyncSession = Depends(get_db),
+):
+    """Form A: Configure/override sector planning parameters (sorties, dates, pilot, equipment, etc)."""
+    return await sector_service.update_sector_planning(
+        db=db,
+        current_user=current_user,
+        sector_id=sector_id,
+        planning_in=planning_in,
+    )
+
+
+@sectors_router.post(
+    "/sectors/{sector_id}/daily-logs",
+    response_model=SectorOut,
+    status_code=status.HTTP_200_OK,
+    summary="Record daily flight status and sorties (Pilot/Ops/Admin)",
+)
+async def add_sector_daily_log(
+    sector_id: uuid.UUID,
+    log_in: SectorDailyLogCreate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Form B: Log daily flight sorties, hours, area, weather, remarks, and status."""
+    return await sector_service.add_sector_daily_log(
+        db=db,
+        current_user=current_user,
+        sector_id=sector_id,
+        log_in=log_in,
     )

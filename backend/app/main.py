@@ -4,10 +4,24 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from contextlib import asynccontextmanager
 from app.config import get_settings
+from app.database import engine, Base
+import app.modules.planning.model  # noqa: F401
 
 logger = logging.getLogger("aerostake.main")
 settings = get_settings()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    try:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+    except Exception as e:
+        logger.warning(f"Could not auto-create tables via create_all: {e}")
+    yield
+
 
 app = FastAPI(
     title=settings.APP_NAME,
@@ -15,6 +29,7 @@ app = FastAPI(
     debug=settings.DEBUG,
     docs_url="/docs",
     redoc_url="/redoc",
+    lifespan=lifespan,
 )
 
 # 1. Global CORS Middleware
@@ -79,6 +94,7 @@ from app.modules.sectors.router import sectors_router
 from app.modules.allocations.router import allocations_router
 from app.modules.payments.router import payments_router
 from app.modules.timeline.router import timeline_router
+from app.modules.clients.router import clients_router
 
 app.include_router(auth_router)
 app.include_router(users_router)
@@ -92,6 +108,7 @@ app.include_router(sectors_router)
 app.include_router(allocations_router)
 app.include_router(payments_router)
 app.include_router(timeline_router)
+app.include_router(clients_router)
 
 
 # 4. System Health & Metadata

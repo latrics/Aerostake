@@ -21,7 +21,7 @@ global_requests_router = APIRouter(prefix="/requests", tags=["Requests"])
 )
 async def list_all_requests(
     skip: int = 0,
-    limit: int = 100,
+    limit: int = 1000,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):

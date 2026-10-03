@@ -1,9 +1,9 @@
 import uuid
 from datetime import datetime, timezone
 from typing import List, Optional
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.modules.planning.model import OperationalPlan, PlanStatusEnum
+from app.modules.planning.model import OperationalPlan, PlanStatusEnum, PlanningFormVersion, PlanningDraft
 
 
 class PlanningRepository:
@@ -108,5 +108,141 @@ class PlanningRepository:
         await db.refresh(plan)
         return plan
 
+    async def get_latest_version_number(
+        self,
+        db: AsyncSession,
+        project_id: uuid.UUID,
+    ) -> int:
+        stmt = (
+            select(func.coalesce(func.max(PlanningFormVersion.version_number), 0))
+            .where(PlanningFormVersion.project_id == project_id)
+        )
+        result = await db.execute(stmt)
+        return int(result.scalar() or 0)
+
+    async def get_latest_ops_version_number(
+        self,
+        db: AsyncSession,
+        project_id: uuid.UUID,
+    ) -> int:
+        stmt = (
+            select(func.coalesce(func.max(PlanningFormVersion.version_number), 0))
+            .where(PlanningFormVersion.project_id == project_id)
+            .where(PlanningFormVersion.sender == "ops")
+        )
+        result = await db.execute(stmt)
+        return int(result.scalar() or 0)
+
+    async def create_form_version(
+        self,
+        db: AsyncSession,
+        project_id: uuid.UUID,
+        version_number: int,
+        version_code: str,
+        sender: str,
+        sender_name: Optional[str] = None,
+        form_data: Optional[dict] = None,
+        stage_threads: Optional[dict] = None,
+        clarification_threads: Optional[list] = None,
+        attachments: Optional[list] = None,
+        status: Optional[str] = "under_review",
+        created_by: Optional[uuid.UUID] = None,
+    ) -> PlanningFormVersion:
+        form_ver = PlanningFormVersion(
+            project_id=project_id,
+            version_number=version_number,
+            version_code=version_code,
+            sender=sender,
+            sender_name=sender_name,
+            form_data=form_data or {},
+            stage_threads=stage_threads or {},
+            clarification_threads=clarification_threads or [],
+            attachments=attachments or [],
+            status=status or "under_review",
+            created_by=created_by,
+        )
+        db.add(form_ver)
+        await db.flush()
+        await db.refresh(form_ver)
+        return form_ver
+
+    async def list_form_versions_by_project(
+        self,
+        db: AsyncSession,
+        project_id: uuid.UUID,
+    ) -> List[PlanningFormVersion]:
+        stmt = (
+            select(PlanningFormVersion)
+            .where(PlanningFormVersion.project_id == project_id)
+            .where(PlanningFormVersion.status != "draft")
+            .order_by(PlanningFormVersion.created_at.desc())
+        )
+        result = await db.execute(stmt)
+        return list(result.scalars().all())
+
+    async def get_latest_form_version(
+        self,
+        db: AsyncSession,
+        project_id: uuid.UUID,
+    ) -> Optional[PlanningFormVersion]:
+        stmt = (
+            select(PlanningFormVersion)
+            .where(PlanningFormVersion.project_id == project_id)
+            .where(PlanningFormVersion.status != "draft")
+            .order_by(PlanningFormVersion.created_at.desc())
+        )
+        result = await db.execute(stmt)
+        return result.scalars().first()
+
+    async def get_draft_by_project(
+        self,
+        db: AsyncSession,
+        project_id: uuid.UUID,
+    ) -> Optional[PlanningDraft]:
+        stmt = select(PlanningDraft).where(PlanningDraft.project_id == project_id)
+        result = await db.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def save_or_update_draft(
+        self,
+        db: AsyncSession,
+        project_id: uuid.UUID,
+        form_data: Optional[dict] = None,
+        stage_threads: Optional[dict] = None,
+        clarification_threads: Optional[list] = None,
+        stage_draft_saved: Optional[dict] = None,
+        status: Optional[str] = None,
+        updated_by: Optional[uuid.UUID] = None,
+    ) -> PlanningDraft:
+        draft = await self.get_draft_by_project(db, project_id)
+        if not draft:
+            draft = PlanningDraft(
+                project_id=project_id,
+                form_data=form_data or {},
+                stage_threads=stage_threads or {},
+                clarification_threads=clarification_threads or [],
+                stage_draft_saved=stage_draft_saved or {},
+                status=status or "under_review",
+                updated_by=updated_by,
+            )
+            db.add(draft)
+        else:
+            if form_data is not None:
+                draft.form_data = form_data
+            if stage_threads is not None:
+                draft.stage_threads = stage_threads
+            if clarification_threads is not None:
+                draft.clarification_threads = clarification_threads
+            if stage_draft_saved is not None:
+                draft.stage_draft_saved = stage_draft_saved
+            if status is not None:
+                draft.status = status
+            draft.updated_by = updated_by
+            draft.updated_at = datetime.now(timezone.utc)
+        await db.flush()
+        await db.refresh(draft)
+        return draft
+
 
 planning_repository = PlanningRepository()
+
