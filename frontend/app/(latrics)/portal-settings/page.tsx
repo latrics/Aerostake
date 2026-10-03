@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { apiClient } from '@/lib/api-client';
+import { PageHeader } from '@/components/PageHeader';
 
 export default function SettingsPage() {
   const [healthStatus, setHealthStatus] = useState<'checking' | 'healthy' | 'unreachable'>('checking');
@@ -38,23 +39,20 @@ export default function SettingsPage() {
 
   return (
     <div>
-      <div style={{ marginBottom: '2rem' }}>
-        <h2 style={{ fontSize: '1.75rem', fontWeight: 700, marginBottom: '0.5rem' }}>
-          Platform & Operations Settings
-        </h2>
-        <p style={{ color: 'var(--text-secondary)' }}>
-          Configure flight defaults, inspect backend microservice health, and manage system parameters.
-        </p>
-      </div>
+      {/* ── Page Header ── */}
+      <PageHeader
+        title="Platform & Operations Settings"
+        subtitle="Configure flight defaults, inspect backend microservice health, and manage system parameters."
+      />
 
       {feedbackMsg && (
         <div
           style={{
             padding: '0.85rem 1.25rem',
-            background: feedbackMsg.type === 'success' ? 'rgba(16, 185, 129, 0.12)' : 'rgba(239, 68, 68, 0.12)',
-            border: `1px solid ${feedbackMsg.type === 'success' ? 'var(--accent-success)' : 'var(--accent-danger)'}`,
+            background: feedbackMsg.type === 'success' ? '#f4f4f5' : '#f4f4f5',
+            border: `1px solid ${feedbackMsg.type === 'success' ? '#09090b' : 'var(--accent-danger)'}`,
             borderRadius: '8px',
-            color: feedbackMsg.type === 'success' ? 'var(--accent-success)' : '#fca5a5',
+            color: feedbackMsg.type === 'success' ? '#09090b' : '#09090b',
             marginBottom: '1.5rem',
             display: 'flex',
             justifyContent: 'space-between',
@@ -164,7 +162,7 @@ export default function SettingsPage() {
                 style={{
                   fontSize: '0.8rem',
                   fontWeight: 700,
-                  color: healthStatus === 'healthy' ? 'var(--accent-success)' : 'var(--accent-danger)',
+                  color: healthStatus === 'healthy' ? '#09090b' : 'var(--accent-danger)',
                   display: 'flex',
                   alignItems: 'center',
                   gap: '0.35rem',
@@ -175,7 +173,7 @@ export default function SettingsPage() {
                     width: '8px',
                     height: '8px',
                     borderRadius: '50%',
-                    background: healthStatus === 'healthy' ? 'var(--accent-success)' : 'var(--accent-danger)',
+                    background: healthStatus === 'healthy' ? '#09090b' : 'var(--accent-danger)',
                   }}
                 />
                 {healthStatus.toUpperCase()}
@@ -198,7 +196,7 @@ export default function SettingsPage() {
                 <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>PostgreSQL 16 Async</div>
                 <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>SQLAlchemy 2.0 Pool Active</div>
               </div>
-              <span style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--accent-success)' }}>
+              <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#09090b' }}>
                 CONNECTED
               </span>
             </div>
@@ -219,7 +217,7 @@ export default function SettingsPage() {
                 <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>Redis In-Memory Bus</div>
                 <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Rate Limiter & Pub/Sub</div>
               </div>
-              <span style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--accent-success)' }}>
+              <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#09090b' }}>
                 ACTIVE
               </span>
             </div>

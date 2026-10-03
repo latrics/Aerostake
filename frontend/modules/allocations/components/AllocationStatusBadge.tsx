@@ -13,36 +13,36 @@ export function AllocationStatusBadge({ status }: AllocationStatusBadgeProps) {
       case AllocationStatusEnum.ASSIGNED:
       case 'assigned':
         return {
-          background: 'rgba(59, 130, 246, 0.15)',
-          color: 'var(--accent-info)',
-          border: '1px solid rgba(59, 130, 246, 0.3)',
+          background: '#f4f4f5',
+          color: '#27272a',
+          border: '1px solid #d4d4d8',
         };
       case AllocationStatusEnum.IN_FLIGHT:
       case 'in_flight':
         return {
-          background: 'rgba(234, 179, 8, 0.15)',
-          color: 'var(--accent-warning)',
-          border: '1px solid rgba(234, 179, 8, 0.3)',
+          background: '#fafafa',
+          color: '#09090b',
+          border: '1px dashed #71717a',
         };
       case AllocationStatusEnum.COMPLETED:
       case 'completed':
         return {
-          background: 'rgba(16, 185, 129, 0.15)',
-          color: 'var(--accent-success)',
-          border: '1px solid rgba(16, 185, 129, 0.3)',
+          background: '#18181b',
+          color: '#ffffff',
+          border: '1px solid #18181b',
         };
       case AllocationStatusEnum.ABORTED:
       case 'aborted':
         return {
-          background: 'rgba(239, 68, 68, 0.15)',
-          color: 'var(--accent-danger)',
-          border: '1px solid rgba(239, 68, 68, 0.3)',
+          background: '#09090b',
+          color: '#ffffff',
+          border: '1px solid #09090b',
         };
       default:
         return {
-          background: 'rgba(255, 255, 255, 0.05)',
-          color: 'var(--text-secondary)',
-          border: '1px solid var(--border-color)',
+          background: '#f4f4f5',
+          color: '#52525b',
+          border: '1px solid #e4e4e7',
         };
     }
   };
@@ -78,7 +78,7 @@ export function AllocationStatusBadge({ status }: AllocationStatusBadgeProps) {
             width: '6px',
             height: '6px',
             borderRadius: '50%',
-            backgroundColor: 'var(--accent-warning)',
+            backgroundColor: '#09090b',
             animation: 'pulse 1.5s infinite',
           }}
         />

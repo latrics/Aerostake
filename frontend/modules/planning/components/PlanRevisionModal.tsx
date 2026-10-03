@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { PlanRevisionRequest } from '../types';
+import { Portal } from '@/components/Portal';
 
 interface PlanRevisionModalProps {
   isOpen: boolean;
@@ -39,19 +40,24 @@ export const PlanRevisionModal: React.FC<PlanRevisionModalProps> = ({
   };
 
   return (
-    <div
-      style={{
-        position: 'fixed',
-        inset: 0,
-        backgroundColor: 'rgba(0, 0, 0, 0.75)',
-        backdropFilter: 'blur(8px)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: 999,
-        padding: '1rem',
-      }}
-    >
+    <Portal>
+      <div
+        className="viewport-modal-backdrop"
+        style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          width: '100vw',
+          height: '100vh',
+          backgroundColor: 'rgba(0, 0, 0, 0.75)',
+          backdropFilter: 'blur(8px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 99999,
+          padding: '1rem',
+        }}
+      >
       <div
         className="glass-panel animate-fade-in"
         style={{
@@ -85,10 +91,10 @@ export const PlanRevisionModal: React.FC<PlanRevisionModalProps> = ({
           <div
             style={{
               padding: '0.75rem 1rem',
-              backgroundColor: 'rgba(239, 68, 68, 0.15)',
-              border: '1px solid rgba(239, 68, 68, 0.3)',
+              backgroundColor: '#f4f4f5',
+              border: '1px solid #09090b',
               borderRadius: 'var(--radius-sm)',
-              color: '#f87171',
+              color: '#09090b',
               fontSize: '0.875rem',
               marginBottom: '1.25rem',
             }}
@@ -131,5 +137,6 @@ export const PlanRevisionModal: React.FC<PlanRevisionModalProps> = ({
         </form>
       </div>
     </div>
-  );
+  </Portal>
+);
 };

@@ -6,8 +6,6 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import {
   ChevronLeft,
   Search,
-  Bell,
-  User,
   UploadCloud,
   Calendar,
   Plus,
@@ -21,6 +19,7 @@ import {
 } from 'lucide-react';
 
 import { useAuth } from '@/lib/auth';
+import { isLatricsRole } from '@/lib/role';
 import { projectApi } from '@/modules/projects/api';
 import { ProjectStatus } from '@/modules/projects/types';
 
@@ -70,11 +69,18 @@ function NewProjectRequestPageContent() {
   const isRevision = Boolean(rawProjectId) && !isDraftMode;
   const { user } = useAuth();
 
+  useEffect(() => {
+    if (user && isLatricsRole(user.role)) {
+      router.replace('/requests');
+    }
+  }, [user, router]);
+
   // Form State
   const [projectName, setProjectName] = useState('');
   const [locationAddress, setLocationAddress] = useState('');
   const [city, setCity] = useState('');
   const [state, setState] = useState('');
+  const [requestedAreaSqKm, setRequestedAreaSqKm] = useState('');
   const [primaryContact, setPrimaryContact] = useState({
     name: user?.full_name || '',
     email: user?.email || '',
@@ -106,6 +112,7 @@ function NewProjectRequestPageContent() {
   // 4. KML / Boundary Files State (Multiple Files Support)
   const [kmlFiles, setKmlFiles] = useState<Array<{ name: string; size: string }>>([]);
   const [isDraggingKml, setIsDraggingKml] = useState(false);
+  const [airspaceZones, setAirspaceZones] = useState<string[]>(['Green Zone']);
 
   // 7. Scope Document Files State (Multiple Files Support)
   const [scopeFiles, setScopeFiles] = useState<Array<{ name: string; size: string }>>([]);
@@ -189,6 +196,9 @@ function NewProjectRequestPageContent() {
 
       if (reqPayload.city) setCity(reqPayload.city);
       if (reqPayload.state) setState(reqPayload.state);
+      if (reqPayload.requested_area_sqkm || reqPayload.target_area_sqkm) {
+        setRequestedAreaSqKm(String(reqPayload.requested_area_sqkm || reqPayload.target_area_sqkm));
+      }
 
       if (reqPayload.primary_contact) {
         setPrimaryContact({
@@ -242,6 +252,12 @@ function NewProjectRequestPageContent() {
           }
         });
         setDeliverables((prev) => ({ ...prev, ...map }));
+      }
+
+      if (Array.isArray(reqPayload.airspace_zones)) {
+        setAirspaceZones(reqPayload.airspace_zones);
+      } else if (typeof reqPayload.airspace_zone === 'string') {
+        setAirspaceZones([reqPayload.airspace_zone]);
       }
 
       // Hydrate all uploaded boundary & scope files
@@ -507,6 +523,7 @@ function NewProjectRequestPageContent() {
         start_date: startDate,
         end_date: endDate,
         tenure_days: tenureDays,
+        airspace_zones: airspaceZones,
         payload_sensor: selectedPayload,
         assigned_contacts: assignedContacts.filter((c) => c.name.trim() !== ''),
         kml_filename: kmlFiles.map((f) => f.name).join(', ') || null,
@@ -549,10 +566,14 @@ function NewProjectRequestPageContent() {
           description: remarks || `Draft request: ${draftTitle}`,
           survey_location: finalLocation,
           survey_type: selectedPayload || 'topography',
-          target_area_sqkm: 50.0,
+          target_area_sqkm: requestedAreaSqKm ? parseFloat(requestedAreaSqKm) : undefined,
           status: ProjectStatus.DRAFT,
           is_draft: true,
-          requirements_payload: payloadPayload,
+          requirements_payload: {
+            ...payloadPayload,
+            requested_area_sqkm: requestedAreaSqKm ? parseFloat(requestedAreaSqKm) : null,
+            target_area_sqkm: requestedAreaSqKm ? parseFloat(requestedAreaSqKm) : null,
+          },
         });
         if (created?.id) {
           targetId = created.id;
@@ -621,6 +642,12 @@ function NewProjectRequestPageContent() {
       return;
     }
 
+    const areaNum = parseFloat(requestedAreaSqKm);
+    if (!requestedAreaSqKm || isNaN(areaNum) || areaNum <= 0) {
+      setErrorMessage('Please provide a valid Requested Area (sq. Km) Scanning (positive number).');
+      return;
+    }
+
     try {
       setIsSubmitting(true);
       const trimmedAddress = locationAddress.trim();
@@ -639,6 +666,8 @@ function NewProjectRequestPageContent() {
         city: trimmedCity,
         state: trimmedState,
         survey_location: trimmedAddress,
+        requested_area_sqkm: areaNum,
+        target_area_sqkm: areaNum,
         deliverables: deliverablesList,
         other_deliverable: otherDeliverableText,
         primary_contact: primaryContact,
@@ -679,6 +708,7 @@ function NewProjectRequestPageContent() {
           status: ProjectStatus.SUBMITTED,
           survey_location: finalLocation,
           survey_type: selectedPayload || 'topography',
+          target_area_sqkm: areaNum,
           requirements_payload: payloadPayload,
         });
       } else {
@@ -687,7 +717,7 @@ function NewProjectRequestPageContent() {
           description: remarks || `Survey request for ${projectName.trim()}`,
           survey_location: finalLocation,
           survey_type: selectedPayload || 'topography',
-          target_area_sqkm: 50.0,
+          target_area_sqkm: areaNum,
           requirements_payload: payloadPayload,
         });
       }
@@ -734,50 +764,6 @@ function NewProjectRequestPageContent() {
             />
             <Search size={14} color="#71717a" style={{ position: 'absolute', right: '10px', top: '10px' }} />
           </div>
-
-          <button
-            type="button"
-            style={{
-              width: '34px',
-              height: '34px',
-              border: '1px solid var(--border-color)',
-              borderRadius: '6px',
-              backgroundColor: '#ffffff',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              cursor: 'pointer',
-            }}
-          >
-            <Bell size={15} color="#09090b" />
-          </button>
-
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.4rem',
-              fontSize: '0.8rem',
-              fontWeight: 600,
-              color: '#09090b',
-            }}
-          >
-            <div
-              style={{
-                width: '32px',
-                height: '32px',
-                borderRadius: '50%',
-                border: '1px solid var(--border-color)',
-                backgroundColor: '#fafafa',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
-            >
-              <User size={16} color="#09090b" />
-            </div>
-            <span>Ops User</span>
-          </div>
         </div>
       </div>
 
@@ -823,18 +809,18 @@ function NewProjectRequestPageContent() {
         <div
           style={{
             padding: '0.75rem 1rem',
-            backgroundColor: '#f8fafc',
-            border: '1px solid #cbd5e1',
+            backgroundColor: '#fafafa',
+            border: '1px solid #d4d4d8',
             borderRadius: '6px',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
             fontSize: '0.8rem',
-            color: '#334155',
+            color: '#27272a',
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <FileText size={15} color="#0284c7" />
+            <FileText size={15} color="#09090b" />
             <span>
               <strong>Draft Restored:</strong> Showing your previously saved draft details. All fields and documents have been restored.
             </span>
@@ -845,7 +831,7 @@ function NewProjectRequestPageContent() {
             style={{
               background: 'none',
               border: 'none',
-              color: '#dc2626',
+              color: '#09090b',
               fontWeight: 600,
               fontSize: '0.75rem',
               cursor: 'pointer',
@@ -861,10 +847,10 @@ function NewProjectRequestPageContent() {
         <div
           style={{
             padding: '0.85rem 1.25rem',
-            backgroundColor: '#f0fdf4',
-            border: '1px solid #16a34a',
+            backgroundColor: '#f4f4f5',
+            border: '1px solid #09090b',
             borderRadius: '6px',
-            color: '#15803d',
+            color: '#09090b',
             fontWeight: 700,
             fontSize: '0.85rem',
             display: 'flex',
@@ -880,10 +866,10 @@ function NewProjectRequestPageContent() {
         <div
           style={{
             padding: '0.85rem 1.25rem',
-            backgroundColor: '#fef2f2',
-            border: '1px solid #dc2626',
+            backgroundColor: '#f4f4f5',
+            border: '1px solid #09090b',
             borderRadius: '6px',
-            color: '#dc2626',
+            color: '#09090b',
             fontWeight: 600,
             fontSize: '0.85rem',
           }}
@@ -916,7 +902,7 @@ function NewProjectRequestPageContent() {
         <h2 className="wf-title" style={{ fontSize: '0.95rem' }}>1. Project Details</h2>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
           <label style={{ fontSize: '0.775rem', fontWeight: 600, color: '#09090b' }}>
-            Project Name <span style={{ color: '#ef4444' }}>*</span>
+            Project Name <span style={{ color: '#09090b' }}>*</span>
           </label>
           <input
             type="text"
@@ -932,7 +918,7 @@ function NewProjectRequestPageContent() {
         {/* Project Location (Address) */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
           <label style={{ fontSize: '0.775rem', fontWeight: 600, color: '#09090b' }}>
-            Project Location <span style={{ color: '#ef4444' }}>*</span>
+            Project Location <span style={{ color: '#09090b' }}>*</span>
             <span style={{ fontSize: '0.725rem', fontWeight: 400, color: '#71717a', marginLeft: '0.45rem' }}>
               (Enter the physical site address — do not use company or project name)
             </span>
@@ -952,7 +938,7 @@ function NewProjectRequestPageContent() {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem' }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
             <label style={{ fontSize: '0.775rem', fontWeight: 600, color: '#09090b' }}>
-              City <span style={{ color: '#ef4444' }}>*</span>
+              City <span style={{ color: '#09090b' }}>*</span>
             </label>
             <input
               type="text"
@@ -967,7 +953,7 @@ function NewProjectRequestPageContent() {
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
             <label style={{ fontSize: '0.775rem', fontWeight: 600, color: '#09090b' }}>
-              State <span style={{ color: '#ef4444' }}>*</span>
+              State <span style={{ color: '#09090b' }}>*</span>
             </label>
             <select
               required
@@ -984,6 +970,28 @@ function NewProjectRequestPageContent() {
               ))}
             </select>
           </div>
+        </div>
+
+        {/* Requested Area (sq. Km) Scanning */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', marginTop: '0.25rem' }}>
+          <label style={{ fontSize: '0.775rem', fontWeight: 600, color: '#09090b', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+            <span>Requested Area (sq. Km) Scanning</span>
+            <span style={{ color: '#09090b' }}>*</span>
+            <span style={{ fontSize: '0.725rem', fontWeight: 400, color: '#71717a', marginLeft: '0.25rem' }}>
+              (How many square kilometers are requested for scanning and mapping)
+            </span>
+          </label>
+          <input
+            type="number"
+            step="0.01"
+            min="0.01"
+            required
+            placeholder="e.g. 25.5"
+            value={requestedAreaSqKm}
+            onChange={(e) => setRequestedAreaSqKm(e.target.value)}
+            className="form-input"
+            style={{ fontSize: '0.8rem', height: '36px', maxWidth: '320px' }}
+          />
         </div>
       </div>
 
@@ -1010,7 +1018,7 @@ function NewProjectRequestPageContent() {
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
               <label style={{ fontSize: '0.725rem', fontWeight: 600, color: 'var(--text-secondary)' }}>
-                Owner / Contact Person <span style={{ color: '#ef4444' }}>*</span>
+                Owner / Contact Person <span style={{ color: '#09090b' }}>*</span>
               </label>
               <input
                 type="text"
@@ -1024,7 +1032,7 @@ function NewProjectRequestPageContent() {
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
                 <label style={{ fontSize: '0.725rem', fontWeight: 600, color: 'var(--text-secondary)' }}>
-                  Email <span style={{ color: '#ef4444' }}>*</span>
+                  Email <span style={{ color: '#09090b' }}>*</span>
                 </label>
                 <input
                   type="email"
@@ -1037,7 +1045,7 @@ function NewProjectRequestPageContent() {
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
                 <label style={{ fontSize: '0.725rem', fontWeight: 600, color: 'var(--text-secondary)' }}>
-                  Phone Number <span style={{ color: '#ef4444' }}>*</span>
+                  Phone Number <span style={{ color: '#09090b' }}>*</span>
                 </label>
                 <input
                   type="text"
@@ -1051,7 +1059,7 @@ function NewProjectRequestPageContent() {
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
               <label style={{ fontSize: '0.725rem', fontWeight: 600, color: 'var(--text-secondary)' }}>
-                Company <span style={{ color: '#ef4444' }}>*</span>
+                Company <span style={{ color: '#09090b' }}>*</span>
               </label>
               <input
                 type="text"
@@ -1127,7 +1135,7 @@ function NewProjectRequestPageContent() {
       <div className="wf-card" style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
         <div>
           <h2 className="wf-title" style={{ fontSize: '0.95rem' }}>
-            3. Deliverables <span style={{ color: '#ef4444' }}>*</span>
+            3. Deliverables <span style={{ color: '#09090b' }}>*</span>
           </h2>
           <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '0.15rem' }}>
             Select the desired output types.
@@ -1209,7 +1217,7 @@ function NewProjectRequestPageContent() {
           <div>
             <h2 className="wf-title" style={{ fontSize: '0.95rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
               <span>4. KML / Boundary Upload</span>
-              <span style={{ color: '#ef4444' }}>*</span>
+              <span style={{ color: '#09090b' }}>*</span>
               {kmlFiles.length > 0 && (
                 <span
                   style={{
@@ -1237,7 +1245,7 @@ function NewProjectRequestPageContent() {
                 type="button"
                 onClick={() => setKmlFiles([])}
                 className="btn btn-secondary"
-                style={{ fontSize: '0.7rem', padding: '0.25rem 0.55rem', height: '28px', color: '#dc2626' }}
+                style={{ fontSize: '0.7rem', padding: '0.25rem 0.55rem', height: '28px', color: '#09090b' }}
               >
                 Clear All
               </button>
@@ -1372,7 +1380,7 @@ function NewProjectRequestPageContent() {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
               <label style={{ fontSize: '0.725rem', fontWeight: 600, color: '#09090b' }}>
-                Expected Start Date <span style={{ color: '#ef4444' }}>*</span>
+                Expected Start Date <span style={{ color: '#09090b' }}>*</span>
               </label>
               <input
                 type="date"
@@ -1386,7 +1394,7 @@ function NewProjectRequestPageContent() {
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
               <label style={{ fontSize: '0.725rem', fontWeight: 600, color: '#09090b' }}>
-                Expected End Date <span style={{ color: '#ef4444' }}>*</span>
+                Expected End Date <span style={{ color: '#09090b' }}>*</span>
               </label>
               <input
                 type="date"
@@ -1417,7 +1425,7 @@ function NewProjectRequestPageContent() {
         <div className="wf-card" style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
           <div>
             <h2 className="wf-title" style={{ fontSize: '0.95rem' }}>
-              6. Payloads / Sensors <span style={{ color: '#ef4444' }}>*</span>
+              6. Payloads / Sensors <span style={{ color: '#09090b' }}>*</span>
             </h2>
             <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '0.15rem' }}>
               Select the required payloads / sensors for this project.
@@ -1439,6 +1447,96 @@ function NewProjectRequestPageContent() {
               <option value="multispectral">Micasense RedEdge (Multispectral 5-Band)</option>
             </select>
           </div>
+
+          {/* ── DGCA Airspace Zone Classification (Fitted inside Payload/Sensor blank space area) ── */}
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '0.65rem',
+              marginTop: '0.75rem',
+              paddingTop: '0.85rem',
+              borderTop: '1px solid #f4f4f5',
+            }}
+          >
+            <div>
+              <h3 style={{ fontSize: '0.825rem', fontWeight: 700, color: '#09090b', margin: 0 }}>
+                DGCA Airspace Zone Classification
+              </h3>
+              <p style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginTop: '0.15rem', margin: 0 }}>
+                Verify DGCA Digital Sky airspace classification and clearance prerequisites for the flight perimeter.
+              </p>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.55rem' }}>
+              {[
+                { name: 'Green Zone', desc: 'Up to 400 ft AGL. No prior DGCA flight permission required.', color: '#09090b' },
+                { name: 'Yellow Zone', desc: 'Controlled airspace. Prior ATC clearance required.', color: '#52525b' },
+                { name: 'Red Zone', desc: 'Restricted / Prohibited airspace. Central MoD clearance required.', color: '#09090b' },
+              ].map((zone) => {
+                const isSelected = airspaceZones.includes(zone.name);
+                return (
+                  <div
+                    key={zone.name}
+                    onClick={() => {
+                      setAirspaceZones((prev) =>
+                        prev.includes(zone.name)
+                          ? prev.filter((z) => z !== zone.name)
+                          : [...prev, zone.name]
+                      );
+                    }}
+                    style={{
+                      border: isSelected ? '1.5px solid #09090b' : '1px solid #e4e4e7',
+                      backgroundColor: isSelected ? '#fafafa' : '#ffffff',
+                      borderRadius: '6px',
+                      padding: '0.7rem 0.6rem',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '0.35rem',
+                      transition: 'all 0.15s ease',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                        <span
+                          style={{
+                            width: '8px',
+                            height: '8px',
+                            borderRadius: '50%',
+                            backgroundColor: zone.color,
+                            display: 'inline-block',
+                            flexShrink: 0,
+                          }}
+                        />
+                        <span style={{ fontSize: '0.785rem', fontWeight: 700, color: '#09090b' }}>
+                          {zone.name}
+                        </span>
+                      </div>
+                      <div
+                        style={{
+                          width: '16px',
+                          height: '16px',
+                          borderRadius: '3px',
+                          border: isSelected ? '1.5px solid #09090b' : '1px solid #d4d4d8',
+                          backgroundColor: isSelected ? '#09090b' : '#ffffff',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          flexShrink: 0,
+                        }}
+                      >
+                        {isSelected && <Check size={11} color="#ffffff" strokeWidth={3} />}
+                      </div>
+                    </div>
+                    <span style={{ fontSize: '0.675rem', color: '#71717a', lineHeight: 1.3 }}>
+                      {zone.desc}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         </div>
       </div>
 
@@ -1450,7 +1548,7 @@ function NewProjectRequestPageContent() {
             <div>
               <h2 className="wf-title" style={{ fontSize: '0.95rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                 <span>7. Scope Document</span>
-                <span style={{ color: '#ef4444' }}>*</span>
+                <span style={{ color: '#09090b' }}>*</span>
                 {scopeFiles.length > 0 && (
                   <span
                     style={{
@@ -1478,7 +1576,7 @@ function NewProjectRequestPageContent() {
                   type="button"
                   onClick={() => setScopeFiles([])}
                   className="btn btn-secondary"
-                  style={{ fontSize: '0.7rem', padding: '0.25rem 0.55rem', height: '28px', color: '#dc2626' }}
+                  style={{ fontSize: '0.7rem', padding: '0.25rem 0.55rem', height: '28px', color: '#09090b' }}
                 >
                   Clear All
                 </button>
@@ -1608,7 +1706,7 @@ function NewProjectRequestPageContent() {
         <div className="wf-card" style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
           <div>
             <h2 className="wf-title" style={{ fontSize: '0.95rem' }}>
-              8. Remarks / Instructions <span style={{ color: '#ef4444' }}>*</span>
+              8. Remarks / Instructions <span style={{ color: '#09090b' }}>*</span>
             </h2>
             <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '0.15rem' }}>
               Provide any specific instructions or additional information.
@@ -1653,7 +1751,7 @@ function NewProjectRequestPageContent() {
         >
           <div>
             <h2 className="wf-title" style={{ fontSize: '0.95rem' }}>
-              9. Assigned Contacts (People who will be the point of contact) <span style={{ color: '#ef4444' }}>*</span>
+              9. Assigned Contacts (People who will be the point of contact) <span style={{ color: '#09090b' }}>*</span>
             </h2>
             <p style={{ fontSize: '0.725rem', color: 'var(--text-secondary)', marginTop: '0.1rem' }}>
               You can add up to 4 contacts.
@@ -1751,7 +1849,7 @@ function NewProjectRequestPageContent() {
                       background: 'none',
                       border: 'none',
                       cursor: 'pointer',
-                      color: '#ef4444',
+                      color: '#09090b',
                       padding: '0.2rem',
                     }}
                   >

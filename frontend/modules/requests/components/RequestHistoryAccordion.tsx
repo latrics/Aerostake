@@ -55,7 +55,7 @@ export const RequestHistoryAccordion: React.FC<RequestHistoryAccordionProps> = (
             className="glass-panel"
             style={{
               overflow: 'hidden',
-              borderColor: isExpanded ? 'rgba(59, 130, 246, 0.4)' : undefined,
+              borderColor: isExpanded ? '#09090b' : undefined,
               transition: 'var(--transition-smooth)',
             }}
           >
@@ -73,8 +73,8 @@ export const RequestHistoryAccordion: React.FC<RequestHistoryAccordionProps> = (
               <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
                 <span
                   style={{
-                    backgroundColor: idx === 0 ? 'rgba(37, 99, 235, 0.2)' : 'rgba(255, 255, 255, 0.05)',
-                    color: idx === 0 ? '#3b82f6' : 'var(--text-secondary)',
+                    backgroundColor: idx === 0 ? '#f4f4f5' : 'rgba(255, 255, 255, 0.05)',
+                    color: idx === 0 ? '#09090b' : 'var(--text-secondary)',
                     fontWeight: 700,
                     padding: '0.25rem 0.75rem',
                     borderRadius: 'var(--radius-sm)',

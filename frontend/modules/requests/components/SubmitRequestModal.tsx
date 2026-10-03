@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { RequestVersionCreate } from '../types';
+import { Portal } from '@/components/Portal';
 
 interface SubmitRequestModalProps {
   isOpen: boolean;
@@ -20,7 +21,7 @@ export const SubmitRequestModal: React.FC<SubmitRequestModalProps> = ({
   const [city, setCity] = useState('');
   const [state, setState] = useState('');
   const [surveyType, setSurveyType] = useState('thermal');
-  const [targetArea, setTargetArea] = useState<string>('10.5');
+  const [targetArea, setTargetArea] = useState<string>('');
   const [resolutionGSD, setResolutionGSD] = useState('1.5 cm/px');
   const [sensorPayload, setSensorPayload] = useState('Thermal Radiometric IR + RGB 48MP');
   const [notes, setNotes] = useState('');
@@ -47,8 +48,8 @@ export const SubmitRequestModal: React.FC<SubmitRequestModalProps> = ({
     }
 
     const areaNum = parseFloat(targetArea);
-    if (isNaN(areaNum) || areaNum <= 0) {
-      setError('Please provide a valid positive surface area in sq km');
+    if (!targetArea || isNaN(areaNum) || areaNum <= 0) {
+      setError('Please provide a valid Requested Area (sq. Km) Scanning (positive number).');
       return;
     }
 
@@ -65,6 +66,8 @@ export const SubmitRequestModal: React.FC<SubmitRequestModalProps> = ({
         survey_type: surveyType,
         target_area_sqkm: areaNum,
         requirements_payload: {
+          requested_area_sqkm: areaNum,
+          target_area_sqkm: areaNum,
           address: trimmedLocation,
           location_address: trimmedLocation,
           city: trimmedCity || undefined,
@@ -87,19 +90,24 @@ export const SubmitRequestModal: React.FC<SubmitRequestModalProps> = ({
   };
 
   return (
-    <div
-      style={{
-        position: 'fixed',
-        inset: 0,
-        backgroundColor: 'rgba(0, 0, 0, 0.75)',
-        backdropFilter: 'blur(8px)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: 999,
-        padding: '1rem',
-      }}
-    >
+    <Portal>
+      <div
+        className="viewport-modal-backdrop"
+        style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          width: '100vw',
+          height: '100vh',
+          backgroundColor: 'rgba(0, 0, 0, 0.75)',
+          backdropFilter: 'blur(8px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 99999,
+          padding: '1rem',
+        }}
+      >
       <div
         className="glass-panel animate-fade-in"
         style={{
@@ -118,7 +126,7 @@ export const SubmitRequestModal: React.FC<SubmitRequestModalProps> = ({
                 fontSize: '0.75rem',
                 fontWeight: 700,
                 textTransform: 'uppercase',
-                color: 'var(--brand-focus, #3b82f6)',
+                color: '#09090b',
                 letterSpacing: '0.05em',
               }}
             >
@@ -146,10 +154,10 @@ export const SubmitRequestModal: React.FC<SubmitRequestModalProps> = ({
           <div
             style={{
               padding: '0.75rem 1rem',
-              backgroundColor: 'rgba(239, 68, 68, 0.15)',
-              border: '1px solid rgba(239, 68, 68, 0.3)',
+              backgroundColor: '#f4f4f5',
+              border: '1px solid #09090b',
               borderRadius: 'var(--radius-sm)',
-              color: '#f87171',
+              color: '#09090b',
               fontSize: '0.875rem',
               marginBottom: '1.25rem',
             }}
@@ -221,13 +229,18 @@ export const SubmitRequestModal: React.FC<SubmitRequestModalProps> = ({
             </div>
 
             <div className="form-group">
-              <label className="form-label">Target Surface Area (sq km) *</label>
+              <label className="form-label">
+                Requested Area (sq. Km) Scanning *
+                <span style={{ display: 'block', fontSize: '0.725rem', fontWeight: 400, color: 'var(--text-muted)' }}>
+                  How many square kilometers are requested for scanning and mapping
+                </span>
+              </label>
               <input
                 type="number"
-                step="0.1"
-                min="0.1"
+                step="0.01"
+                min="0.01"
                 className="form-input"
-                placeholder="10.5"
+                placeholder="e.g. 25.5"
                 value={targetArea}
                 onChange={(e) => setTargetArea(e.target.value)}
                 disabled={loading}
@@ -277,8 +290,8 @@ export const SubmitRequestModal: React.FC<SubmitRequestModalProps> = ({
           <div
             style={{
               padding: '0.75rem 1rem',
-              backgroundColor: 'rgba(59, 130, 246, 0.08)',
-              border: '1px solid rgba(59, 130, 246, 0.2)',
+              backgroundColor: '#f4f4f5',
+              border: '1px solid #d4d4d8',
               borderRadius: 'var(--radius-sm)',
               fontSize: '0.8rem',
               color: 'var(--text-secondary)',
@@ -309,5 +322,6 @@ export const SubmitRequestModal: React.FC<SubmitRequestModalProps> = ({
         </form>
       </div>
     </div>
-  );
+  </Portal>
+);
 };

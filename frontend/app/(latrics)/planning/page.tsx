@@ -9,6 +9,7 @@ import { OperationalPlan, PlanStatus, OperationalPlanCreate } from '@/modules/pl
 import { requestApi } from '@/modules/requests/api';
 import { RequestVersion } from '@/modules/requests/types';
 import { PlanPublishModal } from '@/modules/planning/components/PlanPublishModal';
+import { PageHeader } from '@/components/PageHeader';
 
 export default function PlanningPage() {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -95,65 +96,49 @@ export default function PlanningPage() {
 
   return (
     <div>
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'flex-start',
-          marginBottom: '2rem',
-          flexWrap: 'wrap',
-          gap: '1rem',
-        }}
+      {/* ── Page Header ── */}
+      <PageHeader
+        title="Operational Flight Planning"
+        subtitle="Draft resource estimations, compute pricing quotations, and publish flight plans for client review."
       >
-        <div>
-          <h2 style={{ fontSize: '1.75rem', fontWeight: 700, marginBottom: '0.5rem' }}>
-            Operational Flight Planning
-          </h2>
-          <p style={{ color: 'var(--text-secondary)' }}>
-            Draft resource estimations, compute pricing quotations, and publish flight plans for client review.
-          </p>
-        </div>
+        <Link
+          href="/planning/feasibility"
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '0.45rem',
+            fontSize: '0.825rem',
+            fontWeight: 700,
+            backgroundColor: '#ffffff',
+            border: '1.5px solid #09090b',
+            color: '#09090b',
+            padding: '0.5rem 0.85rem',
+            borderRadius: '6px',
+            textDecoration: 'none',
+          }}
+        >
+          <span>Project Planning & Feasibility</span>
+        </Link>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-          <Link
-            href="/planning/feasibility"
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '0.45rem',
-              fontSize: '0.825rem',
-              fontWeight: 700,
-              backgroundColor: '#ffffff',
-              border: '1.5px solid #09090b',
-              color: '#09090b',
-              padding: '0.5rem 0.85rem',
-              borderRadius: '6px',
-              textDecoration: 'none',
-            }}
+        {latestRequest && (
+          <button
+            onClick={() => setPublishModalOpen(true)}
+            className="btn btn-primary"
+            style={{ fontSize: '0.875rem' }}
           >
-            <span>Project Planning & Feasibility</span>
-          </Link>
-
-          {latestRequest && (
-            <button
-              onClick={() => setPublishModalOpen(true)}
-              className="btn btn-primary"
-              style={{ fontSize: '0.875rem' }}
-            >
-              ➕ Draft New Plan (Req {latestRequest.version})
-            </button>
-          )}
-        </div>
-      </div>
+            ➕ Draft New Plan (Req {latestRequest.version})
+          </button>
+        )}
+      </PageHeader>
 
       {feedbackMsg && (
         <div
           style={{
             padding: '0.85rem 1.25rem',
-            background: feedbackMsg.type === 'success' ? 'rgba(16, 185, 129, 0.12)' : 'rgba(239, 68, 68, 0.12)',
-            border: `1px solid ${feedbackMsg.type === 'success' ? 'var(--accent-success)' : 'var(--accent-danger)'}`,
+            background: feedbackMsg.type === 'success' ? '#f4f4f5' : '#f4f4f5',
+            border: `1px solid ${feedbackMsg.type === 'success' ? '#09090b' : 'var(--accent-danger)'}`,
             borderRadius: '8px',
-            color: feedbackMsg.type === 'success' ? 'var(--accent-success)' : '#fca5a5',
+            color: feedbackMsg.type === 'success' ? '#09090b' : '#09090b',
             marginBottom: '1.5rem',
             display: 'flex',
             justifyContent: 'space-between',
@@ -208,7 +193,7 @@ export default function PlanningPage() {
                       padding: '0.85rem',
                       borderRadius: '8px',
                       cursor: 'pointer',
-                      background: isSelected ? 'rgba(124, 58, 237, 0.15)' : 'rgba(255, 255, 255, 0.02)',
+                      background: isSelected ? '#f4f4f5' : 'rgba(255, 255, 255, 0.02)',
                       border: isSelected ? '1px solid var(--brand-primary)' : '1px solid var(--border-color)',
                       transition: 'all 0.15s ease',
                     }}
@@ -282,7 +267,7 @@ export default function PlanningPage() {
                       padding: '1.5rem',
                       borderLeft: `4px solid ${
                         activePlan.status === PlanStatus.APPROVED
-                          ? 'var(--accent-success)'
+                          ? '#09090b'
                           : activePlan.status === PlanStatus.PUBLISHED
                           ? 'var(--accent-info)'
                           : 'var(--brand-primary)'
@@ -322,7 +307,7 @@ export default function PlanningPage() {
 
                       <div style={{ padding: '0.85rem', background: 'rgba(255, 255, 255, 0.02)', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
                         <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Total Commercial Quote</div>
-                        <div style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--accent-success)', marginTop: '0.25rem' }}>
+                        <div style={{ fontSize: '1.25rem', fontWeight: 700, color: '#09090b', marginTop: '0.25rem' }}>
                           💰 ${activePlan.estimated_cost_usd.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                         </div>
                       </div>

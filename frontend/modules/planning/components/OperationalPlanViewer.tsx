@@ -60,8 +60,8 @@ export const OperationalPlanViewer: React.FC<OperationalPlanViewerProps> = ({
           width: '200px',
           height: '200px',
           background: isApproved
-            ? 'radial-gradient(circle, rgba(16, 185, 129, 0.15) 0%, transparent 70%)'
-            : 'radial-gradient(circle, rgba(59, 130, 246, 0.15) 0%, transparent 70%)',
+            ? 'radial-gradient(circle, rgba(0, 0, 0, 0.08) 0%, transparent 70%)'
+            : 'radial-gradient(circle, rgba(0, 0, 0, 0.08) 0%, transparent 70%)',
           pointerEvents: 'none',
         }}
       />
@@ -99,8 +99,9 @@ export const OperationalPlanViewer: React.FC<OperationalPlanViewerProps> = ({
               className="btn btn-primary"
               disabled={isApproving}
               style={{
-                background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
-                boxShadow: 'var(--success-glow)',
+                backgroundColor: '#09090b',
+                color: '#ffffff',
+                border: '1px solid #09090b',
               }}
             >
               {isApproving ? 'Approving...' : '✓ Approve Flight Plan'}
@@ -113,10 +114,10 @@ export const OperationalPlanViewer: React.FC<OperationalPlanViewerProps> = ({
         <div
           style={{
             padding: '0.75rem 1rem',
-            backgroundColor: 'rgba(239, 68, 68, 0.15)',
-            border: '1px solid rgba(239, 68, 68, 0.3)',
+            backgroundColor: '#fafafa',
+            border: '1px solid #09090b',
             borderRadius: 'var(--radius-sm)',
-            color: '#f87171',
+            color: '#09090b',
             fontSize: '0.875rem',
             marginBottom: '1.5rem',
           }}
@@ -131,7 +132,7 @@ export const OperationalPlanViewer: React.FC<OperationalPlanViewerProps> = ({
           <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '0.25rem' }}>
             Total Flight Hours
           </div>
-          <div style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--brand-focus, #3b82f6)' }}>
+          <div style={{ fontSize: '1.5rem', fontWeight: 800, color: '#09090b' }}>
             {plan.estimated_flight_hours} hrs
           </div>
           <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
@@ -163,11 +164,11 @@ export const OperationalPlanViewer: React.FC<OperationalPlanViewerProps> = ({
           </div>
         </div>
 
-        <div className="glass-card" style={{ padding: '1.25rem', borderColor: 'rgba(16, 185, 129, 0.3)' }}>
+        <div className="glass-card" style={{ padding: '1.25rem', borderColor: 'var(--border-color)' }}>
           <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '0.25rem' }}>
             Total Quotation (USD)
           </div>
-          <div style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--success)' }}>
+          <div style={{ fontSize: '1.5rem', fontWeight: 800, color: '#09090b' }}>
             ${plan.estimated_cost_usd.toLocaleString('en-US', { minimumFractionDigits: 2 })}
           </div>
           <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>

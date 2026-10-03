@@ -107,8 +107,8 @@ export function AllocationCard({
         <div
           style={{
             padding: '0.75rem 1rem',
-            background: 'rgba(59, 130, 246, 0.08)',
-            border: '1px solid rgba(59, 130, 246, 0.2)',
+            background: '#f4f4f5',
+            border: '1px solid #d4d4d8',
             borderRadius: '6px',
             fontSize: '0.85rem',
             marginBottom: '1rem',
@@ -136,7 +136,7 @@ export function AllocationCard({
               disabled={updatingStatus}
               className="btn btn-primary"
               style={{
-                background: 'linear-gradient(135deg, #eab308 0%, #ca8a04 100%)',
+                background: '#09090b',
                 color: '#000',
                 fontWeight: 700,
                 fontSize: '0.875rem',
@@ -165,7 +165,7 @@ export function AllocationCard({
                 disabled={updatingStatus}
                 className="btn btn-primary"
                 style={{
-                  background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                  background: '#09090b',
                   fontWeight: 700,
                   fontSize: '0.875rem',
                 }}

@@ -22,4 +22,11 @@ export interface RequestVersion {
   client_email?: string | null;
   client_name?: string | null;
   client_company?: string | null;
+  latest_planning_version?: string | null;
+  planning_updated_by?: 'ops' | 'client' | string | null;
+  planning_updated_by_name?: string | null;
+  planning_updated_at?: string | null;
+  planning_versions_count?: number;
+  latest_planning_status?: string | null;
 }
+

@@ -10,6 +10,7 @@ import { AllocationCreate } from '@/modules/allocations/types';
 import { AllocationModal } from '@/modules/allocations/components/AllocationModal';
 import { usersApi } from '@/modules/users/api';
 import { UserProfile } from '@/modules/users/types';
+import { PageHeader } from '@/components/PageHeader';
 
 export default function AllocationsPage() {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -77,25 +78,11 @@ export default function AllocationsPage() {
 
   return (
     <div>
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'flex-start',
-          marginBottom: '2rem',
-          flexWrap: 'wrap',
-          gap: '1rem',
-        }}
+      {/* ── Page Header ── */}
+      <PageHeader
+        title="Hardware & Pilot Dispatch Center"
+        subtitle="Allocate licensed drone pilots and UAV hardware to approved flight sectors."
       >
-        <div>
-          <h2 style={{ fontSize: '1.75rem', fontWeight: 700, marginBottom: '0.5rem' }}>
-            Hardware & Pilot Dispatch Center
-          </h2>
-          <p style={{ color: 'var(--text-secondary)' }}>
-            Allocate licensed drone pilots and UAV hardware to approved flight sectors.
-          </p>
-        </div>
-
         <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
           <select
             className="input-field"
@@ -111,16 +98,16 @@ export default function AllocationsPage() {
             ))}
           </select>
         </div>
-      </div>
+      </PageHeader>
 
       {feedbackMsg && (
         <div
           style={{
             padding: '0.85rem 1.25rem',
-            background: feedbackMsg.type === 'success' ? 'rgba(16, 185, 129, 0.12)' : 'rgba(239, 68, 68, 0.12)',
-            border: `1px solid ${feedbackMsg.type === 'success' ? 'var(--accent-success)' : 'var(--accent-danger)'}`,
+            background: feedbackMsg.type === 'success' ? '#f4f4f5' : '#f4f4f5',
+            border: `1px solid ${feedbackMsg.type === 'success' ? '#09090b' : 'var(--accent-danger)'}`,
             borderRadius: '8px',
-            color: feedbackMsg.type === 'success' ? 'var(--accent-success)' : '#fca5a5',
+            color: feedbackMsg.type === 'success' ? '#09090b' : '#09090b',
             marginBottom: '1.5rem',
             display: 'flex',
             justifyContent: 'space-between',

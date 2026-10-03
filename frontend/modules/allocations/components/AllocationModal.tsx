@@ -122,10 +122,10 @@ export function AllocationModal({
           <div
             style={{
               padding: '0.75rem 1rem',
-              background: 'rgba(239, 68, 68, 0.15)',
+              background: '#f4f4f5',
               border: '1px solid var(--accent-danger)',
               borderRadius: '8px',
-              color: '#fca5a5',
+              color: '#09090b',
               fontSize: '0.875rem',
               marginBottom: '1.25rem',
             }}
@@ -143,7 +143,7 @@ export function AllocationModal({
             {loadingPilots ? (
               <div style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>Loading pilots...</div>
             ) : pilots.length === 0 ? (
-              <div style={{ fontSize: '0.875rem', color: 'var(--accent-warning)', padding: '0.5rem', background: 'rgba(234, 179, 8, 0.1)', borderRadius: '6px' }}>
+              <div style={{ fontSize: '0.875rem', color: '#09090b', padding: '0.5rem', background: '#f4f4f5', borderRadius: '6px' }}>
                 No registered pilots found. Please provision a pilot profile in User Management first.
               </div>
             ) : (

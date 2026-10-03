@@ -1,20 +1,22 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/lib/auth';
 import { projectApi } from '@/modules/projects/api';
 import { requestApi } from '@/modules/requests/api';
 import { usersApi } from '@/modules/users/api';
+import { paymentsApi } from '@/modules/payments/api';
 import { Project } from '@/modules/projects/types';
 import { RequestVersion } from '@/modules/requests/types';
 import { UserProfile } from '@/modules/users/types';
+import { ClientWalletSummary } from '@/modules/payments/types';
+import { PageHeader } from '@/components/PageHeader';
 import {
   Folder,
   FileText,
   Clock,
   Search,
-  Bell,
   ChevronDown,
   Calendar,
   Download,
@@ -31,6 +33,7 @@ import {
 export function LatricsOperationsDashboard() {
   const { user } = useAuth();
   const [projects, setProjects] = useState<Project[]>([]);
+  const [projectWallets, setProjectWallets] = useState<Record<string, ClientWalletSummary>>({});
   const [requests, setRequests] = useState<RequestVersion[]>([]);
   const [usersList, setUsersList] = useState<UserProfile[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -53,7 +56,24 @@ export function LatricsOperationsDashboard() {
         usersApi.listUsers(),
       ]);
 
-      if (projRes.status === 'fulfilled') setProjects(projRes.value || []);
+      if (projRes.status === 'fulfilled') {
+        const projs = projRes.value || [];
+        setProjects(projs);
+
+        // Fetch wallet summaries for all projects in parallel
+        const walletMap: Record<string, ClientWalletSummary> = {};
+        await Promise.allSettled(
+          projs.map(async (p) => {
+            try {
+              const w = await paymentsApi.getProjectWallet(p.id);
+              if (w) walletMap[p.id] = w;
+            } catch {
+              // Ignore failure
+            }
+          })
+        );
+        setProjectWallets(walletMap);
+      }
       if (reqRes.status === 'fulfilled') setRequests(reqRes.value || []);
       if (usersRes.status === 'fulfilled') setUsersList(usersRes.value || []);
     } catch (err) {
@@ -93,8 +113,33 @@ export function LatricsOperationsDashboard() {
         )
       : 0;
 
-  // Payments received (0 if no real transaction data exists)
-  const totalPaymentsReceived = 0;
+  // ── Payment & Cumulative Wallet Metrics ──
+  const { totalWalletBalance, totalDues, receivedThisMonth, projectsWithPendingPayment } = useMemo(() => {
+    let balance = 0;
+    let dues = 0;
+    let received = 0;
+    let pendingCount = 0;
+
+    for (const w of Object.values(projectWallets)) {
+      if (!w) continue;
+      balance += w.current_balance;
+      if (w.current_balance > 0) {
+        dues += w.current_balance;
+        pendingCount += 1;
+      }
+      received += w.total_paid;
+    }
+
+    return {
+      totalWalletBalance: balance,
+      totalDues: dues,
+      receivedThisMonth: received,
+      projectsWithPendingPayment: pendingCount,
+    };
+  }, [projectWallets]);
+
+  // Payments received
+  const totalPaymentsReceived = receivedThisMonth;
 
   // Requests Breakdown (Real counts & percentages)
   const requestsNew = newRequests;
@@ -166,112 +211,41 @@ export function LatricsOperationsDashboard() {
 
   return (
     <div style={{ padding: '0.5rem 0 2rem 0', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-      {/* ── Top Header Navigation & User Profile ── */}
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          flexWrap: 'wrap',
-          gap: '1rem',
-        }}
+      {/* ── Top Header with Universal PageHeader ── */}
+      <PageHeader
+        title="Dashboard"
+        subtitle="Overview of operations and key performance metrics"
       >
-        <div>
-          <h1 style={{ fontSize: '1.65rem', fontWeight: 800, letterSpacing: '-0.02em', color: '#09090b', lineHeight: 1.2 }}>
-            Dashboard
-          </h1>
-          <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: '0.2rem' }}>
-            Overview of operations and key performance metrics
-          </p>
-        </div>
-
-        {/* Top Right Controls: Search, Notifications, User Profile */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-          {/* Universal Search */}
-          <div
+        {/* Universal Search */}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            backgroundColor: '#ffffff',
+            border: '1px solid var(--border-color)',
+            borderRadius: '6px',
+            padding: '0.4rem 0.75rem',
+            gap: '0.5rem',
+            width: '260px',
+          }}
+        >
+          <Search size={14} color="#71717a" />
+          <input
+            type="text"
+            placeholder="Search projects, clients, requests..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
             style={{
-              display: 'flex',
-              alignItems: 'center',
-              backgroundColor: '#ffffff',
-              border: '1px solid var(--border-color)',
-              borderRadius: '8px',
-              padding: '0.45rem 0.85rem',
-              gap: '0.5rem',
-              width: '280px',
-            }}
-          >
-            <Search size={15} color="#71717a" />
-            <input
-              type="text"
-              placeholder="Search projects, clients, requests..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              style={{
-                border: 'none',
-                outline: 'none',
-                background: 'transparent',
-                fontSize: '0.8rem',
-                width: '100%',
-                color: '#09090b',
-              }}
-            />
-          </div>
-
-          {/* Notification Bell */}
-          <button
-            style={{
-              width: '36px',
-              height: '36px',
-              borderRadius: '8px',
-              border: '1px solid var(--border-color)',
-              backgroundColor: '#ffffff',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              cursor: 'pointer',
+              border: 'none',
+              outline: 'none',
+              background: 'transparent',
+              fontSize: '0.8rem',
+              width: '100%',
               color: '#09090b',
             }}
-            title="Notifications"
-          >
-            <Bell size={16} />
-          </button>
-
-          {/* User Profile Pill (Dynamic) */}
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.5rem',
-              padding: '0.35rem 0.75rem',
-              borderRadius: '8px',
-              border: '1px solid var(--border-color)',
-              backgroundColor: '#ffffff',
-              cursor: 'pointer',
-            }}
-            title={`${displayName} (${userTeam})`}
-          >
-            <div
-              style={{
-                width: '24px',
-                height: '24px',
-                borderRadius: '50%',
-                backgroundColor: '#09090b',
-                color: '#ffffff',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: '0.75rem',
-              }}
-            >
-              <User size={13} />
-            </div>
-            <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#09090b' }}>
-              {displayName}
-            </span>
-            <ChevronDown size={13} color="#71717a" />
-          </div>
+          />
         </div>
-      </div>
+      </PageHeader>
 
       {/* ── Action & Filter Controls Bar ── */}
       <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
@@ -441,7 +415,7 @@ export function LatricsOperationsDashboard() {
             {formatINR(totalPaymentsReceived)}
           </div>
           <div style={{ fontSize: '0.725rem', color: 'var(--text-muted)', marginTop: '0.5rem' }}>
-            This Month
+            Verified Collections
           </div>
         </div>
 
@@ -901,32 +875,63 @@ export function LatricsOperationsDashboard() {
             {/* Box 1 */}
             <div style={{ border: '1px solid var(--border-color)', borderRadius: '8px', padding: '0.85rem' }}>
               <div style={{ fontSize: '0.65rem', fontWeight: 700, color: 'var(--text-secondary)' }}>TOTAL WALLET BALANCE</div>
-              <div style={{ fontSize: '1.15rem', fontWeight: 800, color: '#09090b', marginTop: '0.35rem' }}>
-                ₹ 0
+              <div
+                style={{
+                  fontSize: '1.15rem',
+                  fontWeight: 800,
+                  fontFamily: 'monospace',
+                  color: totalWalletBalance > 0 ? '#dc2626' : '#16a34a',
+                  marginTop: '0.35rem',
+                }}
+              >
+                {formatINR(totalWalletBalance)}
               </div>
             </div>
 
             {/* Box 2 */}
             <div style={{ border: '1px solid var(--border-color)', borderRadius: '8px', padding: '0.85rem' }}>
               <div style={{ fontSize: '0.65rem', fontWeight: 700, color: 'var(--text-secondary)' }}>TOTAL DUES</div>
-              <div style={{ fontSize: '1.15rem', fontWeight: 800, color: '#09090b', marginTop: '0.35rem' }}>
-                ₹ 0
+              <div
+                style={{
+                  fontSize: '1.15rem',
+                  fontWeight: 800,
+                  fontFamily: 'monospace',
+                  color: totalDues > 0 ? '#dc2626' : '#16a34a',
+                  marginTop: '0.35rem',
+                }}
+              >
+                {formatINR(totalDues)}
               </div>
             </div>
 
             {/* Box 3 */}
             <div style={{ border: '1px solid var(--border-color)', borderRadius: '8px', padding: '0.85rem' }}>
               <div style={{ fontSize: '0.65rem', fontWeight: 700, color: 'var(--text-secondary)' }}>RECEIVED THIS MONTH</div>
-              <div style={{ fontSize: '1.15rem', fontWeight: 800, color: '#09090b', marginTop: '0.35rem' }}>
-                ₹ 0
+              <div
+                style={{
+                  fontSize: '1.15rem',
+                  fontWeight: 800,
+                  fontFamily: 'monospace',
+                  color: '#16a34a',
+                  marginTop: '0.35rem',
+                }}
+              >
+                {formatINR(receivedThisMonth)}
               </div>
             </div>
 
             {/* Box 4 */}
             <div style={{ border: '1px solid var(--border-color)', borderRadius: '8px', padding: '0.85rem' }}>
               <div style={{ fontSize: '0.65rem', fontWeight: 700, color: 'var(--text-secondary)' }}>PROJECTS WITH PENDING PAYMENT</div>
-              <div style={{ fontSize: '1.15rem', fontWeight: 800, color: '#09090b', marginTop: '0.35rem' }}>
-                0
+              <div
+                style={{
+                  fontSize: '1.15rem',
+                  fontWeight: 800,
+                  color: projectsWithPendingPayment > 0 ? '#dc2626' : '#09090b',
+                  marginTop: '0.35rem',
+                }}
+              >
+                {projectsWithPendingPayment}
               </div>
             </div>
           </div>

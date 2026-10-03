@@ -33,4 +33,25 @@ export const planningApi = {
   async requestPlanRevision(projectId: string, data: PlanRevisionRequest): Promise<Project> {
     return await apiClient.post<Project>(`/projects/${projectId}/revise`, data);
   },
+
+  async createPlanningVersion(projectId: string, data: any): Promise<any> {
+    return await apiClient.post<any>(`/projects/${projectId}/planning-versions`, data);
+  },
+
+  async listPlanningVersions(projectId: string): Promise<any[]> {
+    return await apiClient.get<any[]>(`/projects/${projectId}/planning-versions`);
+  },
+
+  async savePlanningDraft(projectId: string, data: any): Promise<any> {
+    return await apiClient.post<any>(`/projects/${projectId}/planning-draft`, data);
+  },
+
+  async getPlanningDraft(projectId: string): Promise<any | null> {
+    try {
+      return await apiClient.get<any>(`/projects/${projectId}/planning-draft`);
+    } catch {
+      return null;
+    }
+  },
 };
+

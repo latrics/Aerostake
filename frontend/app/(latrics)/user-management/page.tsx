@@ -25,17 +25,26 @@ import {
   CheckCircle2,
   X,
   Info,
+  Mail,
+  Clock,
+  ShieldAlert,
 } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
 import { usersApi } from '@/modules/users/api';
 import { UserProfile } from '@/modules/users/types';
+import { invitationsApi } from '@/modules/invitations/api';
+import { InvitationOut } from '@/modules/invitations/types';
 import { InviteUserDrawer } from '@/modules/users/components/InviteUserDrawer';
+import { PageHeader } from '@/components/PageHeader';
 
-type TabKey = 'all' | 'ops' | 'pilots' | 'clients';
+type TabKey = 'all' | 'ops' | 'pilots' | 'clients' | 'pending_invites';
 
 export default function UserManagementPage() {
   const { user: currentUser } = useAuth();
   const [users, setUsers] = useState<UserProfile[]>([]);
+  const [pendingInvitations, setPendingInvitations] = useState<InvitationOut[]>([]);
+  const [invitationToRevoke, setInvitationToRevoke] = useState<InvitationOut | null>(null);
+  const [isRevoking, setIsRevoking] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -67,12 +76,47 @@ export default function UserManagementPage() {
     setIsLoading(true);
     setErrorMessage(null);
     try {
-      const data = await usersApi.listUsers();
-      setUsers(data || []);
+      const [usersData, invitesData] = await Promise.all([
+        usersApi.listUsers(),
+        invitationsApi.listAllInvitations('pending').catch(() => []),
+      ]);
+      setUsers(usersData || []);
+      setPendingInvitations(invitesData || []);
     } catch (err: any) {
       setErrorMessage(err.message || 'Failed to load user directory.');
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleRevokeInvitation = async (inv: InvitationOut) => {
+    setIsRevoking(true);
+    try {
+      if (inv.id) {
+        const res = await invitationsApi.revokeInvitation(inv.id);
+        setFeedbackMessage({
+          type: 'success',
+          text: res.message || `Invitation for ${inv.email} revoked successfully.`,
+        });
+      } else {
+        const matchingUser = users.find((u) => u.email.toLowerCase() === inv.email.toLowerCase());
+        if (matchingUser) {
+          await usersApi.deleteUser(matchingUser.id, false);
+          setFeedbackMessage({
+            type: 'success',
+            text: `Unauthenticated user ${inv.email} removed from backend successfully.`,
+          });
+        }
+      }
+      setInvitationToRevoke(null);
+      await fetchUsers();
+    } catch (err: any) {
+      setFeedbackMessage({
+        type: 'error',
+        text: err.message || 'Failed to revoke invitation.',
+      });
+    } finally {
+      setIsRevoking(false);
     }
   };
 
@@ -137,17 +181,17 @@ export default function UserManagementPage() {
   const getRoleBadgeStyle = (role: string) => {
     switch (role?.toLowerCase()) {
       case 'admin':
-        return { backgroundColor: '#fef2f2', color: '#991b1b', border: '1px solid #fecaca' };
+        return { backgroundColor: '#f4f4f5', color: '#09090b', border: '1px solid #d4d4d8' };
       case 'operations':
-        return { backgroundColor: '#f1f5f9', color: '#334155', border: '1px solid #cbd5e1' };
+        return { backgroundColor: '#f4f4f5', color: '#27272a', border: '1px solid #d4d4d8' };
       case 'pilot':
-        return { backgroundColor: '#fefce8', color: '#854d0e', border: '1px solid #fef08a' };
+        return { backgroundColor: '#fafafa', color: '#27272a', border: '1px solid #d4d4d8' };
       case 'client_primary':
       case 'client_sub':
       case 'client':
-        return { backgroundColor: '#f0fdf4', color: '#166534', border: '1px solid #bbf7d0' };
+        return { backgroundColor: '#f4f4f5', color: '#09090b', border: '1px solid #d4d4d8' };
       default:
-        return { backgroundColor: '#f8fafc', color: '#475569', border: '1px solid #e2e8f0' };
+        return { backgroundColor: '#fafafa', color: '#3f3f46', border: '1px solid #e4e4e7' };
     }
   };
 
@@ -291,12 +335,34 @@ export default function UserManagementPage() {
     });
   }, [users, activeTab, roleFilter, statusFilter, orgFilter, searchQuery]);
 
+  // Filtered Pending Invitations
+  const filteredInvitations = useMemo(() => {
+    if (!searchQuery.trim()) return pendingInvitations;
+    const q = searchQuery.toLowerCase().trim();
+    return pendingInvitations.filter(
+      (inv) =>
+        inv.email.toLowerCase().includes(q) ||
+        inv.role.toLowerCase().includes(q) ||
+        (inv.organization_name && inv.organization_name.toLowerCase().includes(q)) ||
+        (inv.invited_by_name && inv.invited_by_name.toLowerCase().includes(q))
+    );
+  }, [pendingInvitations, searchQuery]);
+
   // Pagination calculation
-  const totalPages = Math.ceil(filteredUsers.length / pageSize) || 1;
+  const totalPages =
+    activeTab === 'pending_invites'
+      ? Math.ceil(filteredInvitations.length / pageSize) || 1
+      : Math.ceil(filteredUsers.length / pageSize) || 1;
+
   const paginatedUsers = useMemo(() => {
     const start = (currentPage - 1) * pageSize;
     return filteredUsers.slice(start, start + pageSize);
   }, [filteredUsers, currentPage]);
+
+  const paginatedInvitations = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return filteredInvitations.slice(start, start + pageSize);
+  }, [filteredInvitations, currentPage]);
 
   const handleSelectAll = (checked: boolean) => {
     const newSelected: Record<string, boolean> = {};
@@ -350,20 +416,16 @@ export default function UserManagementPage() {
   return (
     <div style={{ padding: '0.25rem 0', maxWidth: '1440px', margin: '0 auto' }}>
       {/* ── Page Header ── */}
-      <div style={{ marginBottom: '1.75rem' }}>
-        <h1 style={{ fontSize: '1.65rem', fontWeight: 700, color: '#09090b', margin: 0, letterSpacing: '-0.02em' }}>
-          Users
-        </h1>
-        <p style={{ fontSize: '0.875rem', color: '#64748b', marginTop: '0.35rem', margin: 0 }}>
-          Manage team members, pilots and clients across the platform
-        </p>
-      </div>
+      <PageHeader
+        title="Users"
+        subtitle="Manage team members, pilots and clients across the platform"
+      />
 
-      {/* ── KPI Strip (4 Cards) ── */}
+      {/* ── KPI Strip (5 Cards) ── */}
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(4, 1fr)',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))',
           gap: '1rem',
           marginBottom: '1.75rem',
         }}
@@ -372,7 +434,7 @@ export default function UserManagementPage() {
         <div
           style={{
             backgroundColor: '#ffffff',
-            border: '1px solid #e2e8f0',
+            border: '1px solid #e4e4e7',
             borderRadius: '10px',
             padding: '1.25rem',
             display: 'flex',
@@ -385,8 +447,8 @@ export default function UserManagementPage() {
               width: '48px',
               height: '48px',
               borderRadius: '8px',
-              border: '1px solid #e2e8f0',
-              backgroundColor: '#f8fafc',
+              border: '1px solid #e4e4e7',
+              backgroundColor: '#fafafa',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -397,13 +459,13 @@ export default function UserManagementPage() {
             <Users size={24} />
           </div>
           <div style={{ flex: 1 }}>
-            <div style={{ fontSize: '0.75rem', fontWeight: 600, color: '#64748b', letterSpacing: '0.04em', textTransform: 'uppercase' }}>
+            <div style={{ fontSize: '0.75rem', fontWeight: 600, color: '#52525b', letterSpacing: '0.04em', textTransform: 'uppercase' }}>
               TOTAL USERS
             </div>
             <div style={{ fontSize: '1.75rem', fontWeight: 700, color: '#09090b', lineHeight: 1.1, marginTop: '0.2rem' }}>
               {isLoading ? '—' : kpis.total.count}
             </div>
-            <div style={{ fontSize: '0.78rem', color: '#64748b', marginTop: '0.35rem' }}>
+            <div style={{ fontSize: '0.78rem', color: '#52525b', marginTop: '0.35rem' }}>
               Active <b style={{ color: '#09090b', fontWeight: 600 }}>{kpis.total.active}</b> &nbsp;|&nbsp; Inactive <b style={{ color: '#09090b', fontWeight: 600 }}>{kpis.total.inactive}</b>
             </div>
           </div>
@@ -413,7 +475,7 @@ export default function UserManagementPage() {
         <div
           style={{
             backgroundColor: '#ffffff',
-            border: '1px solid #e2e8f0',
+            border: '1px solid #e4e4e7',
             borderRadius: '10px',
             padding: '1.25rem',
             display: 'flex',
@@ -426,8 +488,8 @@ export default function UserManagementPage() {
               width: '48px',
               height: '48px',
               borderRadius: '8px',
-              border: '1px solid #e2e8f0',
-              backgroundColor: '#f8fafc',
+              border: '1px solid #e4e4e7',
+              backgroundColor: '#fafafa',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -438,13 +500,13 @@ export default function UserManagementPage() {
             <User size={24} />
           </div>
           <div style={{ flex: 1 }}>
-            <div style={{ fontSize: '0.75rem', fontWeight: 600, color: '#64748b', letterSpacing: '0.04em', textTransform: 'uppercase' }}>
+            <div style={{ fontSize: '0.75rem', fontWeight: 600, color: '#52525b', letterSpacing: '0.04em', textTransform: 'uppercase' }}>
               OPS USERS
             </div>
             <div style={{ fontSize: '1.75rem', fontWeight: 700, color: '#09090b', lineHeight: 1.1, marginTop: '0.2rem' }}>
               {isLoading ? '—' : kpis.ops.count}
             </div>
-            <div style={{ fontSize: '0.78rem', color: '#64748b', marginTop: '0.35rem' }}>
+            <div style={{ fontSize: '0.78rem', color: '#52525b', marginTop: '0.35rem' }}>
               Active <b style={{ color: '#09090b', fontWeight: 600 }}>{kpis.ops.active}</b> &nbsp;|&nbsp; Inactive <b style={{ color: '#09090b', fontWeight: 600 }}>{kpis.ops.inactive}</b>
             </div>
           </div>
@@ -454,7 +516,7 @@ export default function UserManagementPage() {
         <div
           style={{
             backgroundColor: '#ffffff',
-            border: '1px solid #e2e8f0',
+            border: '1px solid #e4e4e7',
             borderRadius: '10px',
             padding: '1.25rem',
             display: 'flex',
@@ -467,8 +529,8 @@ export default function UserManagementPage() {
               width: '48px',
               height: '48px',
               borderRadius: '8px',
-              border: '1px solid #e2e8f0',
-              backgroundColor: '#f8fafc',
+              border: '1px solid #e4e4e7',
+              backgroundColor: '#fafafa',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -479,13 +541,13 @@ export default function UserManagementPage() {
             <Plane size={24} />
           </div>
           <div style={{ flex: 1 }}>
-            <div style={{ fontSize: '0.75rem', fontWeight: 600, color: '#64748b', letterSpacing: '0.04em', textTransform: 'uppercase' }}>
+            <div style={{ fontSize: '0.75rem', fontWeight: 600, color: '#52525b', letterSpacing: '0.04em', textTransform: 'uppercase' }}>
               PILOTS
             </div>
             <div style={{ fontSize: '1.75rem', fontWeight: 700, color: '#09090b', lineHeight: 1.1, marginTop: '0.2rem' }}>
               {isLoading ? '—' : kpis.pilots.count}
             </div>
-            <div style={{ fontSize: '0.78rem', color: '#64748b', marginTop: '0.35rem' }}>
+            <div style={{ fontSize: '0.78rem', color: '#52525b', marginTop: '0.35rem' }}>
               Active <b style={{ color: '#09090b', fontWeight: 600 }}>{kpis.pilots.active}</b> &nbsp;|&nbsp; Inactive <b style={{ color: '#09090b', fontWeight: 600 }}>{kpis.pilots.inactive}</b>
             </div>
           </div>
@@ -495,7 +557,7 @@ export default function UserManagementPage() {
         <div
           style={{
             backgroundColor: '#ffffff',
-            border: '1px solid #e2e8f0',
+            border: '1px solid #e4e4e7',
             borderRadius: '10px',
             padding: '1.25rem',
             display: 'flex',
@@ -508,8 +570,8 @@ export default function UserManagementPage() {
               width: '48px',
               height: '48px',
               borderRadius: '8px',
-              border: '1px solid #e2e8f0',
-              backgroundColor: '#f8fafc',
+              border: '1px solid #e4e4e7',
+              backgroundColor: '#fafafa',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -520,14 +582,62 @@ export default function UserManagementPage() {
             <Building2 size={24} />
           </div>
           <div style={{ flex: 1 }}>
-            <div style={{ fontSize: '0.75rem', fontWeight: 600, color: '#64748b', letterSpacing: '0.04em', textTransform: 'uppercase' }}>
+            <div style={{ fontSize: '0.75rem', fontWeight: 600, color: '#52525b', letterSpacing: '0.04em', textTransform: 'uppercase' }}>
               CLIENTS
             </div>
             <div style={{ fontSize: '1.75rem', fontWeight: 700, color: '#09090b', lineHeight: 1.1, marginTop: '0.2rem' }}>
               {isLoading ? '—' : kpis.clients.count}
             </div>
-            <div style={{ fontSize: '0.78rem', color: '#64748b', marginTop: '0.35rem' }}>
+            <div style={{ fontSize: '0.78rem', color: '#52525b', marginTop: '0.35rem' }}>
               Active <b style={{ color: '#09090b', fontWeight: 600 }}>{kpis.clients.active}</b> &nbsp;|&nbsp; Inactive <b style={{ color: '#09090b', fontWeight: 600 }}>{kpis.clients.inactive}</b>
+            </div>
+          </div>
+        </div>
+
+        {/* Pending Invites (Awaiting Acceptance / Authentication) */}
+        <div
+          onClick={() => {
+            setActiveTab('pending_invites');
+            setCurrentPage(1);
+          }}
+          style={{
+            backgroundColor: activeTab === 'pending_invites' ? '#ffffff' : '#ffffff',
+            border: activeTab === 'pending_invites' ? '1.5px solid #09090b' : '1px solid #e4e4e7',
+            borderRadius: '10px',
+            padding: '1.25rem',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '1rem',
+            cursor: 'pointer',
+            transition: 'all 0.15s ease',
+          }}
+          title="Click to view all pending unauthenticated invitations"
+        >
+          <div
+            style={{
+              width: '48px',
+              height: '48px',
+              borderRadius: '8px',
+              border: '1px solid #f4f4f5',
+              backgroundColor: '#fafafa',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: '#09090b',
+              flexShrink: 0,
+            }}
+          >
+            <Clock size={24} />
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: '0.75rem', fontWeight: 600, color: '#09090b', letterSpacing: '0.04em', textTransform: 'uppercase' }}>
+              PENDING INVITES
+            </div>
+            <div style={{ fontSize: '1.75rem', fontWeight: 700, color: '#09090b', lineHeight: 1.1, marginTop: '0.2rem' }}>
+              {isLoading ? '—' : pendingInvitations.length}
+            </div>
+            <div style={{ fontSize: '0.78rem', color: '#52525b', marginTop: '0.35rem' }}>
+              Awaiting authentication
             </div>
           </div>
         </div>
@@ -543,9 +653,9 @@ export default function UserManagementPage() {
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
-            backgroundColor: feedbackMessage.type === 'success' ? '#f0fdf4' : '#fef2f2',
-            border: `1px solid ${feedbackMessage.type === 'success' ? '#bbf7d0' : '#fecaca'}`,
-            color: feedbackMessage.type === 'success' ? '#166534' : '#991b1b',
+            backgroundColor: feedbackMessage.type === 'success' ? '#f4f4f5' : '#f4f4f5',
+            border: `1px solid ${feedbackMessage.type === 'success' ? '#d4d4d8' : '#d4d4d8'}`,
+            color: feedbackMessage.type === 'success' ? '#09090b' : '#09090b',
             fontSize: '0.85rem',
             fontWeight: 500,
           }}
@@ -571,7 +681,7 @@ export default function UserManagementPage() {
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          borderBottom: '1px solid #e2e8f0',
+          borderBottom: '1px solid #e4e4e7',
           marginBottom: '1.25rem',
           paddingBottom: '0.25rem',
         }}
@@ -583,6 +693,11 @@ export default function UserManagementPage() {
             { key: 'ops', label: 'Ops Users' },
             { key: 'pilots', label: 'Pilots' },
             { key: 'clients', label: 'Clients' },
+            {
+              key: 'pending_invites',
+              label: 'Pending Invites',
+              badge: pendingInvitations.length > 0 ? pendingInvitations.length : undefined,
+            },
           ].map((tab) => {
             const isActive = activeTab === tab.key;
             return (
@@ -599,13 +714,30 @@ export default function UserManagementPage() {
                   padding: '0.75rem 0',
                   fontSize: '0.92rem',
                   fontWeight: isActive ? 700 : 500,
-                  color: isActive ? '#09090b' : '#64748b',
+                  color: isActive ? '#09090b' : '#52525b',
                   cursor: 'pointer',
                   position: 'relative',
                   outline: 'none',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.45rem',
                 }}
               >
-                {tab.label}
+                <span>{tab.label}</span>
+                {tab.badge !== undefined && (
+                  <span
+                    style={{
+                      padding: '0.1rem 0.5rem',
+                      borderRadius: '10px',
+                      backgroundColor: isActive ? '#f4f4f5' : '#f4f4f5',
+                      color: isActive ? '#09090b' : '#52525b',
+                      fontSize: '0.75rem',
+                      fontWeight: 700,
+                    }}
+                  >
+                    {tab.badge}
+                  </span>
+                )}
                 {isActive && (
                   <div
                     style={{
@@ -614,7 +746,7 @@ export default function UserManagementPage() {
                       left: 0,
                       right: 0,
                       height: '2.5px',
-                      backgroundColor: '#09090b',
+                      backgroundColor: tab.key === 'pending_invites' ? '#09090b' : '#09090b',
                     }}
                   />
                 )}
@@ -631,11 +763,11 @@ export default function UserManagementPage() {
             style={{
               padding: '0.55rem 0.95rem',
               backgroundColor: '#ffffff',
-              border: '1px solid #cbd5e1',
+              border: '1px solid #d4d4d8',
               borderRadius: '6px',
               fontSize: '0.85rem',
               fontWeight: 600,
-              color: '#0f172a',
+              color: '#09090b',
               display: 'flex',
               alignItems: 'center',
               gap: '0.45rem',
@@ -673,7 +805,7 @@ export default function UserManagementPage() {
       <div
         style={{
           backgroundColor: '#ffffff',
-          border: '1px solid #e2e8f0',
+          border: '1px solid #e4e4e7',
           borderRadius: '8px',
           padding: '0.75rem 1rem',
           display: 'flex',
@@ -692,12 +824,16 @@ export default function UserManagementPage() {
               left: '0.75rem',
               top: '50%',
               transform: 'translateY(-50%)',
-              color: '#94a3b8',
+              color: '#71717a',
             }}
           />
           <input
             type="text"
-            placeholder="Search by name, email, phone or organization..."
+            placeholder={
+              activeTab === 'pending_invites'
+                ? 'Search pending invitations by email, role or organization...'
+                : 'Search by name, email, phone or organization...'
+            }
             value={searchQuery}
             onChange={(e) => {
               setSearchQuery(e.target.value);
@@ -707,9 +843,9 @@ export default function UserManagementPage() {
               width: '100%',
               padding: '0.5rem 0.75rem 0.5rem 2.25rem',
               fontSize: '0.85rem',
-              border: '1px solid #e2e8f0',
+              border: '1px solid #e4e4e7',
               borderRadius: '6px',
-              backgroundColor: '#f8fafc',
+              backgroundColor: '#fafafa',
               outline: 'none',
               boxSizing: 'border-box',
             }}
@@ -727,10 +863,10 @@ export default function UserManagementPage() {
             style={{
               padding: '0.5rem 2rem 0.5rem 0.75rem',
               fontSize: '0.85rem',
-              border: '1px solid #e2e8f0',
+              border: '1px solid #e4e4e7',
               borderRadius: '6px',
               backgroundColor: '#ffffff',
-              color: '#0f172a',
+              color: '#09090b',
               cursor: 'pointer',
               appearance: 'none',
               outline: 'none',
@@ -750,7 +886,7 @@ export default function UserManagementPage() {
               right: '0.65rem',
               top: '50%',
               transform: 'translateY(-50%)',
-              color: '#64748b',
+              color: '#52525b',
               pointerEvents: 'none',
             }}
           />
@@ -767,10 +903,10 @@ export default function UserManagementPage() {
             style={{
               padding: '0.5rem 2rem 0.5rem 0.75rem',
               fontSize: '0.85rem',
-              border: '1px solid #e2e8f0',
+              border: '1px solid #e4e4e7',
               borderRadius: '6px',
               backgroundColor: '#ffffff',
-              color: '#0f172a',
+              color: '#09090b',
               cursor: 'pointer',
               appearance: 'none',
               outline: 'none',
@@ -787,7 +923,7 @@ export default function UserManagementPage() {
               right: '0.65rem',
               top: '50%',
               transform: 'translateY(-50%)',
-              color: '#64748b',
+              color: '#52525b',
               pointerEvents: 'none',
             }}
           />
@@ -804,10 +940,10 @@ export default function UserManagementPage() {
             style={{
               padding: '0.5rem 2rem 0.5rem 0.75rem',
               fontSize: '0.85rem',
-              border: '1px solid #e2e8f0',
+              border: '1px solid #e4e4e7',
               borderRadius: '6px',
               backgroundColor: '#ffffff',
-              color: '#0f172a',
+              color: '#09090b',
               cursor: 'pointer',
               appearance: 'none',
               outline: 'none',
@@ -827,7 +963,7 @@ export default function UserManagementPage() {
               right: '0.65rem',
               top: '50%',
               transform: 'translateY(-50%)',
-              color: '#64748b',
+              color: '#52525b',
               pointerEvents: 'none',
             }}
           />
@@ -842,7 +978,7 @@ export default function UserManagementPage() {
               border: 'none',
               background: 'none',
               fontSize: '0.85rem',
-              color: '#64748b',
+              color: '#52525b',
               cursor: 'pointer',
               padding: '0.5rem',
               textDecoration: 'underline',
@@ -857,347 +993,633 @@ export default function UserManagementPage() {
       <div
         style={{
           backgroundColor: '#ffffff',
-          border: '1px solid #e2e8f0',
+          border: '1px solid #e4e4e7',
           borderRadius: '8px',
           overflow: 'hidden',
           marginBottom: '1rem',
         }}
       >
-        <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
-          <thead>
-            <tr style={{ backgroundColor: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-              <th style={{ padding: '0.85rem 1rem', width: '40px' }}>
-                <input
-                  type="checkbox"
-                  checked={paginatedUsers.length > 0 && paginatedUsers.every((u) => selectedUserIds[u.id])}
-                  onChange={(e) => handleSelectAll(e.target.checked)}
-                  style={{ cursor: 'pointer' }}
-                />
-              </th>
-              <th style={{ padding: '0.85rem 1rem', fontSize: '0.78rem', fontWeight: 600, color: '#64748b', textTransform: 'uppercase' }}>
-                Name
-              </th>
-              <th style={{ padding: '0.85rem 1rem', fontSize: '0.78rem', fontWeight: 600, color: '#64748b', textTransform: 'uppercase' }}>
-                Role
-              </th>
-              <th style={{ padding: '0.85rem 1rem', fontSize: '0.78rem', fontWeight: 600, color: '#64748b', textTransform: 'uppercase' }}>
-                Organization
-              </th>
-              <th style={{ padding: '0.85rem 1rem', fontSize: '0.78rem', fontWeight: 600, color: '#64748b', textTransform: 'uppercase' }}>
-                Email
-              </th>
-              <th style={{ padding: '0.85rem 1rem', fontSize: '0.78rem', fontWeight: 600, color: '#64748b', textTransform: 'uppercase' }}>
-                Phone
-              </th>
-              <th style={{ padding: '0.85rem 1rem', fontSize: '0.78rem', fontWeight: 600, color: '#64748b', textTransform: 'uppercase' }}>
-                Status
-              </th>
-              <th style={{ padding: '0.85rem 1rem', fontSize: '0.78rem', fontWeight: 600, color: '#64748b', textTransform: 'uppercase' }}>
-                Joined On
-              </th>
-              <th style={{ padding: '0.85rem 1rem', width: '60px', textAlign: 'center', fontSize: '0.78rem', fontWeight: 600, color: '#64748b', textTransform: 'uppercase' }}>
-                Actions
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {isLoading ? (
-              <tr>
-                <td colSpan={9} style={{ padding: '4rem 1rem', textAlign: 'center', color: '#64748b' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}>
-                    <Loader2 size={18} className="animate-spin" />
-                    <span>Loading users directory from database...</span>
-                  </div>
-                </td>
+        {activeTab === 'pending_invites' ? (
+          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+            <thead>
+              <tr style={{ backgroundColor: '#fafafa', borderBottom: '1px solid #e4e4e7' }}>
+                <th style={{ padding: '0.85rem 1rem', fontSize: '0.78rem', fontWeight: 600, color: '#52525b', textTransform: 'uppercase' }}>
+                  Recipient Email
+                </th>
+                <th style={{ padding: '0.85rem 1rem', fontSize: '0.78rem', fontWeight: 600, color: '#52525b', textTransform: 'uppercase' }}>
+                  Role
+                </th>
+                <th style={{ padding: '0.85rem 1rem', fontSize: '0.78rem', fontWeight: 600, color: '#52525b', textTransform: 'uppercase' }}>
+                  Organization
+                </th>
+                <th style={{ padding: '0.85rem 1rem', fontSize: '0.78rem', fontWeight: 600, color: '#52525b', textTransform: 'uppercase' }}>
+                  Invited By
+                </th>
+                <th style={{ padding: '0.85rem 1rem', fontSize: '0.78rem', fontWeight: 600, color: '#52525b', textTransform: 'uppercase' }}>
+                  Sent On
+                </th>
+                <th style={{ padding: '0.85rem 1rem', fontSize: '0.78rem', fontWeight: 600, color: '#52525b', textTransform: 'uppercase' }}>
+                  Status
+                </th>
+                <th style={{ padding: '0.85rem 1rem', fontSize: '0.78rem', fontWeight: 600, color: '#52525b', textTransform: 'uppercase' }}>
+                  Backend Database State
+                </th>
+                <th style={{ padding: '0.85rem 1rem', width: '130px', textAlign: 'center', fontSize: '0.78rem', fontWeight: 600, color: '#52525b', textTransform: 'uppercase' }}>
+                  Actions
+                </th>
               </tr>
-            ) : paginatedUsers.length === 0 ? (
-              <tr>
-                <td colSpan={9} style={{ padding: '4rem 1rem', textAlign: 'center', color: '#64748b' }}>
-                  <div style={{ maxWidth: '320px', margin: '0 auto' }}>
-                    <Users size={32} style={{ color: '#94a3b8', marginBottom: '0.5rem' }} />
-                    <div style={{ fontSize: '0.95rem', fontWeight: 600, color: '#0f172a' }}>No users found</div>
-                    <div style={{ fontSize: '0.82rem', color: '#64748b', marginTop: '0.25rem' }}>
-                      {searchQuery || roleFilter !== 'all' || statusFilter !== 'all' || orgFilter !== 'all'
-                        ? 'Try adjusting your search criteria or clear filters.'
-                        : 'No users have been registered under this role yet.'}
+            </thead>
+            <tbody>
+              {isLoading ? (
+                <tr>
+                  <td colSpan={8} style={{ padding: '4rem 1rem', textAlign: 'center', color: '#52525b' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}>
+                      <Loader2 size={18} className="animate-spin" />
+                      <span>Loading pending invitations...</span>
                     </div>
-                  </div>
-                </td>
-              </tr>
-            ) : (
-              paginatedUsers.map((u, idx) => {
-                const isSelected = !!selectedUserIds[u.id];
-                const isMenuOpen = actionMenuOpenId === u.id;
-                return (
+                  </td>
+                </tr>
+              ) : paginatedInvitations.length === 0 ? (
+                <tr>
+                  <td colSpan={8} style={{ padding: '4rem 1rem', textAlign: 'center', color: '#52525b' }}>
+                    <div style={{ maxWidth: '360px', margin: '0 auto' }}>
+                      <Clock size={32} style={{ color: '#71717a', marginBottom: '0.5rem' }} />
+                      <div style={{ fontSize: '0.95rem', fontWeight: 600, color: '#09090b' }}>No pending invitations</div>
+                      <div style={{ fontSize: '0.82rem', color: '#52525b', marginTop: '0.25rem' }}>
+                        {searchQuery
+                          ? 'No pending invitations match your search query.'
+                          : 'All invited users have either authenticated or no pending invitations exist.'}
+                      </div>
+                    </div>
+                  </td>
+                </tr>
+              ) : (
+                paginatedInvitations.map((inv, idx) => (
                   <tr
-                    key={u.id}
+                    key={inv.id}
                     style={{
-                      borderBottom: idx === paginatedUsers.length - 1 ? 'none' : '1px solid #f1f5f9',
-                      backgroundColor: isSelected ? '#f8fafc' : '#ffffff',
-                      transition: 'background-color 0.15s ease',
+                      borderBottom: idx === paginatedInvitations.length - 1 ? 'none' : '1px solid #f4f4f5',
+                      backgroundColor: '#ffffff',
                     }}
                   >
-                    {/* Checkbox */}
+                    {/* Recipient Email */}
                     <td style={{ padding: '0.85rem 1rem' }}>
-                      <input
-                        type="checkbox"
-                        checked={isSelected}
-                        onChange={(e) => handleSelectRow(u.id, e.target.checked)}
-                        style={{ cursor: 'pointer' }}
-                      />
-                    </td>
-
-                    {/* Name with Avatar Initials */}
-                    <td style={{ padding: '0.85rem 1rem' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
                         <div
                           style={{
                             width: '32px',
                             height: '32px',
                             borderRadius: '50%',
-                            backgroundColor: '#f1f5f9',
-                            border: '1px solid #cbd5e1',
+                            backgroundColor: '#fafafa',
+                            border: '1px solid #d4d4d8',
                             display: 'flex',
                             alignItems: 'center',
                             justifyContent: 'center',
-                            fontSize: '0.75rem',
-                            fontWeight: 700,
-                            color: '#1e293b',
+                            color: '#09090b',
                             flexShrink: 0,
                           }}
                         >
-                          {getInitials(u)}
+                          <Mail size={15} />
                         </div>
-                        <div style={{ fontWeight: 600, fontSize: '0.875rem', color: '#09090b' }}>
-                          {getDisplayName(u)}
+                        <div>
+                          <div style={{ fontWeight: 600, fontSize: '0.875rem', color: '#09090b' }}>
+                            {inv.email}
+                          </div>
                         </div>
                       </div>
                     </td>
 
-                    {/* Role Badge */}
+                    {/* Role */}
                     <td style={{ padding: '0.85rem 1rem' }}>
-                      <span
-                        style={{
-                          display: 'inline-block',
-                          padding: '0.2rem 0.6rem',
-                          borderRadius: '12px',
-                          fontSize: '0.75rem',
-                          fontWeight: 600,
-                          ...getRoleBadgeStyle(u.role?.toString()),
-                        }}
-                      >
-                        {formatRole(u.role?.toString())}
+                      <span style={{ fontSize: '0.825rem', color: '#18181b', fontWeight: 500 }}>
+                        {formatRole(inv.role)}
                       </span>
                     </td>
 
                     {/* Organization */}
-                    <td style={{ padding: '0.85rem 1rem', fontSize: '0.85rem', color: '#334155' }}>
-                      {getOrganizationName(u)}
+                    <td style={{ padding: '0.85rem 1rem', fontSize: '0.85rem', color: '#27272a' }}>
+                      {inv.organization_name || '—'}
                     </td>
 
-                    {/* Email */}
-                    <td style={{ padding: '0.85rem 1rem', fontSize: '0.85rem', color: '#64748b' }}>
-                      {u.email}
+                    {/* Invited By */}
+                    <td style={{ padding: '0.85rem 1rem', fontSize: '0.85rem', color: '#52525b' }}>
+                      {inv.invited_by_name ? (
+                        <span>
+                          <strong style={{ color: '#09090b' }}>{inv.invited_by_name}</strong>
+                          {inv.invited_by_email ? ` (${inv.invited_by_email})` : ''}
+                        </span>
+                      ) : (
+                        '—'
+                      )}
                     </td>
 
-                    {/* Phone */}
-                    <td style={{ padding: '0.85rem 1rem', fontSize: '0.85rem', color: '#64748b' }}>
-                      {u.phone_number || '—'}
+                    {/* Sent On */}
+                    <td style={{ padding: '0.85rem 1rem', fontSize: '0.85rem', color: '#52525b' }}>
+                      {formatDate(inv.created_at)}
                     </td>
 
-                    {/* Status Dot */}
+                    {/* Status */}
                     <td style={{ padding: '0.85rem 1rem' }}>
                       <span
                         style={{
                           display: 'inline-flex',
                           alignItems: 'center',
-                          gap: '0.4rem',
-                          fontSize: '0.82rem',
-                          fontWeight: 500,
-                          color: u.is_active ? '#15803d' : '#64748b',
+                          gap: '0.35rem',
+                          fontSize: '0.78rem',
+                          fontWeight: 600,
+                          color: '#09090b',
+                          backgroundColor: '#f4f4f5',
+                          border: '1px solid #d4d4d8',
+                          padding: '0.2rem 0.6rem',
+                          borderRadius: '12px',
                         }}
                       >
-                        <span
-                          style={{
-                            width: '7px',
-                            height: '7px',
-                            borderRadius: '50%',
-                            backgroundColor: u.is_active ? '#22c55e' : '#94a3b8',
-                          }}
-                        />
-                        {u.is_active ? 'Active' : 'Inactive'}
+                        <Clock size={12} />
+                        Pending Acceptance
                       </span>
                     </td>
 
-                    {/* Joined On */}
-                    <td style={{ padding: '0.85rem 1rem', fontSize: '0.85rem', color: '#64748b' }}>
-                      {formatDate(u.created_at)}
-                    </td>
-
-                    {/* Row Actions Menu */}
-                    <td style={{ padding: '0.85rem 1rem', textAlign: 'center', position: 'relative' }}>
-                      <button
-                        type="button"
-                        onClick={() => setActionMenuOpenId(isMenuOpen ? null : u.id)}
-                        style={{
-                          border: 'none',
-                          background: 'none',
-                          color: '#64748b',
-                          cursor: 'pointer',
-                          padding: '0.25rem',
-                          borderRadius: '4px',
-                        }}
-                      >
-                        <MoreVertical size={16} />
-                      </button>
-
-                      {isMenuOpen && (
-                        <div
+                    {/* Backend Database State */}
+                    <td style={{ padding: '0.85rem 1rem' }}>
+                      {inv.has_user_record ? (
+                        <span
                           style={{
-                            position: 'absolute',
-                            right: '1rem',
-                            top: '2.5rem',
-                            backgroundColor: '#ffffff',
-                            border: '1px solid #e2e8f0',
-                            borderRadius: '6px',
-                            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
-                            zIndex: 100,
-                            minWidth: '160px',
-                            textAlign: 'left',
-                            padding: '0.25rem 0',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '0.3rem',
+                            backgroundColor: '#fafafa',
+                            color: '#09090b',
+                            border: '1px solid #e4e4e7',
+                            padding: '0.2rem 0.55rem',
+                            borderRadius: '12px',
+                            fontSize: '0.72rem',
+                            fontWeight: 600,
+                          }}
+                          title="This email has an unauthenticated record in the users database. Revoking will purge it."
+                        >
+                          <AlertTriangle size={12} />
+                          Pre-created in DB
+                        </span>
+                      ) : (
+                        <span
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '0.3rem',
+                            backgroundColor: '#f4f4f5',
+                            color: '#09090b',
+                            border: '1px solid #e4e4e7',
+                            padding: '0.2rem 0.55rem',
+                            borderRadius: '12px',
+                            fontSize: '0.72rem',
+                            fontWeight: 600,
                           }}
                         >
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setActionMenuOpenId(null);
-                              setUserToView(u);
-                            }}
+                          <CheckCircle2 size={12} />
+                          Invite Only (No DB User)
+                        </span>
+                      )}
+                    </td>
+
+                    {/* Actions */}
+                    <td style={{ padding: '0.85rem 1rem', textAlign: 'center' }}>
+                      <button
+                        type="button"
+                        onClick={() => setInvitationToRevoke(inv)}
+                        style={{
+                          padding: '0.4rem 0.75rem',
+                          backgroundColor: '#f4f4f5',
+                          color: '#09090b',
+                          border: '1px solid #d4d4d8',
+                          borderRadius: '6px',
+                          fontSize: '0.78rem',
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '0.35rem',
+                          transition: 'all 0.15s ease',
+                        }}
+                        title="Revoke invitation and purge any unauthenticated record from backend"
+                      >
+                        <UserX size={13} />
+                        <span>Revoke</span>
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        ) : (
+          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+            <thead>
+              <tr style={{ backgroundColor: '#fafafa', borderBottom: '1px solid #e4e4e7' }}>
+                <th style={{ padding: '0.85rem 1rem', width: '40px' }}>
+                  <input
+                    type="checkbox"
+                    checked={paginatedUsers.length > 0 && paginatedUsers.every((u) => selectedUserIds[u.id])}
+                    onChange={(e) => handleSelectAll(e.target.checked)}
+                    style={{ cursor: 'pointer' }}
+                  />
+                </th>
+                <th style={{ padding: '0.85rem 1rem', fontSize: '0.78rem', fontWeight: 600, color: '#52525b', textTransform: 'uppercase' }}>
+                  Name
+                </th>
+                <th style={{ padding: '0.85rem 1rem', fontSize: '0.78rem', fontWeight: 600, color: '#52525b', textTransform: 'uppercase' }}>
+                  Role
+                </th>
+                <th style={{ padding: '0.85rem 1rem', fontSize: '0.78rem', fontWeight: 600, color: '#52525b', textTransform: 'uppercase' }}>
+                  Organization
+                </th>
+                <th style={{ padding: '0.85rem 1rem', fontSize: '0.78rem', fontWeight: 600, color: '#52525b', textTransform: 'uppercase' }}>
+                  Email
+                </th>
+                <th style={{ padding: '0.85rem 1rem', fontSize: '0.78rem', fontWeight: 600, color: '#52525b', textTransform: 'uppercase' }}>
+                  Phone
+                </th>
+                <th style={{ padding: '0.85rem 1rem', fontSize: '0.78rem', fontWeight: 600, color: '#52525b', textTransform: 'uppercase' }}>
+                  Status
+                </th>
+                <th style={{ padding: '0.85rem 1rem', fontSize: '0.78rem', fontWeight: 600, color: '#52525b', textTransform: 'uppercase' }}>
+                  Joined On
+                </th>
+                <th style={{ padding: '0.85rem 1rem', width: '60px', textAlign: 'center', fontSize: '0.78rem', fontWeight: 600, color: '#52525b', textTransform: 'uppercase' }}>
+                  Actions
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {isLoading ? (
+                <tr>
+                  <td colSpan={9} style={{ padding: '4rem 1rem', textAlign: 'center', color: '#52525b' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}>
+                      <Loader2 size={18} className="animate-spin" />
+                      <span>Loading users directory from database...</span>
+                    </div>
+                  </td>
+                </tr>
+              ) : paginatedUsers.length === 0 ? (
+                <tr>
+                  <td colSpan={9} style={{ padding: '4rem 1rem', textAlign: 'center', color: '#52525b' }}>
+                    <div style={{ maxWidth: '320px', margin: '0 auto' }}>
+                      <Users size={32} style={{ color: '#71717a', marginBottom: '0.5rem' }} />
+                      <div style={{ fontSize: '0.95rem', fontWeight: 600, color: '#09090b' }}>No users found</div>
+                      <div style={{ fontSize: '0.82rem', color: '#52525b', marginTop: '0.25rem' }}>
+                        {searchQuery || roleFilter !== 'all' || statusFilter !== 'all' || orgFilter !== 'all'
+                          ? 'Try adjusting your search criteria or clear filters.'
+                          : 'No users have been registered under this role yet.'}
+                      </div>
+                    </div>
+                  </td>
+                </tr>
+              ) : (
+                paginatedUsers.map((u, idx) => {
+                  const isSelected = !!selectedUserIds[u.id];
+                  const isMenuOpen = actionMenuOpenId === u.id;
+                  const isUnauthenticated = u.has_authenticated === false || u.invitation_status === 'pending';
+                  return (
+                    <tr
+                      key={u.id}
+                      style={{
+                        borderBottom: idx === paginatedUsers.length - 1 ? 'none' : '1px solid #f4f4f5',
+                        backgroundColor: isSelected ? '#fafafa' : isUnauthenticated ? '#ffffff' : '#ffffff',
+                        transition: 'background-color 0.15s ease',
+                      }}
+                    >
+                      {/* Checkbox */}
+                      <td style={{ padding: '0.85rem 1rem' }}>
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={(e) => handleSelectRow(u.id, e.target.checked)}
+                          style={{ cursor: 'pointer' }}
+                        />
+                      </td>
+
+                      {/* Name with Avatar Initials */}
+                      <td style={{ padding: '0.85rem 1rem' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                          <div
                             style={{
-                              width: '100%',
-                              padding: '0.5rem 0.85rem',
-                              border: 'none',
-                              background: 'none',
-                              fontSize: '0.8rem',
-                              color: '#0f172a',
-                              cursor: 'pointer',
-                              textAlign: 'left',
+                              width: '32px',
+                              height: '32px',
+                              borderRadius: '50%',
+                              backgroundColor: isUnauthenticated ? '#f4f4f5' : '#f4f4f5',
+                              border: isUnauthenticated ? '1px solid #d4d4d8' : '1px solid #d4d4d8',
                               display: 'flex',
                               alignItems: 'center',
-                              gap: '0.45rem',
+                              justifyContent: 'center',
+                              fontSize: '0.75rem',
+                              fontWeight: 700,
+                              color: isUnauthenticated ? '#09090b' : '#18181b',
+                              flexShrink: 0,
                             }}
                           >
-                            <Info size={14} color="#64748b" />
-                            <span>View User Details</span>
-                          </button>
+                            {getInitials(u)}
+                          </div>
+                          <div>
+                            <div style={{ fontWeight: 600, fontSize: '0.875rem', color: '#09090b' }}>
+                              {getDisplayName(u)}
+                            </div>
+                            {isUnauthenticated && (
+                              <div
+                                style={{
+                                  fontSize: '0.72rem',
+                                  color: '#09090b',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '0.25rem',
+                                  marginTop: '0.15rem',
+                                  fontWeight: 500,
+                                }}
+                              >
+                                <Clock size={11} />
+                                <span>Unauthenticated (Pending Invite)</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </td>
 
-                          {/* Toggle Active / Deactivate */}
-                          {currentUser && currentUser.id === u.id ? (
-                            <button
-                              type="button"
-                              disabled
-                              title="You cannot deactivate your own administrator account"
-                              style={{
-                                width: '100%',
-                                padding: '0.5rem 0.85rem',
-                                border: 'none',
-                                background: 'none',
-                                fontSize: '0.8rem',
-                                color: '#94a3b8',
-                                cursor: 'not-allowed',
-                                textAlign: 'left',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '0.45rem',
-                              }}
-                            >
-                              <UserX size={14} color="#94a3b8" />
-                              <span>Deactivate (Self)</span>
-                            </button>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() => handleToggleUserStatus(u)}
-                              style={{
-                                width: '100%',
-                                padding: '0.5rem 0.85rem',
-                                border: 'none',
-                                background: 'none',
-                                fontSize: '0.8rem',
-                                color: u.is_active ? '#d97706' : '#16a34a',
-                                cursor: 'pointer',
-                                textAlign: 'left',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '0.45rem',
-                              }}
-                            >
-                              {u.is_active ? <UserX size={14} color="#d97706" /> : <UserCheck size={14} color="#16a34a" />}
-                              <span>{u.is_active ? 'Deactivate User' : 'Activate User'}</span>
-                            </button>
-                          )}
+                      {/* Role Badge */}
+                      <td style={{ padding: '0.85rem 1rem' }}>
+                        <span style={{ fontSize: '0.825rem', color: '#18181b', fontWeight: 500 }}>
+                          {formatRole(u.role?.toString())}
+                        </span>
+                      </td>
 
-                          {/* Delete Option */}
-                          {currentUser && currentUser.id === u.id ? (
-                            <button
-                              type="button"
-                              disabled
-                              title="You cannot delete your own administrator account"
+                      {/* Organization */}
+                      <td style={{ padding: '0.85rem 1rem', fontSize: '0.85rem', color: '#27272a' }}>
+                        {getOrganizationName(u)}
+                      </td>
+
+                      {/* Email */}
+                      <td style={{ padding: '0.85rem 1rem', fontSize: '0.85rem', color: '#52525b' }}>
+                        {u.email}
+                      </td>
+
+                      {/* Phone */}
+                      <td style={{ padding: '0.85rem 1rem', fontSize: '0.85rem', color: '#52525b' }}>
+                        {u.phone_number || '—'}
+                      </td>
+
+                      {/* Status Dot / Pending Badge */}
+                      <td style={{ padding: '0.85rem 1rem' }}>
+                        {isUnauthenticated ? (
+                          <span
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '0.35rem',
+                              fontSize: '0.76rem',
+                              fontWeight: 600,
+                              color: '#09090b',
+                              backgroundColor: '#fafafa',
+                              border: '1px solid #d4d4d8',
+                              padding: '0.2rem 0.55rem',
+                              borderRadius: '12px',
+                            }}
+                            title="User was invited but has not accepted invitation or authenticated yet"
+                          >
+                            <AlertTriangle size={12} color="#09090b" />
+                            Pending Acceptance
+                          </span>
+                        ) : (
+                          <span
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '0.4rem',
+                              fontSize: '0.82rem',
+                              fontWeight: 500,
+                              color: u.is_active ? '#09090b' : '#52525b',
+                            }}
+                          >
+                            <span
                               style={{
-                                width: '100%',
-                                padding: '0.5rem 0.85rem',
-                                border: 'none',
-                                borderTop: '1px solid #f1f5f9',
-                                background: 'none',
-                                fontSize: '0.8rem',
-                                color: '#94a3b8',
-                                cursor: 'not-allowed',
-                                textAlign: 'left',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '0.45rem',
+                                width: '7px',
+                                height: '7px',
+                                borderRadius: '50%',
+                                backgroundColor: u.is_active ? '#09090b' : '#71717a',
                               }}
-                            >
-                              <Trash2 size={14} color="#94a3b8" />
-                              <span>Delete (Self)</span>
-                            </button>
-                          ) : (
+                            />
+                            {u.is_active ? 'Active' : 'Inactive'}
+                          </span>
+                        )}
+                      </td>
+
+                      {/* Joined On */}
+                      <td style={{ padding: '0.85rem 1rem', fontSize: '0.85rem', color: '#52525b' }}>
+                        {formatDate(u.created_at)}
+                      </td>
+
+                      {/* Row Actions Menu */}
+                      <td style={{ padding: '0.85rem 1rem', textAlign: 'center', position: 'relative' }}>
+                        <button
+                          type="button"
+                          onClick={() => setActionMenuOpenId(isMenuOpen ? null : u.id)}
+                          style={{
+                            border: 'none',
+                            background: 'none',
+                            color: '#52525b',
+                            cursor: 'pointer',
+                            padding: '0.25rem',
+                            borderRadius: '4px',
+                          }}
+                        >
+                          <MoreVertical size={16} />
+                        </button>
+
+                        {isMenuOpen && (
+                          <div
+                            style={{
+                              position: 'absolute',
+                              right: '1rem',
+                              top: '2.5rem',
+                              backgroundColor: '#ffffff',
+                              border: '1px solid #e4e4e7',
+                              borderRadius: '6px',
+                              boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
+                              zIndex: 100,
+                              minWidth: '180px',
+                              textAlign: 'left',
+                              padding: '0.25rem 0',
+                            }}
+                          >
+                            {/* Special Action for Unauthenticated User */}
+                            {isUnauthenticated && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setActionMenuOpenId(null);
+                                  setInvitationToRevoke({
+                                    id: u.invitation_id || '',
+                                    email: u.email,
+                                    role: u.role,
+                                    organization_name: getOrganizationName(u),
+                                    created_at: u.created_at,
+                                    expires_at: '',
+                                    status: 'pending',
+                                    invited_by: '',
+                                    organization_id: u.organization_id || '',
+                                    token: '',
+                                    has_user_record: true,
+                                  } as InvitationOut);
+                                }}
+                                style={{
+                                  width: '100%',
+                                  padding: '0.5rem 0.85rem',
+                                  border: 'none',
+                                  borderBottom: '1px solid #f4f4f5',
+                                  backgroundColor: '#fafafa',
+                                  fontSize: '0.8rem',
+                                  color: '#09090b',
+                                  cursor: 'pointer',
+                                  textAlign: 'left',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '0.45rem',
+                                  fontWeight: 600,
+                                }}
+                              >
+                                <ShieldAlert size={14} color="#09090b" />
+                                <span>Revoke & Remove User</span>
+                              </button>
+                            )}
+
                             <button
                               type="button"
                               onClick={() => {
                                 setActionMenuOpenId(null);
-                                setUserToDelete(u);
+                                setUserToView(u);
                               }}
                               style={{
                                 width: '100%',
                                 padding: '0.5rem 0.85rem',
                                 border: 'none',
-                                borderTop: '1px solid #f1f5f9',
                                 background: 'none',
                                 fontSize: '0.8rem',
-                                color: '#dc2626',
+                                color: '#09090b',
                                 cursor: 'pointer',
                                 textAlign: 'left',
                                 display: 'flex',
                                 alignItems: 'center',
                                 gap: '0.45rem',
-                                fontWeight: 600,
                               }}
                             >
-                              <Trash2 size={14} color="#dc2626" />
-                              <span>Delete User</span>
+                              <Info size={14} color="#52525b" />
+                              <span>View User Details</span>
                             </button>
-                          )}
-                        </div>
-                      )}
 
-                    </td>
-                  </tr>
-                );
-              })
-            )}
-          </tbody>
-        </table>
+                            {/* Toggle Active / Deactivate */}
+                            {currentUser && currentUser.id === u.id ? (
+                              <button
+                                type="button"
+                                disabled
+                                title="You cannot deactivate your own administrator account"
+                                style={{
+                                  width: '100%',
+                                  padding: '0.5rem 0.85rem',
+                                  border: 'none',
+                                  background: 'none',
+                                  fontSize: '0.8rem',
+                                  color: '#71717a',
+                                  cursor: 'not-allowed',
+                                  textAlign: 'left',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '0.45rem',
+                                }}
+                              >
+                                <UserX size={14} color="#71717a" />
+                                <span>Deactivate (Self)</span>
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => handleToggleUserStatus(u)}
+                                style={{
+                                  width: '100%',
+                                  padding: '0.5rem 0.85rem',
+                                  border: 'none',
+                                  background: 'none',
+                                  fontSize: '0.8rem',
+                                  color: u.is_active ? '#09090b' : '#09090b',
+                                  cursor: 'pointer',
+                                  textAlign: 'left',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '0.45rem',
+                                }}
+                              >
+                                {u.is_active ? <UserX size={14} color="#09090b" /> : <UserCheck size={14} color="#09090b" />}
+                                <span>{u.is_active ? 'Deactivate User' : 'Activate User'}</span>
+                              </button>
+                            )}
+
+                            {/* Delete Option */}
+                            {currentUser && currentUser.id === u.id ? (
+                              <button
+                                type="button"
+                                disabled
+                                title="You cannot delete your own administrator account"
+                                style={{
+                                  width: '100%',
+                                  padding: '0.5rem 0.85rem',
+                                  border: 'none',
+                                  borderTop: '1px solid #f4f4f5',
+                                  background: 'none',
+                                  fontSize: '0.8rem',
+                                  color: '#71717a',
+                                  cursor: 'not-allowed',
+                                  textAlign: 'left',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '0.45rem',
+                                }}
+                              >
+                                <Trash2 size={14} color="#71717a" />
+                                <span>Delete (Self)</span>
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setActionMenuOpenId(null);
+                                  setUserToDelete(u);
+                                }}
+                                style={{
+                                  width: '100%',
+                                  padding: '0.5rem 0.85rem',
+                                  border: 'none',
+                                  borderTop: '1px solid #f4f4f5',
+                                  background: 'none',
+                                  fontSize: '0.8rem',
+                                  color: '#09090b',
+                                  cursor: 'pointer',
+                                  textAlign: 'left',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '0.45rem',
+                                  fontWeight: 600,
+                                }}
+                              >
+                                <Trash2 size={14} color="#09090b" />
+                                <span>Delete User</span>
+                              </button>
+                            )}
+                          </div>
+                        )}
+
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        )}
       </div>
 
       {/* ── Pagination Footer ── */}
@@ -1208,12 +1630,21 @@ export default function UserManagementPage() {
           justifyContent: 'space-between',
           padding: '0.5rem 0',
           fontSize: '0.85rem',
-          color: '#64748b',
+          color: '#52525b',
         }}
       >
         <div>
-          Showing {filteredUsers.length === 0 ? 0 : (currentPage - 1) * pageSize + 1}–
-          {Math.min(currentPage * pageSize, filteredUsers.length)} of {filteredUsers.length} users
+          {activeTab === 'pending_invites' ? (
+            <>
+              Showing {filteredInvitations.length === 0 ? 0 : (currentPage - 1) * pageSize + 1}–
+              {Math.min(currentPage * pageSize, filteredInvitations.length)} of {filteredInvitations.length} pending invitations
+            </>
+          ) : (
+            <>
+              Showing {filteredUsers.length === 0 ? 0 : (currentPage - 1) * pageSize + 1}–
+              {Math.min(currentPage * pageSize, filteredUsers.length)} of {filteredUsers.length} users
+            </>
+          )}
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
@@ -1224,14 +1655,14 @@ export default function UserManagementPage() {
             style={{
               width: '32px',
               height: '32px',
-              border: '1px solid #e2e8f0',
+              border: '1px solid #e4e4e7',
               borderRadius: '6px',
               backgroundColor: '#ffffff',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               cursor: currentPage <= 1 ? 'not-allowed' : 'pointer',
-              color: currentPage <= 1 ? '#cbd5e1' : '#0f172a',
+              color: currentPage <= 1 ? '#d4d4d8' : '#09090b',
             }}
           >
             <ChevronLeft size={16} />
@@ -1247,10 +1678,10 @@ export default function UserManagementPage() {
                 style={{
                   width: '32px',
                   height: '32px',
-                  border: isCurrent ? '1px solid #18181b' : '1px solid #e2e8f0',
+                  border: isCurrent ? '1px solid #18181b' : '1px solid #e4e4e7',
                   borderRadius: '6px',
                   backgroundColor: isCurrent ? '#18181b' : '#ffffff',
-                  color: isCurrent ? '#ffffff' : '#0f172a',
+                  color: isCurrent ? '#ffffff' : '#09090b',
                   fontWeight: isCurrent ? 700 : 500,
                   fontSize: '0.82rem',
                   cursor: 'pointer',
@@ -1268,14 +1699,14 @@ export default function UserManagementPage() {
             style={{
               width: '32px',
               height: '32px',
-              border: '1px solid #e2e8f0',
+              border: '1px solid #e4e4e7',
               borderRadius: '6px',
               backgroundColor: '#ffffff',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               cursor: currentPage >= totalPages ? 'not-allowed' : 'pointer',
-              color: currentPage >= totalPages ? '#cbd5e1' : '#0f172a',
+              color: currentPage >= totalPages ? '#d4d4d8' : '#09090b',
             }}
           >
             <ChevronRight size={16} />
@@ -1307,14 +1738,14 @@ export default function UserManagementPage() {
               maxWidth: '480px',
               width: '100%',
               boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
-              border: '1px solid #e2e8f0',
+              border: '1px solid #e4e4e7',
               overflow: 'hidden',
             }}
           >
             <div
               style={{
                 padding: '1.25rem 1.5rem',
-                borderBottom: '1px solid #e2e8f0',
+                borderBottom: '1px solid #e4e4e7',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'space-between',
@@ -1326,8 +1757,8 @@ export default function UserManagementPage() {
                     width: '36px',
                     height: '36px',
                     borderRadius: '50%',
-                    backgroundColor: '#fee2e2',
-                    color: '#dc2626',
+                    backgroundColor: '#f4f4f5',
+                    color: '#09090b',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
@@ -1336,10 +1767,10 @@ export default function UserManagementPage() {
                   <Trash2 size={18} />
                 </div>
                 <div>
-                  <h3 style={{ fontSize: '1rem', fontWeight: 700, margin: 0, color: '#0f172a' }}>
+                  <h3 style={{ fontSize: '1rem', fontWeight: 700, margin: 0, color: '#09090b' }}>
                     Delete User Account
                   </h3>
-                  <p style={{ fontSize: '0.75rem', color: '#64748b', margin: 0 }}>
+                  <p style={{ fontSize: '0.75rem', color: '#52525b', margin: 0 }}>
                     Permanent deletion and access revocation
                   </p>
                 </div>
@@ -1347,32 +1778,32 @@ export default function UserManagementPage() {
               <button
                 type="button"
                 onClick={() => setUserToDelete(null)}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8' }}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#71717a' }}
               >
                 <X size={18} />
               </button>
             </div>
 
             <div style={{ padding: '1.25rem 1.5rem' }}>
-              <p style={{ fontSize: '0.875rem', color: '#334155', lineHeight: 1.5, margin: 0 }}>
+              <p style={{ fontSize: '0.875rem', color: '#27272a', lineHeight: 1.5, margin: 0 }}>
                 Are you sure you want to delete <strong>{getDisplayName(userToDelete)}</strong> (
-                <span style={{ color: '#0f172a', fontWeight: 600 }}>{userToDelete.email}</span>)?
+                <span style={{ color: '#09090b', fontWeight: 600 }}>{userToDelete.email}</span>)?
               </p>
               <div
                 style={{
                   marginTop: '1rem',
                   padding: '0.75rem 1rem',
-                  backgroundColor: '#fef2f2',
-                  border: '1px solid #fecaca',
+                  backgroundColor: '#f4f4f5',
+                  border: '1px solid #d4d4d8',
                   borderRadius: '6px',
                   fontSize: '0.8rem',
-                  color: '#991b1b',
+                  color: '#09090b',
                   display: 'flex',
                   alignItems: 'flex-start',
                   gap: '0.5rem',
                 }}
               >
-                <AlertTriangle size={16} color="#dc2626" style={{ flexShrink: 0, marginTop: '2px' }} />
+                <AlertTriangle size={16} color="#09090b" style={{ flexShrink: 0, marginTop: '2px' }} />
                 <span>
                   This action will permanently delete or revoke credentials for this user account.
                 </span>
@@ -1382,8 +1813,8 @@ export default function UserManagementPage() {
             <div
               style={{
                 padding: '1rem 1.5rem',
-                backgroundColor: '#f8fafc',
-                borderTop: '1px solid #e2e8f0',
+                backgroundColor: '#fafafa',
+                borderTop: '1px solid #e4e4e7',
                 display: 'flex',
                 justifyContent: 'flex-end',
                 gap: '0.75rem',
@@ -1396,9 +1827,9 @@ export default function UserManagementPage() {
                 style={{
                   padding: '0.5rem 1rem',
                   borderRadius: '6px',
-                  border: '1px solid #cbd5e1',
+                  border: '1px solid #d4d4d8',
                   backgroundColor: '#ffffff',
-                  color: '#334155',
+                  color: '#27272a',
                   fontSize: '0.825rem',
                   fontWeight: 600,
                   cursor: 'pointer',
@@ -1414,7 +1845,7 @@ export default function UserManagementPage() {
                   padding: '0.5rem 1.25rem',
                   borderRadius: '6px',
                   border: 'none',
-                  backgroundColor: '#dc2626',
+                  backgroundColor: '#09090b',
                   color: '#ffffff',
                   fontSize: '0.825rem',
                   fontWeight: 700,
@@ -1426,6 +1857,155 @@ export default function UserManagementPage() {
               >
                 {isDeletingUser ? <Loader2 className="animate-spin" size={15} /> : <Trash2 size={15} />}
                 <span>{isDeletingUser ? 'Deleting...' : 'Confirm Delete'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Revoke Invitation & Remove User Modal ── */}
+      {invitationToRevoke && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+            padding: '1rem',
+          }}
+        >
+          <div
+            style={{
+              backgroundColor: '#ffffff',
+              borderRadius: '8px',
+              maxWidth: '480px',
+              width: '100%',
+              boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
+              border: '1px solid #e4e4e7',
+              overflow: 'hidden',
+            }}
+          >
+            <div
+              style={{
+                padding: '1.25rem 1.5rem',
+                borderBottom: '1px solid #e4e4e7',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+                <div
+                  style={{
+                    width: '36px',
+                    height: '36px',
+                    borderRadius: '50%',
+                    backgroundColor: '#f4f4f5',
+                    color: '#09090b',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <ShieldAlert size={18} />
+                </div>
+                <div>
+                  <h3 style={{ fontSize: '1rem', fontWeight: 700, margin: 0, color: '#09090b' }}>
+                    Revoke Invitation & Remove User
+                  </h3>
+                  <p style={{ fontSize: '0.75rem', color: '#52525b', margin: 0 }}>
+                    Invalidate invitation and purge backend database
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setInvitationToRevoke(null)}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#71717a' }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div style={{ padding: '1.25rem 1.5rem' }}>
+              <p style={{ fontSize: '0.875rem', color: '#27272a', lineHeight: 1.5, margin: 0 }}>
+                Are you sure you want to revoke the invitation for{' '}
+                <strong style={{ color: '#09090b' }}>{invitationToRevoke.email}</strong>?
+              </p>
+              <div
+                style={{
+                  marginTop: '1rem',
+                  padding: '0.75rem 1rem',
+                  backgroundColor: '#fafafa',
+                  border: '1px solid #d4d4d8',
+                  borderRadius: '6px',
+                  fontSize: '0.8rem',
+                  color: '#27272a',
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  gap: '0.5rem',
+                }}
+              >
+                <AlertTriangle size={16} color="#09090b" style={{ flexShrink: 0, marginTop: '2px' }} />
+                <span>
+                  The onboarding link will be immediately invalidated. If an unauthenticated user entry exists in the backend database, it will be removed permanently so unauthenticated individuals cannot be treated as valid users.
+                </span>
+              </div>
+            </div>
+
+            <div
+              style={{
+                padding: '1rem 1.5rem',
+                backgroundColor: '#fafafa',
+                borderTop: '1px solid #e4e4e7',
+                display: 'flex',
+                justifyContent: 'flex-end',
+                gap: '0.75rem',
+              }}
+            >
+              <button
+                type="button"
+                disabled={isRevoking}
+                onClick={() => setInvitationToRevoke(null)}
+                style={{
+                  padding: '0.5rem 1rem',
+                  borderRadius: '6px',
+                  border: '1px solid #d4d4d8',
+                  backgroundColor: '#ffffff',
+                  color: '#27272a',
+                  fontSize: '0.825rem',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={isRevoking}
+                onClick={() => handleRevokeInvitation(invitationToRevoke)}
+                style={{
+                  padding: '0.5rem 1.25rem',
+                  borderRadius: '6px',
+                  border: 'none',
+                  backgroundColor: '#09090b',
+                  color: '#ffffff',
+                  fontSize: '0.825rem',
+                  fontWeight: 700,
+                  cursor: isRevoking ? 'not-allowed' : 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.4rem',
+                }}
+              >
+                {isRevoking ? <Loader2 className="animate-spin" size={15} /> : <Trash2 size={15} />}
+                <span>{isRevoking ? 'Revoking...' : 'Confirm Revoke & Purge'}</span>
               </button>
             </div>
           </div>
@@ -1456,14 +2036,14 @@ export default function UserManagementPage() {
               maxWidth: '520px',
               width: '100%',
               boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)',
-              border: '1px solid #e2e8f0',
+              border: '1px solid #e4e4e7',
               overflow: 'hidden',
             }}
           >
             <div
               style={{
                 padding: '1.25rem 1.5rem',
-                borderBottom: '1px solid #e2e8f0',
+                borderBottom: '1px solid #e4e4e7',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'space-between',
@@ -1475,22 +2055,22 @@ export default function UserManagementPage() {
                     width: '38px',
                     height: '38px',
                     borderRadius: '8px',
-                    backgroundColor: '#f1f5f9',
+                    backgroundColor: '#f4f4f5',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
                     fontWeight: 700,
                     fontSize: '0.85rem',
-                    color: '#0f172a',
+                    color: '#09090b',
                   }}
                 >
                   {getInitials(userToView)}
                 </div>
                 <div>
-                  <h3 style={{ fontSize: '1rem', fontWeight: 700, margin: 0, color: '#0f172a' }}>
+                  <h3 style={{ fontSize: '1rem', fontWeight: 700, margin: 0, color: '#09090b' }}>
                     {getDisplayName(userToView)}
                   </h3>
-                  <p style={{ fontSize: '0.75rem', color: '#64748b', margin: 0 }}>
+                  <p style={{ fontSize: '0.75rem', color: '#52525b', margin: 0 }}>
                     {userToView.email}
                   </p>
                 </div>
@@ -1498,7 +2078,7 @@ export default function UserManagementPage() {
               <button
                 type="button"
                 onClick={() => setUserToView(null)}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8' }}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#71717a' }}
               >
                 <X size={18} />
               </button>
@@ -1506,10 +2086,10 @@ export default function UserManagementPage() {
 
             <div style={{ padding: '1.25rem 1.5rem', display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
               <div style={{ display: 'grid', gridTemplateColumns: '130px 1fr', gap: '0.5rem', fontSize: '0.825rem' }}>
-                <span style={{ color: '#64748b', fontWeight: 600 }}>User ID:</span>
-                <span style={{ color: '#0f172a', fontFamily: 'monospace', fontSize: '0.78rem' }}>{userToView.id}</span>
+                <span style={{ color: '#52525b', fontWeight: 600 }}>User ID:</span>
+                <span style={{ color: '#09090b', fontFamily: 'monospace', fontSize: '0.78rem' }}>{userToView.id}</span>
 
-                <span style={{ color: '#64748b', fontWeight: 600 }}>Role:</span>
+                <span style={{ color: '#52525b', fontWeight: 600 }}>Role:</span>
                 <div>
                   <span
                     style={{
@@ -1525,7 +2105,7 @@ export default function UserManagementPage() {
                   </span>
                 </div>
 
-                <span style={{ color: '#64748b', fontWeight: 600 }}>Account Status:</span>
+                <span style={{ color: '#52525b', fontWeight: 600 }}>Account Status:</span>
                 <div>
                   <span
                     style={{
@@ -1534,7 +2114,7 @@ export default function UserManagementPage() {
                       gap: '0.4rem',
                       fontSize: '0.82rem',
                       fontWeight: 500,
-                      color: userToView.is_active ? '#15803d' : '#64748b',
+                      color: userToView.is_active ? '#09090b' : '#52525b',
                     }}
                   >
                     <span
@@ -1542,33 +2122,58 @@ export default function UserManagementPage() {
                         width: '7px',
                         height: '7px',
                         borderRadius: '50%',
-                        backgroundColor: userToView.is_active ? '#22c55e' : '#94a3b8',
+                        backgroundColor: userToView.is_active ? '#09090b' : '#71717a',
                       }}
                     />
                     {userToView.is_active ? 'Active' : 'Inactive'}
                   </span>
                 </div>
 
+                {(userToView.has_authenticated === false || userToView.invitation_status === 'pending') && (
+                  <>
+                    <span style={{ color: '#09090b', fontWeight: 600 }}>Auth State:</span>
+                    <div>
+                      <span
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '0.35rem',
+                          fontSize: '0.76rem',
+                          fontWeight: 600,
+                          color: '#09090b',
+                          backgroundColor: '#fafafa',
+                          border: '1px solid #d4d4d8',
+                          padding: '0.2rem 0.55rem',
+                          borderRadius: '12px',
+                        }}
+                      >
+                        <AlertTriangle size={12} color="#09090b" />
+                        Unauthenticated (Pending Acceptance)
+                      </span>
+                    </div>
+                  </>
+                )}
 
-                <span style={{ color: '#64748b', fontWeight: 600 }}>Organization:</span>
-                <span style={{ color: '#0f172a' }}>{getOrganizationName(userToView)}</span>
 
-                <span style={{ color: '#64748b', fontWeight: 600 }}>Phone Number:</span>
-                <span style={{ color: '#0f172a' }}>{userToView.phone_number || '—'}</span>
+                <span style={{ color: '#52525b', fontWeight: 600 }}>Organization:</span>
+                <span style={{ color: '#09090b' }}>{getOrganizationName(userToView)}</span>
 
-                <span style={{ color: '#64748b', fontWeight: 600 }}>Designation:</span>
-                <span style={{ color: '#0f172a' }}>{userToView.designation || '—'}</span>
+                <span style={{ color: '#52525b', fontWeight: 600 }}>Phone Number:</span>
+                <span style={{ color: '#09090b' }}>{userToView.phone_number || '—'}</span>
 
-                <span style={{ color: '#64748b', fontWeight: 600 }}>Joined On:</span>
-                <span style={{ color: '#0f172a' }}>{formatDate(userToView.created_at)}</span>
+                <span style={{ color: '#52525b', fontWeight: 600 }}>Designation:</span>
+                <span style={{ color: '#09090b' }}>{userToView.designation || '—'}</span>
+
+                <span style={{ color: '#52525b', fontWeight: 600 }}>Joined On:</span>
+                <span style={{ color: '#09090b' }}>{formatDate(userToView.created_at)}</span>
               </div>
             </div>
 
             <div
               style={{
                 padding: '1rem 1.5rem',
-                backgroundColor: '#f8fafc',
-                borderTop: '1px solid #e2e8f0',
+                backgroundColor: '#fafafa',
+                borderTop: '1px solid #e4e4e7',
                 display: 'flex',
                 justifyContent: 'flex-end',
               }}
@@ -1579,9 +2184,9 @@ export default function UserManagementPage() {
                 style={{
                   padding: '0.5rem 1.25rem',
                   borderRadius: '6px',
-                  border: '1px solid #cbd5e1',
+                  border: '1px solid #d4d4d8',
                   backgroundColor: '#ffffff',
-                  color: '#334155',
+                  color: '#27272a',
                   fontSize: '0.825rem',
                   fontWeight: 600,
                   cursor: 'pointer',
