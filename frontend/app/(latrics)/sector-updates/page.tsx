@@ -5,6 +5,7 @@ import { useMyAllocations } from '@/modules/allocations/hooks';
 import { AllocationStatusEnum } from '@/modules/allocations/types';
 import { sectorApi } from '@/modules/sectors/api';
 import { SectorStatus } from '@/modules/sectors/types';
+import { PageHeader } from '@/components/PageHeader';
 
 export default function SectorUpdatesPage() {
   const { allocations, loading, refetch, updateStatus } = useMyAllocations();
@@ -58,23 +59,20 @@ export default function SectorUpdatesPage() {
 
   return (
     <div>
-      <div style={{ marginBottom: '2rem' }}>
-        <h2 style={{ fontSize: '1.75rem', fontWeight: 700, marginBottom: '0.5rem' }}>
-          Real-Time Flight Telemetry & Sector Updates
-        </h2>
-        <p style={{ color: 'var(--text-secondary)' }}>
-          Broadcast field flight progress, mission state changes, and environmental observations directly to Operations.
-        </p>
-      </div>
+      {/* ── Page Header ── */}
+      <PageHeader
+        title="Real-Time Flight Telemetry & Sector Updates"
+        subtitle="Broadcast field flight progress, mission state changes, and environmental observations directly to Operations."
+      />
 
       {feedbackMsg && (
         <div
           style={{
             padding: '0.85rem 1.25rem',
-            background: feedbackMsg.type === 'success' ? 'rgba(16, 185, 129, 0.12)' : 'rgba(239, 68, 68, 0.12)',
-            border: `1px solid ${feedbackMsg.type === 'success' ? 'var(--accent-success)' : 'var(--accent-danger)'}`,
+            background: feedbackMsg.type === 'success' ? '#f4f4f5' : '#f4f4f5',
+            border: `1px solid ${feedbackMsg.type === 'success' ? '#09090b' : 'var(--accent-danger)'}`,
             borderRadius: '8px',
-            color: feedbackMsg.type === 'success' ? 'var(--accent-success)' : '#fca5a5',
+            color: feedbackMsg.type === 'success' ? '#09090b' : '#09090b',
             marginBottom: '1.5rem',
             display: 'flex',
             justifyContent: 'space-between',

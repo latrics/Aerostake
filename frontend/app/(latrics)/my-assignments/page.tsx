@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import { PageHeader } from '@/components/PageHeader';
 import { useMyAllocations } from '@/modules/allocations/hooks';
 import { AllocationCard } from '@/modules/allocations/components/AllocationCard';
 import { AllocationStatusEnum } from '@/modules/allocations/types';
@@ -32,42 +33,27 @@ export default function MyAssignmentsPage() {
 
   return (
     <div>
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'flex-start',
-          marginBottom: '2rem',
-          flexWrap: 'wrap',
-          gap: '1rem',
-        }}
+      <PageHeader
+        title="My Flight Missions"
+        subtitle="Review assigned sector grids, hardware specs, pre-flight safety protocols, and record flight telemetry."
       >
-        <div>
-          <h2 style={{ fontSize: '1.75rem', fontWeight: 700, marginBottom: '0.5rem' }}>
-            My Flight Missions
-          </h2>
-          <p style={{ color: 'var(--text-secondary)' }}>
-            Review assigned sector grids, hardware specs, pre-flight safety protocols, and record flight telemetry.
-          </p>
-        </div>
-
         <button
           onClick={() => refetch()}
           className="btn btn-secondary"
-          style={{ fontSize: '0.875rem' }}
+          style={{ fontSize: '0.8rem', height: '36px', display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}
         >
           🔄 Refresh Missions
         </button>
-      </div>
+      </PageHeader>
 
       {actionFeedback && (
         <div
           style={{
             padding: '0.85rem 1.25rem',
-            background: 'rgba(16, 185, 129, 0.12)',
+            background: '#f4f4f5',
             border: '1px solid var(--accent-success)',
             borderRadius: '8px',
-            color: 'var(--accent-success)',
+            color: '#09090b',
             marginBottom: '1.5rem',
             display: 'flex',
             justifyContent: 'space-between',
@@ -88,10 +74,10 @@ export default function MyAssignmentsPage() {
         <div
           style={{
             padding: '1rem',
-            background: 'rgba(239, 68, 68, 0.15)',
+            background: '#f4f4f5',
             border: '1px solid var(--accent-danger)',
             borderRadius: '8px',
-            color: '#fca5a5',
+            color: '#09090b',
             marginBottom: '1.5rem',
           }}
         >
@@ -123,7 +109,7 @@ export default function MyAssignmentsPage() {
       <div style={{ marginBottom: '2.5rem' }}>
         <h3 style={{ fontSize: '1.25rem', fontWeight: 700, marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
           <span>Active Field Missions</span>
-          <span style={{ fontSize: '0.8rem', background: 'rgba(124, 58, 237, 0.2)', color: 'var(--brand-primary)', padding: '0.2rem 0.5rem', borderRadius: '12px' }}>
+          <span style={{ fontSize: '0.8rem', background: '#f4f4f5', color: 'var(--brand-primary)', padding: '0.2rem 0.5rem', borderRadius: '12px' }}>
             {activeMissions.length} Pending
           </span>
         </h3>
