@@ -13,51 +13,58 @@ export const SectorStatusBadge: React.FC<SectorStatusBadgeProps> = ({ status, si
     switch (normalized) {
       case 'pending':
         return {
-          bg: 'rgba(107, 114, 128, 0.15)',
-          border: 'rgba(107, 114, 128, 0.3)',
-          color: '#9ca3af',
+          bg: '#f4f4f5',
+          border: '#d4d4d8',
+          color: '#52525b',
+          dot: '#71717a',
           label: 'Pending',
         };
       case 'allocated':
         return {
-          bg: 'rgba(59, 130, 246, 0.15)',
-          border: 'rgba(59, 130, 246, 0.3)',
-          color: '#3b82f6',
+          bg: '#ffffff',
+          border: '#71717a',
+          color: '#27272a',
+          dot: '#27272a',
           label: 'Pilot Allocated',
         };
       case 'in_progress':
         return {
-          bg: 'rgba(245, 158, 11, 0.15)',
-          border: 'rgba(245, 158, 11, 0.3)',
-          color: '#f59e0b',
+          bg: '#fafafa',
+          border: '#09090b',
+          color: '#09090b',
+          dot: '#09090b',
           label: 'In Flight',
         };
       case 'surveyed':
         return {
-          bg: 'rgba(16, 185, 129, 0.15)',
-          border: 'rgba(16, 185, 129, 0.3)',
-          color: '#10b981',
+          bg: '#27272a',
+          border: '#27272a',
+          color: '#ffffff',
+          dot: '#e4e4e7',
           label: 'Surveyed',
         };
       case 'completed':
         return {
-          bg: 'rgba(16, 185, 129, 0.25)',
-          border: 'rgba(16, 185, 129, 0.5)',
-          color: '#34d399',
+          bg: '#09090b',
+          border: '#09090b',
+          color: '#ffffff',
+          dot: '#ffffff',
           label: 'Completed',
         };
       case 'flagged':
         return {
-          bg: 'rgba(239, 68, 68, 0.15)',
-          border: 'rgba(239, 68, 68, 0.3)',
-          color: '#f87171',
+          bg: '#ffffff',
+          border: '#09090b',
+          color: '#09090b',
+          dot: '#09090b',
           label: 'Flagged / Issue',
         };
       default:
         return {
-          bg: 'rgba(107, 114, 128, 0.15)',
-          border: 'rgba(107, 114, 128, 0.3)',
-          color: '#9ca3af',
+          bg: '#f4f4f5',
+          border: '#d4d4d8',
+          color: '#71717a',
+          dot: '#71717a',
           label: status,
         };
     }
@@ -87,7 +94,7 @@ export const SectorStatusBadge: React.FC<SectorStatusBadgeProps> = ({ status, si
           width: '6px',
           height: '6px',
           borderRadius: '50%',
-          backgroundColor: config.color,
+          backgroundColor: config.dot || config.color,
         }}
       />
       {config.label}

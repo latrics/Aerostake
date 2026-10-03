@@ -11,6 +11,7 @@ import { SectorCreateModal } from '@/modules/sectors/components/SectorCreateModa
 import { AllocationModal } from '@/modules/allocations/components/AllocationModal';
 import { allocationsApi } from '@/modules/allocations/api';
 import { AllocationCreate } from '@/modules/allocations/types';
+import { PageHeader } from '@/components/PageHeader';
 
 export default function SectorsPage() {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -120,25 +121,11 @@ export default function SectorsPage() {
 
   return (
     <div>
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'flex-start',
-          marginBottom: '2rem',
-          flexWrap: 'wrap',
-          gap: '1rem',
-        }}
+      {/* ── Page Header ── */}
+      <PageHeader
+        title="Flight Sectors & Grids"
+        subtitle="Partition project survey zones into discrete operational flight sectors and monitor survey coverage."
       >
-        <div>
-          <h2 style={{ fontSize: '1.75rem', fontWeight: 700, marginBottom: '0.5rem' }}>
-            Flight Sectors & Grids
-          </h2>
-          <p style={{ color: 'var(--text-secondary)' }}>
-            Partition project survey zones into discrete operational flight sectors and monitor survey coverage.
-          </p>
-        </div>
-
         {activePlan && (
           <button
             onClick={() => setCreateModalOpen(true)}
@@ -148,16 +135,16 @@ export default function SectorsPage() {
             📐 Subdivide Flight Grid
           </button>
         )}
-      </div>
+      </PageHeader>
 
       {feedbackMsg && (
         <div
           style={{
             padding: '0.85rem 1.25rem',
-            background: feedbackMsg.type === 'success' ? 'rgba(16, 185, 129, 0.12)' : 'rgba(239, 68, 68, 0.12)',
-            border: `1px solid ${feedbackMsg.type === 'success' ? 'var(--accent-success)' : 'var(--accent-danger)'}`,
+            background: feedbackMsg.type === 'success' ? '#f4f4f5' : '#f4f4f5',
+            border: `1px solid ${feedbackMsg.type === 'success' ? '#09090b' : 'var(--accent-danger)'}`,
             borderRadius: '8px',
-            color: feedbackMsg.type === 'success' ? 'var(--accent-success)' : '#fca5a5',
+            color: feedbackMsg.type === 'success' ? '#09090b' : '#09090b',
             marginBottom: '1.5rem',
             display: 'flex',
             justifyContent: 'space-between',
@@ -212,7 +199,7 @@ export default function SectorsPage() {
                       padding: '0.85rem',
                       borderRadius: '8px',
                       cursor: 'pointer',
-                      background: isSelected ? 'rgba(124, 58, 237, 0.15)' : 'rgba(255, 255, 255, 0.02)',
+                      background: isSelected ? '#f4f4f5' : 'rgba(255, 255, 255, 0.02)',
                       border: isSelected ? '1px solid var(--brand-primary)' : '1px solid var(--border-color)',
                       transition: 'all 0.15s ease',
                     }}
@@ -222,7 +209,7 @@ export default function SectorsPage() {
                         {p.title}
                       </span>
                       {isApproved && (
-                        <span style={{ fontSize: '0.65rem', background: 'var(--accent-success)', color: '#000', padding: '0.1rem 0.35rem', borderRadius: '3px', fontWeight: 700 }}>
+                        <span style={{ fontSize: '0.65rem', background: '#09090b', color: '#000', padding: '0.1rem 0.35rem', borderRadius: '3px', fontWeight: 700 }}>
                           APPROVED
                         </span>
                       )}
@@ -293,7 +280,7 @@ export default function SectorsPage() {
 
                 <div style={{ padding: '0.85rem', background: 'rgba(255, 255, 255, 0.02)', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
                   <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Completed</div>
-                  <div style={{ fontSize: '1.35rem', fontWeight: 700, color: 'var(--accent-success)', marginTop: '0.2rem' }}>
+                  <div style={{ fontSize: '1.35rem', fontWeight: 700, color: '#09090b', marginTop: '0.2rem' }}>
                     {completedCount}
                   </div>
                 </div>
@@ -325,7 +312,7 @@ export default function SectorsPage() {
                         fontSize: '0.75rem',
                         borderRadius: '4px',
                         border: statusFilter === st ? '1px solid var(--brand-primary)' : '1px solid var(--border-color)',
-                        background: statusFilter === st ? 'rgba(124, 58, 237, 0.2)' : 'transparent',
+                        background: statusFilter === st ? '#f4f4f5' : 'transparent',
                         color: statusFilter === st ? 'var(--brand-primary)' : 'var(--text-secondary)',
                         cursor: 'pointer',
                         textTransform: 'capitalize',

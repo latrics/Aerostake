@@ -16,10 +16,11 @@ Aerostake is an enterprise drone joint-ownership and operations portal connectin
 ---
 
 ## 👥 User Roles
-- **`CLIENT`**: Customer interface for project initiation, versioned requests, plan approvals, live sector progress tracking, and historical reports.
-- **`ADMIN`**: User management, system configuration, request & planning oversight, and payment record verification.
-- **`OPERATIONS`**: Planning package preparation, sector divisions, resource allocation, and operational management.
-- **`PILOT`**: Mobile/field view for assigned sectors, task completion updates, flight remarks, and logs.
+- **`CLIENT_PRIMARY`**: Organization owner / executive with survey request creation, versioned scope management, plan approval & mobilisation sign-off, and company profile governance.
+- **`CLIENT_SUB`**: Subordinate team members within the client company (up to 4 members) collaborating on projects with inherited profile details.
+- **`ADMIN`**: User management, system configuration, request & planning oversight, invitation management, and payment record verification.
+- **`OPERATIONS`**: Planning package preparation, sector divisions, resource allocation, and operational client management.
+- **`PILOT`**: Field view for assigned sectors, task completion updates, flight remarks, and daily sector logs.
 
 ---
 
@@ -32,20 +33,106 @@ Aerostake is an enterprise drone joint-ownership and operations portal connectin
 
 ---
 
-## 🚀 Local Quickstart (Phase 0)
+## 🚀 Local Quickstart
 
 ### 1. Start Infrastructure (PostgreSQL & Redis)
+From the project root:
 ```bash
-docker compose up -d
+docker compose -f docker-compose.dev.yml up -d postgres redis
 ```
 
-### 2. Verify Container Health
+Verify containers are running:
 ```bash
-docker compose ps
+docker compose -f docker-compose.dev.yml ps
+```
+
+### 2. Set Up & Run the Backend API
+
+Navigate to the `backend/` directory, activate the virtual environment, run migrations, and launch FastAPI:
+
+**Windows (PowerShell):**
+```powershell
+cd backend
+.\.venv\Scripts\Activate.ps1
+
+# Apply database migrations
+python -m alembic upgrade head
+
+# (Optional) Seed standard admin and ops accounts
+python -m app.seed
+
+# Start hot-reloading FastAPI server
+python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
+```
+
+> [!NOTE]
+> **Windows Note:** Always run `python -m uvicorn` and `python -m alembic` instead of calling `uvicorn.exe` or `alembic.exe` directly to avoid Windows Defender Application Control (WDAC) / AppLocker blocking binary execution.
+
+* **API Health Check:** [http://127.0.0.1:8000/health](http://127.0.0.1:8000/health) -> `{"status":"ok"}`
+* **Interactive Swagger UI:** [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
+
+### 3. Run the Frontend App
+
+In a separate terminal, start the Next.js app:
+```bash
+cd frontend
+pnpm install
+pnpm dev
+```
+* **Frontend Portal:** [http://localhost:3000](http://localhost:3000)
+
+---
+
+## ⚡ Daily Development Workflow (Everyday Routine)
+
+When returning to work on the project every day, follow this 3-terminal routine:
+
+### 1️⃣ Daily Start
+
+| Terminal | Path | Command |
+|---|---|---|
+| **Terminal 1 (Docker)** | `Aerostake/` | `docker compose -f docker-compose.dev.yml up -d postgres redis` |
+| **Terminal 2 (Backend)** | `Aerostake/backend/` | `.\.venv\Scripts\Activate.ps1`<br>`python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload` |
+| **Terminal 3 (Frontend)** | `Aerostake/frontend/` | `pnpm dev` |
+
+---
+
+### 2️⃣ How to Check If Both Are Running
+
+#### Option A: In the Browser
+- **Backend Health:** [http://127.0.0.1:8000/health](http://127.0.0.1:8000/health) → should return `{"status":"ok"}`
+- **Backend API Docs:** [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs) → Swagger UI
+- **Frontend App:** [http://localhost:3000](http://localhost:3000) → Aerostake Login / App
+
+#### Option B: In PowerShell (Terminal Command)
+Run this single command to check if all local services are actively listening on their ports:
+```powershell
+Get-NetTCPConnection -LocalPort 3000, 8000, 5432, 6379 -State Listen | Select-Object LocalPort, State
+```
+*Expected:* Ports `3000` (Next.js), `8000` (FastAPI), `5432` (PostgreSQL), and `6379` (Redis) will show `Listen`.
+
+You can also ping both API endpoints directly:
+```powershell
+# Check Backend:
+Invoke-RestMethod http://127.0.0.1:8000/health
+
+# Check Frontend:
+(Invoke-WebRequest http://localhost:3000 -UseBasicParsing).StatusCode
 ```
 
 ---
 
+### 3️⃣ Daily Shutdown (End of Session)
+- Press `Ctrl + C` in Terminal 2 (Backend) and Terminal 3 (Frontend).
+- Spin down database containers:
+  ```powershell
+  docker compose -f docker-compose.dev.yml stop
+  ```
+
+---
+
+
 ## 📋 Progress & Documentation
-- Refer to [`PROGRESS.md`](./PROGRESS.md) for the active phase and overall progress.
-- Refer to [`DEV_JOURNAL.md`](./DEV_JOURNAL.md) for engineering logs, architectural decisions, and bug/gotcha records.
+- Refer to [`docs/README.md`](./docs/README.md) for the master documentation hub and architecture maps.
+- Refer to [`docs/01_planning/progress_tracker.md`](./docs/01_planning/progress_tracker.md) for the phase status matrix.
+- Refer to [`docs/04_engineering_records/daily_engineering_log.md`](./docs/04_engineering_records/daily_engineering_log.md) and [`docs/04_engineering_records/dev_record_booklet.md`](./docs/04_engineering_records/dev_record_booklet.md) for detailed engineering logs (REC-001 through REC-076).

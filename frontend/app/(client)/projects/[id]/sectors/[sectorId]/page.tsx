@@ -25,7 +25,7 @@ export default function SectorDetailPage() {
 
   if (error || !sector) {
     return (
-      <div className="glass-panel" style={{ padding: '2rem', color: 'var(--error)', borderColor: 'rgba(239, 68, 68, 0.3)' }}>
+      <div className="glass-panel" style={{ padding: '2rem', color: 'var(--error)', borderColor: '#09090b' }}>
         <h3 style={{ fontSize: '1.25rem', fontWeight: 700, marginBottom: '0.5rem' }}>Sector Not Found</h3>
         <p style={{ marginBottom: '1.5rem' }}>{error || 'Flight sector records could not be retrieved.'}</p>
         <Link href={`/projects/${projectId}/overview`} className="btn btn-secondary">
@@ -101,7 +101,7 @@ export default function SectorDetailPage() {
           <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '0.25rem' }}>
             Surface Area
           </div>
-          <div style={{ fontSize: '1.65rem', fontWeight: 800, color: 'var(--brand-focus, #3b82f6)' }}>
+          <div style={{ fontSize: '1.65rem', fontWeight: 800, color: '#09090b' }}>
             {sector.target_area_sqkm ? `${sector.target_area_sqkm} km²` : '--'}
           </div>
           <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '0.25rem' }}>
@@ -125,7 +125,7 @@ export default function SectorDetailPage() {
           <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '0.25rem' }}>
             Survey Execution Status
           </div>
-          <div style={{ fontSize: '1.65rem', fontWeight: 800, textTransform: 'capitalize', color: sector.status === 'completed' || sector.status === 'surveyed' ? 'var(--success)' : sector.status === 'in_progress' ? '#f59e0b' : 'var(--text-primary)' }}>
+          <div style={{ fontSize: '1.65rem', fontWeight: 800, textTransform: 'capitalize', color: '#09090b' }}>
             {sector.status.replace('_', ' ')}
           </div>
           <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '0.25rem' }}>
@@ -150,7 +150,7 @@ export default function SectorDetailPage() {
             borderRadius: 'var(--radius-sm)',
             border: '1px solid var(--border-color)',
             fontSize: '0.825rem',
-            color: '#3b82f6',
+            color: '#09090b',
             fontFamily: 'monospace',
             overflowX: 'auto',
             maxHeight: '300px',

@@ -7,6 +7,7 @@ import { useAuth } from '@/lib/auth';
 import { isLatricsRole } from '@/lib/role';
 import LatricsProjectsView from '@/modules/projects/components/LatricsProjectsView';
 import WireframeBox from '@/components/WireframeBox';
+import { PageHeader } from '@/components/PageHeader';
 import {
   Search,
   Plus,
@@ -20,11 +21,9 @@ import {
   Inbox,
   AlertCircle,
   RotateCcw,
-  FileText,
   FileEdit,
 } from 'lucide-react';
 import { projectApi } from '@/modules/projects/api';
-import { requestApi } from '@/modules/requests/api';
 import { Project } from '@/modules/projects/types';
 
 export default function ProjectsPage() {
@@ -50,7 +49,6 @@ export default function ProjectsPage() {
 function ClientProjectsView() {
   const router = useRouter();
   const [projects, setProjects] = useState<Project[]>([]);
-  const [totalRequestsCount, setTotalRequestsCount] = useState<number>(0);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -66,12 +64,8 @@ function ClientProjectsView() {
     setIsLoading(true);
     setErrorMessage(null);
     try {
-      const [projData, reqsData] = await Promise.all([
-        projectApi.listProjects(),
-        requestApi.listAllRequests().catch(() => []),
-      ]);
+      const projData = await projectApi.listProjects();
       setProjects(projData || []);
-      setTotalRequestsCount(Array.isArray(reqsData) ? reqsData.length : 0);
     } catch (err: any) {
       setErrorMessage(err.message || 'Failed to fetch projects from server');
     } finally {
@@ -79,20 +73,36 @@ function ClientProjectsView() {
     }
   };
 
-  // Dynamic KPI calculations
-  const totalProjectsCount = projects.length;
-  const activeProjectsCount = projects.filter(
-    (p) => p.status === 'active' || p.status === 'planning' || p.status === 'approved' || p.status === 'submitted'
-  ).length;
-  const completedProjectsCount = projects.filter((p) => p.status === 'completed').length;
-  const onHoldProjectsCount = projects.filter((p) => p.status === 'draft' || p.status === 'cancelled').length;
+  // Converted projects only: mobilising (approved), active, completed.
+  // Unconverted survey requests in planning (submitted, draft, planning) stay strictly under Requests!
+  const convertedProjects = projects.filter(
+    (p) =>
+      p.status === 'approved' ||
+      p.status === 'active' ||
+      p.status === 'completed' ||
+      (p.status as string) === 'mobilising'
+  );
 
-  const filteredProjects = projects.filter((p) => {
+  // Dynamic KPI calculations
+  const totalProjectsCount = convertedProjects.length;
+  const activeProjectsCount = convertedProjects.filter(
+    (p) =>
+      p.status === 'active' ||
+      p.status === 'approved' ||
+      (p.status as string) === 'mobilising'
+  ).length;
+  const completedProjectsCount = convertedProjects.filter((p) => p.status === 'completed').length;
+  const onHoldProjectsCount = convertedProjects.filter((p) => p.status === 'cancelled').length;
+
+  const filteredProjects = convertedProjects.filter((p) => {
     const matchesTab =
       activeTab === 'all' ||
-      (activeTab === 'active' && (p.status === 'active' || p.status === 'planning' || p.status === 'approved' || p.status === 'submitted')) ||
+      (activeTab === 'active' &&
+        (p.status === 'active' ||
+          p.status === 'approved' ||
+          (p.status as string) === 'mobilising')) ||
       (activeTab === 'completed' && p.status === 'completed') ||
-      (activeTab === 'on_hold' && (p.status === 'draft' || p.status === 'cancelled'));
+      (activeTab === 'on_hold' && p.status === 'cancelled');
 
     const matchesSearch =
       p.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -127,62 +137,41 @@ function ClientProjectsView() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-      {/* ── 1. Top Subtitle & Toolbar Row ── */}
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          flexWrap: 'wrap',
-          gap: '1rem',
-        }}
+      {/* ── 1. Page Header & Toolbar ── */}
+      <PageHeader
+        title="Projects"
+        subtitle="All your survey projects in one place. View live status, scope, deliverables and timelines."
       >
-        <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-          All your survey projects in one place. View live status, scope, deliverables and timelines.
-        </p>
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
-          {/* Search Box */}
-          <div style={{ position: 'relative', width: '220px' }}>
-            <input
-              type="text"
-              placeholder="Search projects..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="form-input"
-              style={{ paddingRight: '2rem', fontSize: '0.8rem', height: '36px' }}
-            />
-            <Search size={15} color="#71717a" style={{ position: 'absolute', right: '10px', top: '10px' }} />
-          </div>
-
-          <button
-            onClick={() => fetchProjects()}
-            title="Refresh projects"
-            style={{
-              width: '36px',
-              height: '36px',
-              border: '1px solid var(--border-color)',
-              borderRadius: '6px',
-              backgroundColor: '#ffffff',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              cursor: 'pointer',
-            }}
-          >
-            <RotateCcw size={15} color="#09090b" className={isLoading ? 'animate-spin' : ''} />
-          </button>
-
-          {/* New Project Button (Client Only) */}
-          <Link
-            href="/projects/new"
-            className="btn btn-primary"
-            style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', height: '36px', fontSize: '0.8rem', textDecoration: 'none' }}
-          >
-            <Plus size={16} /> New Project
-          </Link>
+        <div style={{ position: 'relative', width: '220px' }}>
+          <input
+            type="text"
+            placeholder="Search projects..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="form-input"
+            style={{ paddingRight: '2rem', fontSize: '0.8rem', height: '36px', borderRadius: '6px', border: '1px solid #e4e4e7' }}
+          />
+          <Search size={15} color="#71717a" style={{ position: 'absolute', right: '10px', top: '10px' }} />
         </div>
-      </div>
+
+        <button
+          onClick={() => fetchProjects()}
+          title="Refresh projects"
+          style={{
+            width: '36px',
+            height: '36px',
+            border: '1px solid #e4e4e7',
+            borderRadius: '6px',
+            backgroundColor: '#ffffff',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            cursor: 'pointer',
+          }}
+        >
+          <RotateCcw size={15} color="#09090b" className={isLoading ? 'animate-spin' : ''} />
+        </button>
+      </PageHeader>
 
       {/* Error Alert */}
       {errorMessage && (
@@ -192,10 +181,10 @@ function ClientProjectsView() {
             alignItems: 'center',
             gap: '0.5rem',
             padding: '0.75rem 1rem',
-            backgroundColor: '#fef2f2',
-            border: '1px solid #fecaca',
+            backgroundColor: '#f4f4f5',
+            border: '1px solid #d4d4d8',
             borderRadius: '6px',
-            color: '#991b1b',
+            color: '#09090b',
             fontSize: '0.825rem',
           }}
         >
@@ -204,36 +193,44 @@ function ClientProjectsView() {
         </div>
       )}
 
-      {/* ── 2. Top 5 KPI Metrics Cards ── */}
-      <div className="grid-5">
-        {/* Card 1: Total Project */}
-        <div className="wf-card" style={{ display: 'flex', gap: '0.85rem', alignItems: 'flex-start' }}>
-          <WireframeBox width={36} height={36} style={{ flexShrink: 0, borderRadius: '4px' }}>
-            <Folder size={18} color="#71717a" />
+      {/* ── 2. Top 4 KPI Metrics Cards (Interactive Filters) ── */}
+      <div className="grid-4">
+        {/* Card 1: Active Project */}
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={() => setActiveTab('active')}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') setActiveTab('active');
+          }}
+          className="wf-card"
+          style={{
+            display: 'flex',
+            gap: '0.85rem',
+            alignItems: 'flex-start',
+            cursor: 'pointer',
+            border: activeTab === 'active' ? '2px solid #09090b' : '1px solid var(--border-color)',
+            backgroundColor: activeTab === 'active' ? '#fafafa' : '#ffffff',
+            boxShadow: activeTab === 'active' ? '0 2px 8px rgba(0, 0, 0, 0.08)' : 'none',
+            transition: 'all 0.15s ease',
+          }}
+        >
+          <WireframeBox
+            width={36}
+            height={36}
+            style={{
+              flexShrink: 0,
+              borderRadius: '4px',
+              backgroundColor: activeTab === 'active' ? '#18181b' : '#f4f4f5',
+            }}
+          >
+            <PlayCircle size={18} color={activeTab === 'active' ? '#ffffff' : '#71717a'} />
           </WireframeBox>
           <div style={{ display: 'flex', flexDirection: 'column', flexGrow: 1 }}>
-            <span style={{ fontSize: '0.725rem', color: 'var(--text-muted)', fontWeight: 600 }}>
-              Total Project
-            </span>
-            <span style={{ fontSize: '1.4rem', fontWeight: 800, lineHeight: 1.2, margin: '0.15rem 0' }}>
-              {isLoading ? '—' : totalProjectsCount}
-            </span>
-            <span style={{ fontSize: '0.725rem', color: 'var(--text-secondary)' }}>
-              All time
-            </span>
-          </div>
-        </div>
-
-        {/* Card 2: Active Project */}
-        <div className="wf-card" style={{ display: 'flex', gap: '0.85rem', alignItems: 'flex-start' }}>
-          <WireframeBox width={36} height={36} style={{ flexShrink: 0, borderRadius: '4px' }}>
-            <PlayCircle size={18} color="#71717a" />
-          </WireframeBox>
-          <div style={{ display: 'flex', flexDirection: 'column', flexGrow: 1 }}>
-            <span style={{ fontSize: '0.725rem', color: 'var(--text-muted)', fontWeight: 600 }}>
+            <span style={{ fontSize: '0.725rem', color: activeTab === 'active' ? '#09090b' : 'var(--text-muted)', fontWeight: activeTab === 'active' ? 800 : 600 }}>
               Active Project
             </span>
-            <span style={{ fontSize: '1.4rem', fontWeight: 800, lineHeight: 1.2, margin: '0.15rem 0' }}>
+            <span style={{ fontSize: '1.4rem', fontWeight: 800, lineHeight: 1.2, margin: '0.15rem 0', color: '#09090b' }}>
               {isLoading ? '—' : activeProjectsCount}
             </span>
             <span style={{ fontSize: '0.725rem', color: 'var(--text-secondary)' }}>
@@ -242,16 +239,42 @@ function ClientProjectsView() {
           </div>
         </div>
 
-        {/* Card 3: Completed Project */}
-        <div className="wf-card" style={{ display: 'flex', gap: '0.85rem', alignItems: 'flex-start' }}>
-          <WireframeBox width={36} height={36} style={{ flexShrink: 0, borderRadius: '4px' }}>
-            <CheckCircle2 size={18} color="#71717a" />
+        {/* Card 2: Completed Project */}
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={() => setActiveTab('completed')}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') setActiveTab('completed');
+          }}
+          className="wf-card"
+          style={{
+            display: 'flex',
+            gap: '0.85rem',
+            alignItems: 'flex-start',
+            cursor: 'pointer',
+            border: activeTab === 'completed' ? '2px solid #09090b' : '1px solid var(--border-color)',
+            backgroundColor: activeTab === 'completed' ? '#fafafa' : '#ffffff',
+            boxShadow: activeTab === 'completed' ? '0 2px 8px rgba(0, 0, 0, 0.08)' : 'none',
+            transition: 'all 0.15s ease',
+          }}
+        >
+          <WireframeBox
+            width={36}
+            height={36}
+            style={{
+              flexShrink: 0,
+              borderRadius: '4px',
+              backgroundColor: activeTab === 'completed' ? '#18181b' : '#f4f4f5',
+            }}
+          >
+            <CheckCircle2 size={18} color={activeTab === 'completed' ? '#ffffff' : '#71717a'} />
           </WireframeBox>
           <div style={{ display: 'flex', flexDirection: 'column', flexGrow: 1 }}>
-            <span style={{ fontSize: '0.725rem', color: 'var(--text-muted)', fontWeight: 600 }}>
+            <span style={{ fontSize: '0.725rem', color: activeTab === 'completed' ? '#09090b' : 'var(--text-muted)', fontWeight: activeTab === 'completed' ? 800 : 600 }}>
               Completed Project
             </span>
-            <span style={{ fontSize: '1.4rem', fontWeight: 800, lineHeight: 1.2, margin: '0.15rem 0' }}>
+            <span style={{ fontSize: '1.4rem', fontWeight: 800, lineHeight: 1.2, margin: '0.15rem 0', color: '#09090b' }}>
               {isLoading ? '—' : completedProjectsCount}
             </span>
             <span style={{ fontSize: '0.725rem', color: 'var(--text-secondary)' }}>
@@ -260,16 +283,42 @@ function ClientProjectsView() {
           </div>
         </div>
 
-        {/* Card 4: Draft/Hold */}
-        <div className="wf-card" style={{ display: 'flex', gap: '0.85rem', alignItems: 'flex-start' }}>
-          <WireframeBox width={36} height={36} style={{ flexShrink: 0, borderRadius: '4px' }}>
-            <Clock size={18} color="#71717a" />
+        {/* Card 3: Draft/Hold */}
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={() => setActiveTab('on_hold')}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') setActiveTab('on_hold');
+          }}
+          className="wf-card"
+          style={{
+            display: 'flex',
+            gap: '0.85rem',
+            alignItems: 'flex-start',
+            cursor: 'pointer',
+            border: activeTab === 'on_hold' ? '2px solid #09090b' : '1px solid var(--border-color)',
+            backgroundColor: activeTab === 'on_hold' ? '#fafafa' : '#ffffff',
+            boxShadow: activeTab === 'on_hold' ? '0 2px 8px rgba(0, 0, 0, 0.08)' : 'none',
+            transition: 'all 0.15s ease',
+          }}
+        >
+          <WireframeBox
+            width={36}
+            height={36}
+            style={{
+              flexShrink: 0,
+              borderRadius: '4px',
+              backgroundColor: activeTab === 'on_hold' ? '#18181b' : '#f4f4f5',
+            }}
+          >
+            <Clock size={18} color={activeTab === 'on_hold' ? '#ffffff' : '#71717a'} />
           </WireframeBox>
           <div style={{ display: 'flex', flexDirection: 'column', flexGrow: 1 }}>
-            <span style={{ fontSize: '0.725rem', color: 'var(--text-muted)', fontWeight: 600 }}>
+            <span style={{ fontSize: '0.725rem', color: activeTab === 'on_hold' ? '#09090b' : 'var(--text-muted)', fontWeight: activeTab === 'on_hold' ? 800 : 600 }}>
               Draft/Hold
             </span>
-            <span style={{ fontSize: '1.4rem', fontWeight: 800, lineHeight: 1.2, margin: '0.15rem 0' }}>
+            <span style={{ fontSize: '1.4rem', fontWeight: 800, lineHeight: 1.2, margin: '0.15rem 0', color: '#09090b' }}>
               {isLoading ? '—' : onHoldProjectsCount}
             </span>
             <span style={{ fontSize: '0.725rem', color: 'var(--text-secondary)' }}>
@@ -278,20 +327,46 @@ function ClientProjectsView() {
           </div>
         </div>
 
-        {/* Card 5: Total Requests */}
-        <div className="wf-card" style={{ display: 'flex', gap: '0.85rem', alignItems: 'flex-start' }}>
-          <WireframeBox width={36} height={36} style={{ flexShrink: 0, borderRadius: '4px' }}>
-            <FileText size={18} color="#71717a" />
+        {/* Card 4: Total Project */}
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={() => setActiveTab('all')}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') setActiveTab('all');
+          }}
+          className="wf-card"
+          style={{
+            display: 'flex',
+            gap: '0.85rem',
+            alignItems: 'flex-start',
+            cursor: 'pointer',
+            border: activeTab === 'all' ? '2px solid #09090b' : '1px solid var(--border-color)',
+            backgroundColor: activeTab === 'all' ? '#fafafa' : '#ffffff',
+            boxShadow: activeTab === 'all' ? '0 2px 8px rgba(0, 0, 0, 0.08)' : 'none',
+            transition: 'all 0.15s ease',
+          }}
+        >
+          <WireframeBox
+            width={36}
+            height={36}
+            style={{
+              flexShrink: 0,
+              borderRadius: '4px',
+              backgroundColor: activeTab === 'all' ? '#18181b' : '#f4f4f5',
+            }}
+          >
+            <Folder size={18} color={activeTab === 'all' ? '#ffffff' : '#71717a'} />
           </WireframeBox>
           <div style={{ display: 'flex', flexDirection: 'column', flexGrow: 1 }}>
-            <span style={{ fontSize: '0.725rem', color: 'var(--text-muted)', fontWeight: 600 }}>
-              Total Requests
+            <span style={{ fontSize: '0.725rem', color: activeTab === 'all' ? '#09090b' : 'var(--text-muted)', fontWeight: activeTab === 'all' ? 800 : 600 }}>
+              Total Project
             </span>
-            <span style={{ fontSize: '1.4rem', fontWeight: 800, lineHeight: 1.2, margin: '0.15rem 0' }}>
-              {isLoading ? '—' : totalRequestsCount}
+            <span style={{ fontSize: '1.4rem', fontWeight: 800, lineHeight: 1.2, margin: '0.15rem 0', color: '#09090b' }}>
+              {isLoading ? '—' : totalProjectsCount}
             </span>
             <span style={{ fontSize: '0.725rem', color: 'var(--text-secondary)' }}>
-              Submitted
+              All time
             </span>
           </div>
         </div>
@@ -299,7 +374,7 @@ function ClientProjectsView() {
 
       {/* ── 3. Projects Table Card ── */}
       <div className="wf-card" style={{ padding: 0, overflow: 'hidden' }}>
-        {/* Table Header: Tabs & Sort Dropdown */}
+        {/* Table Header: Sort Dropdown & Count */}
         <div
           style={{
             display: 'flex',
@@ -311,33 +386,18 @@ function ClientProjectsView() {
             gap: '0.75rem',
           }}
         >
-          {/* Tabs */}
-          <div style={{ display: 'flex', gap: '1.25rem' }}>
-            {[
-              { id: 'all', label: 'All Projects' },
-              { id: 'active', label: 'Active' },
-              { id: 'completed', label: 'Completed' },
-              { id: 'on_hold', label: 'Draft/Hold' },
-            ].map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id as any)}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  borderBottom: activeTab === tab.id ? '2px solid #09090b' : '2px solid transparent',
-                  padding: '0.4rem 0.2rem',
-                  fontSize: '0.825rem',
-                  fontWeight: activeTab === tab.id ? 700 : 500,
-                  color: activeTab === tab.id ? '#09090b' : 'var(--text-secondary)',
-                  cursor: 'pointer',
-                  transition: 'all 0.15s ease',
-                }}
-              >
-                {tab.label}
-              </button>
-            ))}
-          </div>
+          <span style={{ fontSize: '0.825rem', color: '#09090b', fontWeight: 700 }}>
+            {activeTab === 'all'
+              ? 'All Projects'
+              : activeTab === 'active'
+              ? 'Active Projects'
+              : activeTab === 'completed'
+              ? 'Completed Projects'
+              : 'Draft / On Hold Projects'}{' '}
+            <span style={{ color: 'var(--text-muted)', fontWeight: 500, fontSize: '0.75rem' }}>
+              ({filteredProjects.length})
+            </span>
+          </span>
 
           {/* Sort By Dropdown */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
@@ -394,7 +454,7 @@ function ClientProjectsView() {
               <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', maxWidth: '420px', lineHeight: 1.4, margin: '0 auto 1rem' }}>
                 {searchQuery
                   ? 'No projects match your current search query.'
-                  : 'You have not submitted any drone survey projects yet. Click below to submit your first project request.'}
+                  : 'You do not have any active survey projects yet. Projects appear once your survey requests are reviewed and approved.'}
               </p>
               {!searchQuery && (
                 <Link
@@ -402,7 +462,7 @@ function ClientProjectsView() {
                   className="btn btn-primary"
                   style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem', textDecoration: 'none' }}
                 >
-                  <Plus size={15} /> Create First Project
+                  <Plus size={15} /> Submit New Request
                 </Link>
               )}
             </div>

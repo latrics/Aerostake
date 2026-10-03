@@ -47,8 +47,8 @@ export const SectorVisualizer: React.FC<SectorVisualizerProps> = ({ sectors, pro
                 padding: '0.4rem 0.85rem',
                 border: 'none',
                 borderRadius: 'var(--radius-sm)',
-                backgroundColor: viewMode === 'grid' ? 'rgba(37, 99, 235, 0.2)' : 'transparent',
-                color: viewMode === 'grid' ? '#3b82f6' : 'var(--text-secondary)',
+                backgroundColor: viewMode === 'grid' ? '#09090b' : 'transparent',
+                color: viewMode === 'grid' ? '#ffffff' : 'var(--text-secondary)',
                 fontWeight: 600,
                 fontSize: '0.825rem',
                 cursor: 'pointer',
@@ -62,8 +62,8 @@ export const SectorVisualizer: React.FC<SectorVisualizerProps> = ({ sectors, pro
                 padding: '0.4rem 0.85rem',
                 border: 'none',
                 borderRadius: 'var(--radius-sm)',
-                backgroundColor: viewMode === 'table' ? 'rgba(37, 99, 235, 0.2)' : 'transparent',
-                color: viewMode === 'table' ? '#3b82f6' : 'var(--text-secondary)',
+                backgroundColor: viewMode === 'table' ? '#09090b' : 'transparent',
+                color: viewMode === 'table' ? '#ffffff' : 'var(--text-secondary)',
                 fontWeight: 600,
                 fontSize: '0.825rem',
                 cursor: 'pointer',
@@ -77,8 +77,8 @@ export const SectorVisualizer: React.FC<SectorVisualizerProps> = ({ sectors, pro
                 padding: '0.4rem 0.85rem',
                 border: 'none',
                 borderRadius: 'var(--radius-sm)',
-                backgroundColor: viewMode === 'map' ? 'rgba(37, 99, 235, 0.2)' : 'transparent',
-                color: viewMode === 'map' ? '#3b82f6' : 'var(--text-secondary)',
+                backgroundColor: viewMode === 'map' ? '#09090b' : 'transparent',
+                color: viewMode === 'map' ? '#ffffff' : 'var(--text-secondary)',
                 fontWeight: 600,
                 fontSize: '0.825rem',
                 cursor: 'pointer',
@@ -93,7 +93,7 @@ export const SectorVisualizer: React.FC<SectorVisualizerProps> = ({ sectors, pro
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.4rem' }}>
             <span>Overall Survey Completion</span>
-            <span style={{ color: progressPercent === 100 ? 'var(--success)' : '#3b82f6' }}>{progressPercent}%</span>
+            <span style={{ color: '#09090b' }}>{progressPercent}%</span>
           </div>
           <div
             style={{
@@ -109,10 +109,9 @@ export const SectorVisualizer: React.FC<SectorVisualizerProps> = ({ sectors, pro
               style={{
                 width: `${progressPercent}%`,
                 height: '100%',
-                background: progressPercent === 100 ? 'var(--success)' : 'var(--brand-gradient)',
+                background: '#09090b',
                 borderRadius: '9999px',
                 transition: 'width 0.6s ease-in-out',
-                boxShadow: progressPercent > 0 ? 'var(--brand-glow)' : 'none',
               }}
             />
           </div>
@@ -133,9 +132,9 @@ export const SectorVisualizer: React.FC<SectorVisualizerProps> = ({ sectors, pro
                 padding: '0.35rem 0.75rem',
                 borderRadius: '9999px',
                 border: '1px solid',
-                borderColor: statusFilter === tab.id ? '#3b82f6' : 'var(--border-color)',
-                backgroundColor: statusFilter === tab.id ? 'rgba(59, 130, 246, 0.15)' : 'rgba(255, 255, 255, 0.02)',
-                color: statusFilter === tab.id ? '#3b82f6' : 'var(--text-secondary)',
+                borderColor: statusFilter === tab.id ? '#09090b' : 'var(--border-color)',
+                backgroundColor: statusFilter === tab.id ? '#09090b' : '#ffffff',
+                color: statusFilter === tab.id ? '#ffffff' : 'var(--text-secondary)',
                 fontSize: '0.8rem',
                 fontWeight: 600,
                 cursor: 'pointer',
@@ -180,12 +179,11 @@ export const SectorVisualizer: React.FC<SectorVisualizerProps> = ({ sectors, pro
                 width: '180px',
                 height: '180px',
                 borderRadius: '50%',
-                border: '1px solid rgba(59, 130, 246, 0.3)',
+                border: '1px solid #71717a',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 position: 'relative',
-                boxShadow: '0 0 30px rgba(59, 130, 246, 0.15)',
               }}
             >
               <div
@@ -193,7 +191,7 @@ export const SectorVisualizer: React.FC<SectorVisualizerProps> = ({ sectors, pro
                   width: '100px',
                   height: '100px',
                   borderRadius: '50%',
-                  border: '1px dashed rgba(59, 130, 246, 0.4)',
+                  border: '1px dashed #a1a1aa',
                 }}
               />
               <span style={{ position: 'absolute', fontSize: '2rem' }}>🛰️</span>
@@ -213,10 +211,10 @@ export const SectorVisualizer: React.FC<SectorVisualizerProps> = ({ sectors, pro
                   style={{
                     fontSize: '0.75rem',
                     padding: '0.25rem 0.5rem',
-                    backgroundColor: s.status === 'in_progress' ? 'rgba(245, 158, 11, 0.2)' : 'rgba(59, 130, 246, 0.15)',
-                    border: '1px solid rgba(59, 130, 246, 0.3)',
+                    backgroundColor: s.status === 'in_progress' ? '#fafafa' : '#f4f4f5',
+                    border: '1px solid #d4d4d8',
                     borderRadius: 'var(--radius-sm)',
-                    color: s.status === 'in_progress' ? '#f59e0b' : '#3b82f6',
+                    color: '#09090b',
                     fontWeight: 700,
                   }}
                 >

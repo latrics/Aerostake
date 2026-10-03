@@ -53,6 +53,8 @@ export interface Project {
   creator_email?: string | null;
   sectors_count?: number;
   completed_sectors_count?: number;
+  total_sectors?: number;
+  completed_sectors?: number;
   progress_pct?: number;
   overall_progress_pct?: number;
   created_at: string;

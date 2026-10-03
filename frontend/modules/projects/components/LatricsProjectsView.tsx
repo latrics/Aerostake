@@ -4,6 +4,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import WireframeBox from '@/components/WireframeBox';
+import { PageHeader } from '@/components/PageHeader';
 import {
   Search,
   Filter,
@@ -34,13 +35,11 @@ import {
   LayoutList,
 } from 'lucide-react';
 import { projectApi } from '@/modules/projects/api';
-import { requestApi } from '@/modules/requests/api';
 import { Project, ProjectStatus } from '@/modules/projects/types';
 
 export default function LatricsProjectsView() {
   const router = useRouter();
   const [projects, setProjects] = useState<Project[]>([]);
-  const [totalRequestsCount, setTotalRequestsCount] = useState<number>(0);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -55,10 +54,8 @@ export default function LatricsProjectsView() {
   const [viewMode, setViewMode] = useState<'grouped' | 'flat'>('grouped');
   const [expandedCompanies, setExpandedCompanies] = useState<Record<string, boolean>>({});
 
-  // Selected Checkboxes & Active Project Detail Drawer
+  // Selected Checkboxes
   const [selectedProjectIds, setSelectedProjectIds] = useState<string[]>([]);
-  const [activeDrawerProjectId, setActiveDrawerProjectId] = useState<string | null>(null);
-  const [drawerActiveTab, setDrawerActiveTab] = useState<'overview' | 'deliverables' | 'team' | 'files'>('overview');
 
   // Row actions menu open state
   const [openMenuProjectId, setOpenMenuProjectId] = useState<string | null>(null);
@@ -75,12 +72,8 @@ export default function LatricsProjectsView() {
     setIsLoading(true);
     setErrorMessage(null);
     try {
-      const [projData, reqsData] = await Promise.all([
-        projectApi.listProjects(),
-        requestApi.listAllRequests().catch(() => []),
-      ]);
+      const projData = await projectApi.listProjects();
       setProjects(projData || []);
-      setTotalRequestsCount(Array.isArray(reqsData) ? reqsData.length : 0);
     } catch (err: any) {
       setErrorMessage(err.message || 'Failed to fetch projects from server');
     } finally {
@@ -98,28 +91,36 @@ export default function LatricsProjectsView() {
     return Array.from(clients).sort();
   }, [projects]);
 
-  // Dynamic KPI counts computed from real database state
-  const totalProjectsCount = projects.length;
-  const activeProjectsCount = projects.filter((p) =>
-    ['active', 'planning', 'approved', 'submitted'].includes(p.status)
+  // Converted projects only: mobilising (approved), active, completed.
+  // Unconverted requests in planning stay under Requests!
+  const convertedProjects = useMemo(() => {
+    return projects.filter((p) =>
+      ['approved', 'active', 'completed', 'mobilising'].includes(p.status)
+    );
+  }, [projects]);
+
+  // Dynamic KPI counts computed from converted projects
+  const totalProjectsCount = convertedProjects.length;
+  const activeProjectsCount = convertedProjects.filter((p) =>
+    ['active', 'approved', 'mobilising'].includes(p.status)
   ).length;
-  const completedProjectsCount = projects.filter((p) => p.status === 'completed').length;
-  const draftsOnHoldCount = projects.filter((p) =>
-    ['draft', 'cancelled'].includes(p.status)
+  const completedProjectsCount = convertedProjects.filter((p) => p.status === 'completed').length;
+  const draftsOnHoldCount = convertedProjects.filter((p) =>
+    ['cancelled'].includes(p.status)
   ).length;
   const clientOrgsCount = distinctClientOptions.length;
 
   // Filtering Logic
   const filteredProjects = useMemo(() => {
-    return projects.filter((p) => {
+    return convertedProjects.filter((p) => {
       // 1. Tab filter
-      if (activeTab === 'active' && !['active', 'planning', 'approved', 'submitted'].includes(p.status)) {
+      if (activeTab === 'active' && !['active', 'approved', 'mobilising'].includes(p.status)) {
         return false;
       }
       if (activeTab === 'completed' && p.status !== 'completed') {
         return false;
       }
-      if (activeTab === 'on_hold' && !['draft', 'cancelled'].includes(p.status)) {
+      if (activeTab === 'on_hold' && p.status !== 'cancelled') {
         return false;
       }
 
@@ -240,8 +241,13 @@ export default function LatricsProjectsView() {
   const displayStart = filteredProjects.length === 0 ? 0 : startIndex + 1;
   const displayEnd = Math.min(filteredProjects.length, startIndex + pageSize);
 
-  // Active drawer project
-  const selectedProject = projects.find((p) => p.id === activeDrawerProjectId) || null;
+  const handleProjectClick = (project: Project) => {
+    const destination =
+      project.status === 'draft'
+        ? `/requests/new?draftId=${project.id}`
+        : `/projects/${project.id}/overview`;
+    router.push(destination);
+  };
 
   // Handle select all checkbox
   const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -324,9 +330,9 @@ export default function LatricsProjectsView() {
       case 'planning':
         return <span className="status-badge" style={{ backgroundColor: '#f4f4f5', color: '#18181b', border: '1px solid #d4d4d8' }}>Planning</span>;
       case 'submitted':
-        return <span className="status-badge" style={{ backgroundColor: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe' }}>Submitted</span>;
+        return <span className="status-badge" style={{ backgroundColor: '#f4f4f5', color: '#09090b', border: '1px solid #d4d4d8' }}>Submitted</span>;
       case 'approved':
-        return <span className="status-badge" style={{ backgroundColor: '#f0fdf4', color: '#15803d', border: '1px solid #bbf7d0' }}>Approved</span>;
+        return <span className="status-badge" style={{ backgroundColor: '#f4f4f5', color: '#09090b', border: '1px solid #d4d4d8' }}>Approved</span>;
       case 'completed':
         return <span className="status-badge status-verified">Completed</span>;
       case 'cancelled':
@@ -350,17 +356,46 @@ export default function LatricsProjectsView() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-      {/* ── 1. Page Header ── */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '0.75rem' }}>
-        <div>
-          <h1 style={{ fontSize: '1.35rem', fontWeight: 900, color: '#09090b', letterSpacing: '-0.02em', margin: 0 }}>
-            Projects
-          </h1>
-          <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: '0.2rem', marginBottom: 0 }}>
-            View and track all survey projects, their status, scope, deliverables and timelines.
-          </p>
-        </div>
-      </div>
+      {/* ── 1. Page Header with Universal PageHeader ── */}
+      <PageHeader
+        title="Projects"
+        subtitle="View and track all survey projects, their status, scope, deliverables and timelines."
+      >
+        <button
+          onClick={handleExportCSV}
+          disabled={filteredProjects.length === 0}
+          className="btn btn-outline"
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '0.4rem',
+            height: '34px',
+            fontSize: '0.8rem',
+            padding: '0 0.85rem',
+            opacity: filteredProjects.length === 0 ? 0.5 : 1,
+            cursor: filteredProjects.length === 0 ? 'not-allowed' : 'pointer',
+          }}
+        >
+          <Download size={14} /> Export
+        </button>
+        <button
+          onClick={() => fetchProjects()}
+          title="Refresh list"
+          style={{
+            width: '34px',
+            height: '34px',
+            border: '1px solid var(--border-color)',
+            borderRadius: '6px',
+            backgroundColor: '#ffffff',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            cursor: 'pointer',
+          }}
+        >
+          <RotateCcw size={14} color="#09090b" className={isLoading ? 'animate-spin' : ''} />
+        </button>
+      </PageHeader>
 
       {/* Error Banner */}
       {errorMessage && (
@@ -370,10 +405,10 @@ export default function LatricsProjectsView() {
             alignItems: 'center',
             gap: '0.5rem',
             padding: '0.75rem 1rem',
-            backgroundColor: '#fef2f2',
-            border: '1px solid #fecaca',
+            backgroundColor: '#f4f4f5',
+            border: '1px solid #d4d4d8',
             borderRadius: '6px',
-            color: '#991b1b',
+            color: '#09090b',
             fontSize: '0.825rem',
           }}
         >
@@ -382,36 +417,50 @@ export default function LatricsProjectsView() {
         </div>
       )}
 
-      {/* ── 2. Top KPI Strip (5 Cards) ── */}
-      <div className="grid-5">
-        {/* Card 1: Total Project */}
-        <div className="wf-card" style={{ display: 'flex', gap: '0.85rem', alignItems: 'flex-start' }}>
-          <WireframeBox width={36} height={36} style={{ flexShrink: 0, borderRadius: '4px' }}>
-            <Folder size={18} color="#71717a" />
+      {/* ── 2. Top KPI Strip (4 Interactive Filter Cards) ── */}
+      <div className="grid-4">
+        {/* Card 1: Active Project */}
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={() => {
+            setActiveTab('active');
+            setCurrentPage(1);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              setActiveTab('active');
+              setCurrentPage(1);
+            }
+          }}
+          className="wf-card"
+          style={{
+            display: 'flex',
+            gap: '0.85rem',
+            alignItems: 'flex-start',
+            cursor: 'pointer',
+            border: activeTab === 'active' ? '2px solid #09090b' : '1px solid var(--border-color)',
+            backgroundColor: activeTab === 'active' ? '#fafafa' : '#ffffff',
+            boxShadow: activeTab === 'active' ? '0 2px 8px rgba(0, 0, 0, 0.08)' : 'none',
+            transition: 'all 0.15s ease',
+          }}
+        >
+          <WireframeBox
+            width={36}
+            height={36}
+            style={{
+              flexShrink: 0,
+              borderRadius: '4px',
+              backgroundColor: activeTab === 'active' ? '#18181b' : '#f4f4f5',
+            }}
+          >
+            <PlayCircle size={18} color={activeTab === 'active' ? '#ffffff' : '#71717a'} />
           </WireframeBox>
           <div style={{ display: 'flex', flexDirection: 'column', flexGrow: 1 }}>
-            <span style={{ fontSize: '0.725rem', color: 'var(--text-muted)', fontWeight: 600 }}>
-              Total Project
-            </span>
-            <span style={{ fontSize: '1.4rem', fontWeight: 800, lineHeight: 1.2, margin: '0.15rem 0' }}>
-              {isLoading ? '—' : totalProjectsCount}
-            </span>
-            <span style={{ fontSize: '0.725rem', color: 'var(--text-secondary)' }}>
-              All time
-            </span>
-          </div>
-        </div>
-
-        {/* Card 2: Active Project */}
-        <div className="wf-card" style={{ display: 'flex', gap: '0.85rem', alignItems: 'flex-start' }}>
-          <WireframeBox width={36} height={36} style={{ flexShrink: 0, borderRadius: '4px' }}>
-            <PlayCircle size={18} color="#71717a" />
-          </WireframeBox>
-          <div style={{ display: 'flex', flexDirection: 'column', flexGrow: 1 }}>
-            <span style={{ fontSize: '0.725rem', color: 'var(--text-muted)', fontWeight: 600 }}>
+            <span style={{ fontSize: '0.725rem', color: activeTab === 'active' ? '#09090b' : 'var(--text-muted)', fontWeight: activeTab === 'active' ? 800 : 600 }}>
               Active Project
             </span>
-            <span style={{ fontSize: '1.4rem', fontWeight: 800, lineHeight: 1.2, margin: '0.15rem 0' }}>
+            <span style={{ fontSize: '1.4rem', fontWeight: 800, lineHeight: 1.2, margin: '0.15rem 0', color: '#09090b' }}>
               {isLoading ? '—' : activeProjectsCount}
             </span>
             <span style={{ fontSize: '0.725rem', color: 'var(--text-secondary)' }}>
@@ -420,16 +469,48 @@ export default function LatricsProjectsView() {
           </div>
         </div>
 
-        {/* Card 3: Completed Project */}
-        <div className="wf-card" style={{ display: 'flex', gap: '0.85rem', alignItems: 'flex-start' }}>
-          <WireframeBox width={36} height={36} style={{ flexShrink: 0, borderRadius: '4px' }}>
-            <CheckCircle2 size={18} color="#71717a" />
+        {/* Card 2: Completed Project */}
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={() => {
+            setActiveTab('completed');
+            setCurrentPage(1);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              setActiveTab('completed');
+              setCurrentPage(1);
+            }
+          }}
+          className="wf-card"
+          style={{
+            display: 'flex',
+            gap: '0.85rem',
+            alignItems: 'flex-start',
+            cursor: 'pointer',
+            border: activeTab === 'completed' ? '2px solid #09090b' : '1px solid var(--border-color)',
+            backgroundColor: activeTab === 'completed' ? '#fafafa' : '#ffffff',
+            boxShadow: activeTab === 'completed' ? '0 2px 8px rgba(0, 0, 0, 0.08)' : 'none',
+            transition: 'all 0.15s ease',
+          }}
+        >
+          <WireframeBox
+            width={36}
+            height={36}
+            style={{
+              flexShrink: 0,
+              borderRadius: '4px',
+              backgroundColor: activeTab === 'completed' ? '#18181b' : '#f4f4f5',
+            }}
+          >
+            <CheckCircle2 size={18} color={activeTab === 'completed' ? '#ffffff' : '#71717a'} />
           </WireframeBox>
           <div style={{ display: 'flex', flexDirection: 'column', flexGrow: 1 }}>
-            <span style={{ fontSize: '0.725rem', color: 'var(--text-muted)', fontWeight: 600 }}>
+            <span style={{ fontSize: '0.725rem', color: activeTab === 'completed' ? '#09090b' : 'var(--text-muted)', fontWeight: activeTab === 'completed' ? 800 : 600 }}>
               Completed Project
             </span>
-            <span style={{ fontSize: '1.4rem', fontWeight: 800, lineHeight: 1.2, margin: '0.15rem 0' }}>
+            <span style={{ fontSize: '1.4rem', fontWeight: 800, lineHeight: 1.2, margin: '0.15rem 0', color: '#09090b' }}>
               {isLoading ? '—' : completedProjectsCount}
             </span>
             <span style={{ fontSize: '0.725rem', color: 'var(--text-secondary)' }}>
@@ -438,16 +519,48 @@ export default function LatricsProjectsView() {
           </div>
         </div>
 
-        {/* Card 4: Draft/Hold */}
-        <div className="wf-card" style={{ display: 'flex', gap: '0.85rem', alignItems: 'flex-start' }}>
-          <WireframeBox width={36} height={36} style={{ flexShrink: 0, borderRadius: '4px' }}>
-            <Clock size={18} color="#71717a" />
+        {/* Card 3: Draft/Hold */}
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={() => {
+            setActiveTab('on_hold');
+            setCurrentPage(1);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              setActiveTab('on_hold');
+              setCurrentPage(1);
+            }
+          }}
+          className="wf-card"
+          style={{
+            display: 'flex',
+            gap: '0.85rem',
+            alignItems: 'flex-start',
+            cursor: 'pointer',
+            border: activeTab === 'on_hold' ? '2px solid #09090b' : '1px solid var(--border-color)',
+            backgroundColor: activeTab === 'on_hold' ? '#fafafa' : '#ffffff',
+            boxShadow: activeTab === 'on_hold' ? '0 2px 8px rgba(0, 0, 0, 0.08)' : 'none',
+            transition: 'all 0.15s ease',
+          }}
+        >
+          <WireframeBox
+            width={36}
+            height={36}
+            style={{
+              flexShrink: 0,
+              borderRadius: '4px',
+              backgroundColor: activeTab === 'on_hold' ? '#18181b' : '#f4f4f5',
+            }}
+          >
+            <Clock size={18} color={activeTab === 'on_hold' ? '#ffffff' : '#71717a'} />
           </WireframeBox>
           <div style={{ display: 'flex', flexDirection: 'column', flexGrow: 1 }}>
-            <span style={{ fontSize: '0.725rem', color: 'var(--text-muted)', fontWeight: 600 }}>
+            <span style={{ fontSize: '0.725rem', color: activeTab === 'on_hold' ? '#09090b' : 'var(--text-muted)', fontWeight: activeTab === 'on_hold' ? 800 : 600 }}>
               Draft/Hold
             </span>
-            <span style={{ fontSize: '1.4rem', fontWeight: 800, lineHeight: 1.2, margin: '0.15rem 0' }}>
+            <span style={{ fontSize: '1.4rem', fontWeight: 800, lineHeight: 1.2, margin: '0.15rem 0', color: '#09090b' }}>
               {isLoading ? '—' : draftsOnHoldCount}
             </span>
             <span style={{ fontSize: '0.725rem', color: 'var(--text-secondary)' }}>
@@ -456,102 +569,54 @@ export default function LatricsProjectsView() {
           </div>
         </div>
 
-        {/* Card 5: Total Requests */}
-        <div className="wf-card" style={{ display: 'flex', gap: '0.85rem', alignItems: 'flex-start' }}>
-          <WireframeBox width={36} height={36} style={{ flexShrink: 0, borderRadius: '4px' }}>
-            <FileText size={18} color="#71717a" />
+        {/* Card 4: Total Project */}
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={() => {
+            setActiveTab('all');
+            setCurrentPage(1);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              setActiveTab('all');
+              setCurrentPage(1);
+            }
+          }}
+          className="wf-card"
+          style={{
+            display: 'flex',
+            gap: '0.85rem',
+            alignItems: 'flex-start',
+            cursor: 'pointer',
+            border: activeTab === 'all' ? '2px solid #09090b' : '1px solid var(--border-color)',
+            backgroundColor: activeTab === 'all' ? '#fafafa' : '#ffffff',
+            boxShadow: activeTab === 'all' ? '0 2px 8px rgba(0, 0, 0, 0.08)' : 'none',
+            transition: 'all 0.15s ease',
+          }}
+        >
+          <WireframeBox
+            width={36}
+            height={36}
+            style={{
+              flexShrink: 0,
+              borderRadius: '4px',
+              backgroundColor: activeTab === 'all' ? '#18181b' : '#f4f4f5',
+            }}
+          >
+            <Folder size={18} color={activeTab === 'all' ? '#ffffff' : '#71717a'} />
           </WireframeBox>
           <div style={{ display: 'flex', flexDirection: 'column', flexGrow: 1 }}>
-            <span style={{ fontSize: '0.725rem', color: 'var(--text-muted)', fontWeight: 600 }}>
-              Total Requests
+            <span style={{ fontSize: '0.725rem', color: activeTab === 'all' ? '#09090b' : 'var(--text-muted)', fontWeight: activeTab === 'all' ? 800 : 600 }}>
+              Total Project
             </span>
-            <span style={{ fontSize: '1.4rem', fontWeight: 800, lineHeight: 1.2, margin: '0.15rem 0' }}>
-              {isLoading ? '—' : totalRequestsCount}
+            <span style={{ fontSize: '1.4rem', fontWeight: 800, lineHeight: 1.2, margin: '0.15rem 0', color: '#09090b' }}>
+              {isLoading ? '—' : totalProjectsCount}
             </span>
             <span style={{ fontSize: '0.725rem', color: 'var(--text-secondary)' }}>
-              Submitted
+              All time
             </span>
           </div>
-        </div>
-      </div>
-
-      {/* ── 3. Tab Bar & Actions Row ── */}
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          flexWrap: 'wrap',
-          gap: '0.75rem',
-          borderBottom: '1px solid var(--border-color)',
-          paddingBottom: '0.25rem',
-        }}
-      >
-        <div style={{ display: 'flex', gap: '1.25rem' }}>
-          {[
-            { id: 'all', label: 'All Projects' },
-            { id: 'active', label: 'Active' },
-            { id: 'completed', label: 'Completed' },
-            { id: 'on_hold', label: 'Draft/Hold' },
-          ].map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => {
-                setActiveTab(tab.id as any);
-                setCurrentPage(1);
-              }}
-              style={{
-                background: 'none',
-                border: 'none',
-                borderBottom: activeTab === tab.id ? '2px solid #09090b' : '2px solid transparent',
-                padding: '0.5rem 0.2rem',
-                fontSize: '0.85rem',
-                fontWeight: activeTab === tab.id ? 700 : 500,
-                color: activeTab === tab.id ? '#09090b' : 'var(--text-secondary)',
-                cursor: 'pointer',
-                transition: 'all 0.15s ease',
-              }}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-          <button
-            onClick={handleExportCSV}
-            disabled={filteredProjects.length === 0}
-            className="btn btn-outline"
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '0.4rem',
-              height: '34px',
-              fontSize: '0.8rem',
-              padding: '0 0.85rem',
-              opacity: filteredProjects.length === 0 ? 0.5 : 1,
-              cursor: filteredProjects.length === 0 ? 'not-allowed' : 'pointer',
-            }}
-          >
-            <Download size={14} /> Export
-          </button>
-          <button
-            onClick={() => fetchProjects()}
-            title="Refresh list"
-            style={{
-              width: '34px',
-              height: '34px',
-              border: '1px solid var(--border-color)',
-              borderRadius: '6px',
-              backgroundColor: '#ffffff',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              cursor: 'pointer',
-            }}
-          >
-            <RotateCcw size={14} color="#09090b" className={isLoading ? 'animate-spin' : ''} />
-          </button>
         </div>
       </div>
 
@@ -851,9 +916,9 @@ export default function LatricsProjectsView() {
                               fontWeight: 600,
                               padding: '0.15rem 0.5rem',
                               borderRadius: '12px',
-                              backgroundColor: '#eff6ff',
-                              color: '#1d4ed8',
-                              border: '1px solid #bfdbfe',
+                              backgroundColor: '#f4f4f5',
+                              color: '#09090b',
+                              border: '1px solid #d4d4d8',
                             }}
                           >
                             {group.activeCount} Active
@@ -866,9 +931,9 @@ export default function LatricsProjectsView() {
                               fontWeight: 600,
                               padding: '0.15rem 0.5rem',
                               borderRadius: '12px',
-                              backgroundColor: '#f0fdf4',
-                              color: '#15803d',
-                              border: '1px solid #bbf7d0',
+                              backgroundColor: '#f4f4f5',
+                              color: '#09090b',
+                              border: '1px solid #d4d4d8',
                             }}
                           >
                             {group.completedCount} Completed
@@ -928,7 +993,6 @@ export default function LatricsProjectsView() {
                         <tbody>
                           {group.projects.map((project) => {
                             const isSelected = selectedProjectIds.includes(project.id);
-                            const isActiveRow = activeDrawerProjectId === project.id;
                             const progressPct =
                               project.progress_pct ??
                               project.overall_progress_pct ??
@@ -940,17 +1004,17 @@ export default function LatricsProjectsView() {
                             return (
                               <tr
                                 key={project.id}
-                                onClick={() => setActiveDrawerProjectId(project.id)}
+                                onClick={() => handleProjectClick(project)}
                                 style={{
                                   cursor: 'pointer',
-                                  backgroundColor: isActiveRow ? '#f4f4f5' : isSelected ? '#fafafa' : '#ffffff',
+                                  backgroundColor: isSelected ? '#fafafa' : '#ffffff',
                                   transition: 'background-color 0.15s ease',
                                 }}
                                 onMouseEnter={(e) => {
-                                  if (!isActiveRow && !isSelected) e.currentTarget.style.backgroundColor = '#fafafa';
+                                  if (!isSelected) e.currentTarget.style.backgroundColor = '#fafafa';
                                 }}
                                 onMouseLeave={(e) => {
-                                  if (!isActiveRow && !isSelected) e.currentTarget.style.backgroundColor = '#ffffff';
+                                  if (!isSelected) e.currentTarget.style.backgroundColor = '#ffffff';
                                 }}
                               >
                                 {/* Checkbox */}
@@ -1018,7 +1082,7 @@ export default function LatricsProjectsView() {
                                         style={{
                                           width: `${progressPct}%`,
                                           height: '100%',
-                                          backgroundColor: progressPct === 100 ? '#10b981' : '#18181b',
+                                          backgroundColor: progressPct === 100 ? '#09090b' : '#18181b',
                                           transition: 'width 0.3s ease',
                                         }}
                                       />
@@ -1065,7 +1129,7 @@ export default function LatricsProjectsView() {
                                     >
                                       <button
                                         onClick={() => {
-                                          setActiveDrawerProjectId(project.id);
+                                          handleProjectClick(project);
                                           setOpenMenuProjectId(null);
                                         }}
                                         style={{
@@ -1080,35 +1144,12 @@ export default function LatricsProjectsView() {
                                           alignItems: 'center',
                                           gap: '0.4rem',
                                           color: '#09090b',
+                                          fontWeight: 600,
                                         }}
                                         onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#f4f4f5')}
                                         onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
                                       >
-                                        <FileText size={13} /> View Quick Overview
-                                      </button>
-                                      <button
-                                        onClick={() => {
-                                          router.push(`/projects/${project.id}/overview`);
-                                          setOpenMenuProjectId(null);
-                                        }}
-                                        style={{
-                                          width: '100%',
-                                          padding: '0.45rem 0.85rem',
-                                          fontSize: '0.775rem',
-                                          background: 'none',
-                                          border: 'none',
-                                          textAlign: 'left',
-                                          cursor: 'pointer',
-                                          display: 'flex',
-                                          alignItems: 'center',
-                                          gap: '0.4rem',
-                                          color: '#09090b',
-                                          fontWeight: 700,
-                                        }}
-                                        onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#f4f4f5')}
-                                        onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
-                                      >
-                                        <ExternalLink size={13} /> View Full Details
+                                        <ExternalLink size={13} /> View Project Overview
                                       </button>
                                       <button
                                         onClick={() => {
@@ -1175,7 +1216,6 @@ export default function LatricsProjectsView() {
               <tbody>
                 {paginatedProjects.map((project) => {
                   const isSelected = selectedProjectIds.includes(project.id);
-                  const isActiveRow = activeDrawerProjectId === project.id;
                   const progressPct =
                     project.progress_pct ??
                     project.overall_progress_pct ??
@@ -1188,17 +1228,17 @@ export default function LatricsProjectsView() {
                   return (
                     <tr
                       key={project.id}
-                      onClick={() => setActiveDrawerProjectId(project.id)}
+                      onClick={() => handleProjectClick(project)}
                       style={{
                         cursor: 'pointer',
-                        backgroundColor: isActiveRow ? '#f4f4f5' : isSelected ? '#fafafa' : '#ffffff',
+                        backgroundColor: isSelected ? '#fafafa' : '#ffffff',
                         transition: 'background-color 0.15s ease',
                       }}
                       onMouseEnter={(e) => {
-                        if (!isActiveRow && !isSelected) e.currentTarget.style.backgroundColor = '#fafafa';
+                        if (!isSelected) e.currentTarget.style.backgroundColor = '#fafafa';
                       }}
                       onMouseLeave={(e) => {
-                        if (!isActiveRow && !isSelected) e.currentTarget.style.backgroundColor = '#ffffff';
+                        if (!isSelected) e.currentTarget.style.backgroundColor = '#ffffff';
                       }}
                     >
                       {/* Checkbox */}
@@ -1265,7 +1305,7 @@ export default function LatricsProjectsView() {
                               style={{
                                 width: `${progressPct}%`,
                                 height: '100%',
-                                backgroundColor: progressPct === 100 ? '#10b981' : '#18181b',
+                                backgroundColor: progressPct === 100 ? '#09090b' : '#18181b',
                                 transition: 'width 0.3s ease',
                               }}
                             />
@@ -1313,7 +1353,7 @@ export default function LatricsProjectsView() {
                           >
                             <button
                               onClick={() => {
-                                setActiveDrawerProjectId(project.id);
+                                handleProjectClick(project);
                                 setOpenMenuProjectId(null);
                               }}
                               style={{
@@ -1328,35 +1368,12 @@ export default function LatricsProjectsView() {
                                 alignItems: 'center',
                                 gap: '0.4rem',
                                 color: '#09090b',
+                                fontWeight: 600,
                               }}
                               onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#f4f4f5')}
                               onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
                             >
-                              <FileText size={13} /> View Quick Details
-                            </button>
-                            <button
-                              onClick={() => {
-                                router.push(`/projects/${project.id}/overview`);
-                                setOpenMenuProjectId(null);
-                              }}
-                              style={{
-                                width: '100%',
-                                padding: '0.45rem 0.85rem',
-                                fontSize: '0.775rem',
-                                background: 'none',
-                                border: 'none',
-                                textAlign: 'left',
-                                cursor: 'pointer',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '0.4rem',
-                                color: '#09090b',
-                                fontWeight: 700,
-                              }}
-                              onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#f4f4f5')}
-                              onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
-                            >
-                              <ExternalLink size={13} /> View Full Details
+                              <ExternalLink size={13} /> View Project Overview
                             </button>
                             <button
                               onClick={() => {
@@ -1484,341 +1501,6 @@ export default function LatricsProjectsView() {
             )}
           </div>
         </div>
-
-        {/* ── 6. Right Side Detail Drawer Panel ── */}
-        {selectedProject && (
-          <div
-            className="wf-card"
-            style={{
-              width: '400px',
-              minWidth: '380px',
-              maxWidth: '420px',
-              padding: 0,
-              flexShrink: 0,
-              backgroundColor: '#ffffff',
-              display: 'flex',
-              flexDirection: 'column',
-              borderRadius: '8px',
-              border: '1px solid var(--border-color)',
-              overflow: 'hidden',
-            }}
-          >
-            {/* Drawer Header */}
-            <div style={{ padding: '1.25rem', borderBottom: '1px solid var(--border-color)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '0.5rem' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-                  <h3 style={{ fontSize: '1.05rem', fontWeight: 800, color: '#09090b', margin: 0 }}>
-                    {selectedProject.title}
-                  </h3>
-                  {getStatusBadge(selectedProject.status)}
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                  <button
-                    type="button"
-                    onClick={() => router.push(`/projects/${selectedProject.id}/overview`)}
-                    title="Open Project Overview Page"
-                    style={{
-                      background: 'none',
-                      border: 'none',
-                      cursor: 'pointer',
-                      color: '#09090b',
-                      padding: '4px',
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      borderRadius: '4px',
-                    }}
-                    onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#f4f4f5')}
-                    onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
-                  >
-                    <ExternalLink size={16} />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setActiveDrawerProjectId(null)}
-                    title="Close Drawer"
-                    style={{
-                      background: 'none',
-                      border: 'none',
-                      cursor: 'pointer',
-                      color: '#71717a',
-                      padding: '4px',
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      borderRadius: '4px',
-                    }}
-                    onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#f4f4f5')}
-                    onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
-                  >
-                    <X size={18} />
-                  </button>
-                </div>
-              </div>
-
-              {/* Sub-info: Client and Location */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', marginTop: '0.75rem' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', fontSize: '0.8rem', color: '#18181b', fontWeight: 600 }}>
-                  <Building2 size={14} color="#71717a" />
-                  <span>{selectedProject.client_company || selectedProject.client_name || 'Client Unassigned'}</span>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', fontSize: '0.775rem', color: 'var(--text-secondary)' }}>
-                  <MapPin size={14} color="#71717a" />
-                  <span>{formatLocation(selectedProject)}</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Drawer Tabs */}
-            <div
-              style={{
-                display: 'flex',
-                borderBottom: '1px solid var(--border-color)',
-                backgroundColor: '#fafafa',
-                padding: '0 1rem',
-              }}
-            >
-              {[
-                { id: 'overview', label: 'Overview' },
-                { id: 'deliverables', label: 'Deliverables' },
-                { id: 'team', label: 'Team' },
-                { id: 'files', label: 'Files' },
-              ].map((tab) => (
-                <button
-                  key={tab.id}
-                  onClick={() => setDrawerActiveTab(tab.id as any)}
-                  style={{
-                    background: 'none',
-                    border: 'none',
-                    borderBottom: drawerActiveTab === tab.id ? '2px solid #09090b' : '2px solid transparent',
-                    padding: '0.55rem 0.65rem',
-                    fontSize: '0.775rem',
-                    fontWeight: drawerActiveTab === tab.id ? 700 : 500,
-                    color: drawerActiveTab === tab.id ? '#09090b' : 'var(--text-secondary)',
-                    cursor: 'pointer',
-                  }}
-                >
-                  {tab.label}
-                </button>
-              ))}
-            </div>
-
-            {/* Drawer Body Content */}
-            <div style={{ padding: '1.25rem', flexGrow: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '1.1rem' }}>
-              {drawerActiveTab === 'overview' && (
-                <>
-                  {/* Project Description */}
-                  <div>
-                    <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                      Project Description
-                    </span>
-                    <p style={{ fontSize: '0.825rem', color: '#18181b', lineHeight: 1.45, marginTop: '0.35rem', marginBottom: 0 }}>
-                      {selectedProject.description || 'No detailed description provided for this project.'}
-                    </p>
-                  </div>
-
-                  {/* Start Date & End Date Grid */}
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
-                    <div>
-                      <span style={{ fontSize: '0.725rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
-                        Start Date
-                      </span>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', marginTop: '0.25rem', fontSize: '0.8rem', fontWeight: 600, color: '#09090b' }}>
-                        <Calendar size={13} color="#71717a" />
-                        <span>{formatDate(selectedProject.requirements_payload?.timeline_start || selectedProject.created_at)}</span>
-                      </div>
-                    </div>
-                    <div>
-                      <span style={{ fontSize: '0.725rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
-                        End Date
-                      </span>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', marginTop: '0.25rem', fontSize: '0.8rem', fontWeight: 600, color: '#09090b' }}>
-                        <Calendar size={13} color="#71717a" />
-                        <span>{formatDate(selectedProject.requirements_payload?.timeline_end)}</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Scope */}
-                  <div>
-                    <span style={{ fontSize: '0.725rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
-                      Scope
-                    </span>
-                    <p style={{ fontSize: '0.825rem', fontWeight: 600, color: '#09090b', marginTop: '0.25rem', marginBottom: 0 }}>
-                      {selectedProject.target_area_sqkm
-                        ? `~ ${selectedProject.target_area_sqkm} sq. km`
-                        : 'Area specified in sector plans'}
-                    </p>
-                  </div>
-
-                  {/* Deliverables Tags */}
-                  <div>
-                    <span style={{ fontSize: '0.725rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
-                      Deliverables
-                    </span>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem', marginTop: '0.35rem' }}>
-                      {getDeliverablesList(selectedProject).map((tag, i) => (
-                        <span
-                          key={i}
-                          style={{
-                            fontSize: '0.725rem',
-                            fontWeight: 600,
-                            padding: '0.2rem 0.5rem',
-                            borderRadius: '4px',
-                            backgroundColor: '#f4f4f5',
-                            border: '1px solid #e4e4e7',
-                            color: '#18181b',
-                          }}
-                        >
-                          {tag}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Assigned Team */}
-                  <div>
-                    <span style={{ fontSize: '0.725rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
-                      Assigned Team
-                    </span>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.35rem' }}>
-                      <div
-                        style={{
-                          width: '26px',
-                          height: '26px',
-                          borderRadius: '50%',
-                          backgroundColor: '#09090b',
-                          color: '#ffffff',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          fontSize: '0.7rem',
-                          fontWeight: 700,
-                        }}
-                      >
-                        OP
-                      </div>
-                      <span style={{ fontSize: '0.775rem', color: 'var(--text-secondary)' }}>
-                        Flight team managed in Planning & Allocations
-                      </span>
-                    </div>
-                  </div>
-
-                  <hr style={{ border: 'none', borderTop: '1px solid var(--border-color)', margin: '0.25rem 0' }} />
-
-                  {/* Created By */}
-                  <div>
-                    <span style={{ fontSize: '0.725rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
-                      Created By
-                    </span>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', marginTop: '0.3rem' }}>
-                      <UserIcon size={14} color="#71717a" />
-                      <div style={{ display: 'flex', flexDirection: 'column' }}>
-                        <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#09090b' }}>
-                          {selectedProject.creator_name || selectedProject.client_name || 'Client'}{' '}
-                          <span style={{ fontWeight: 500, color: 'var(--text-muted)', fontSize: '0.75rem' }}>
-                            ({selectedProject.creator_role ? selectedProject.creator_role.toUpperCase() : 'CLIENT'})
-                          </span>
-                        </span>
-                        <span style={{ fontSize: '0.725rem', color: 'var(--text-secondary)' }}>
-                          {formatDateTime(selectedProject.created_at)}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Last Updated */}
-                  <div>
-                    <span style={{ fontSize: '0.725rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
-                      Last Updated
-                    </span>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', marginTop: '0.3rem' }}>
-                      <Clock size={14} color="#71717a" />
-                      <span style={{ fontSize: '0.775rem', color: 'var(--text-secondary)' }}>
-                        {formatDateTime(selectedProject.updated_at || selectedProject.created_at)}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* View Full Details Button */}
-                  <button
-                    type="button"
-                    onClick={() => router.push(`/projects/${selectedProject.id}/overview`)}
-                    className="btn btn-primary"
-                    style={{
-                      marginTop: '0.75rem',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: '0.45rem',
-                      fontSize: '0.825rem',
-                      fontWeight: 700,
-                      width: '100%',
-                      height: '38px',
-                      backgroundColor: '#09090b',
-                      color: '#ffffff',
-                      borderRadius: '6px',
-                      border: 'none',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    View Full Details <ExternalLink size={14} />
-                  </button>
-                </>
-              )}
-
-              {drawerActiveTab === 'deliverables' && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', fontSize: '0.8rem' }}>
-                  <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
-                    Specified Deliverables & Sensor Payload
-                  </span>
-                  <div style={{ padding: '0.75rem', backgroundColor: '#fafafa', borderRadius: '6px', border: '1px solid var(--border-color)' }}>
-                    <p style={{ margin: '0 0 0.5rem 0', fontWeight: 600 }}>Deliverable Package:</p>
-                    <ul style={{ margin: 0, paddingLeft: '1.25rem', color: 'var(--text-secondary)' }}>
-                      {getDeliverablesList(selectedProject).map((d, i) => (
-                        <li key={i}>{d}</li>
-                      ))}
-                    </ul>
-                  </div>
-                  {selectedProject.requirements_payload?.sensor_payload && (
-                    <div style={{ padding: '0.75rem', backgroundColor: '#fafafa', borderRadius: '6px', border: '1px solid var(--border-color)' }}>
-                      <p style={{ margin: '0 0 0.25rem 0', fontWeight: 600 }}>Sensor / Hardware Payload:</p>
-                      <span style={{ color: 'var(--text-secondary)' }}>
-                        {JSON.stringify(selectedProject.requirements_payload.sensor_payload)}
-                      </span>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {drawerActiveTab === 'team' && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', fontSize: '0.8rem' }}>
-                  <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
-                    Flight Crew & Pilot Allocations
-                  </span>
-                  <p style={{ color: 'var(--text-secondary)', lineHeight: 1.4 }}>
-                    Sector-specific flight crew assignments are managed in the Planning & Allocations module.
-                  </p>
-                  <Link href="/planning" className="btn btn-outline" style={{ fontSize: '0.775rem', textAlign: 'center', textDecoration: 'none' }}>
-                    Open Flight Planning
-                  </Link>
-                </div>
-              )}
-
-              {drawerActiveTab === 'files' && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', fontSize: '0.8rem' }}>
-                  <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
-                    Project Documents & Artifacts
-                  </span>
-                  <div style={{ padding: '1.5rem', textAlign: 'center', backgroundColor: '#fafafa', borderRadius: '6px', border: '1px solid var(--border-color)' }}>
-                    <Layers size={20} color="#71717a" style={{ margin: '0 auto 0.5rem' }} />
-                    <p style={{ margin: 0, color: 'var(--text-secondary)', fontSize: '0.775rem' }}>
-                      Document storage and delivery packages will appear here once flight processing is complete (Phase 2B).
-                    </p>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
       </div>
     </div>
   );

@@ -42,8 +42,8 @@ export const SectorGridView: React.FC<SectorGridViewProps> = ({ sectors, project
               display: 'flex',
               flexDirection: 'column',
               position: 'relative',
-              borderColor: isLive ? 'rgba(245, 158, 11, 0.4)' : isFinished ? 'rgba(16, 185, 129, 0.3)' : undefined,
-              boxShadow: isLive ? '0 0 15px rgba(245, 158, 11, 0.15)' : undefined,
+              borderColor: isLive ? '#09090b' : isFinished ? '#27272a' : undefined,
+              boxShadow: undefined,
             }}
           >
             {isLive && (
@@ -55,7 +55,7 @@ export const SectorGridView: React.FC<SectorGridViewProps> = ({ sectors, project
                   width: '8px',
                   height: '8px',
                   borderRadius: '50%',
-                  backgroundColor: '#f59e0b',
+                  backgroundColor: '#09090b',
                   animation: 'pulse-glow 1.5s infinite',
                 }}
               />
@@ -87,7 +87,7 @@ export const SectorGridView: React.FC<SectorGridViewProps> = ({ sectors, project
                 justifyContent: 'space-between',
                 alignItems: 'center',
                 fontSize: '0.75rem',
-                color: 'var(--brand-focus, #3b82f6)',
+                color: '#09090b',
                 fontWeight: 600,
               }}
             >

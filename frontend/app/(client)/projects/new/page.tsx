@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo, Suspense } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
@@ -22,6 +22,11 @@ import {
   Plus,
   Paperclip,
   Loader2,
+  Mail,
+  Phone,
+  ShieldCheck,
+  UserCheck,
+  Lock,
 } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
 import { projectApi } from '@/modules/projects/api';
@@ -98,11 +103,11 @@ const INDIAN_STATES = [
   'Puducherry',
 ];
 
-export default function ClientNewProjectRequestPage() {
+function ClientNewProjectRequestPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const rawDraftId = searchParams?.get('draftId') || '';
-  const rawProjectId = searchParams?.get('projectId') || searchParams?.get('edit') || rawDraftId;
+  const rawProjectId = searchParams?.get('projectId') || searchParams?.get('requestId') || searchParams?.get('id') || searchParams?.get('edit') || rawDraftId;
   const [currentDraftId, setCurrentDraftId] = useState<string>(rawDraftId || rawProjectId);
   const [isDraftMode, setIsDraftMode] = useState<boolean>(Boolean(rawDraftId));
   const isRevision = Boolean(rawProjectId) && !isDraftMode;
@@ -114,22 +119,119 @@ export default function ClientNewProjectRequestPage() {
   const [locationAddress, setLocationAddress] = useState('');
   const [city, setCity] = useState('');
   const [state, setState] = useState('');
+  const [requestedAreaSqKm, setRequestedAreaSqKm] = useState('');
+  const [airspaceZones, setAirspaceZones] = useState<string[]>(['Green Zone']);
 
-  // 2. Contact Information State - Default filled from user profile
-  const [companyName, setCompanyName] = useState(user?.company_name || '');
-  const [ownerName, setOwnerName] = useState(user?.full_name || '');
-  const [primaryEmail, setPrimaryEmail] = useState(user?.email || '');
-  const [phoneCode, setPhoneCode] = useState('+91');
-  const [phoneNumber, setPhoneNumber] = useState(user?.phone_number || '');
+  const isSubClient = user?.role === 'client_sub' || user?.role?.toString() === 'client_sub';
+  const isPilot = user?.role === 'pilot' || user?.role?.toString().toLowerCase() === 'pilot';
+  const [loadedProjectStatus, setLoadedProjectStatus] = useState<string>('');
+  const isSubmittedOrExistingProject = Boolean(
+    ((searchParams?.get('projectId') || searchParams?.get('requestId') || searchParams?.get('id')) && !searchParams?.get('draftId')) ||
+    (loadedProjectStatus && loadedProjectStatus !== 'draft')
+  );
+  const isReadOnly = isPilot || isSubmittedOrExistingProject;
+  const isStage1Passed = isSubmittedOrExistingProject;
 
+  // Project Communication Contacts - Dynamically fetched from company profile authenticated members
+  const [orgMembers, setOrgMembers] = useState<UserProfile[]>([]);
+  const [selectedContacts, setSelectedContacts] = useState<string[]>([]);
+  const [isContactDropdownOpen, setIsContactDropdownOpen] = useState(false);
+  const [contactSearchInput, setContactSearchInput] = useState('');
+  const [isLoadingMembers, setIsLoadingMembers] = useState(false);
+  const contactDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Fetch company members who have authenticated into the application
   useEffect(() => {
-    if (user && !isRevision && !isDraftMode) {
-      setCompanyName(user.company_name || '');
-      setOwnerName(user.full_name || '');
-      setPrimaryEmail(user.email || '');
-      setPhoneNumber(user.phone_number || '');
+    let isMounted = true;
+    setIsLoadingMembers(true);
+    usersApi
+      .getOrganizationMembers()
+      .then((members) => {
+        if (!isMounted) return;
+        setOrgMembers(members || []);
+      })
+      .catch((err) => {
+        console.error('Failed to load organization members:', err);
+      })
+      .finally(() => {
+        if (isMounted) setIsLoadingMembers(false);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  // Close contact dropdown on click outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        contactDropdownRef.current &&
+        !contactDropdownRef.current.contains(event.target as Node)
+      ) {
+        setIsContactDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // 2. Contact Information State - Primary contact is ALWAYS the Primary Client's details
+  const [companyName, setCompanyName] = useState('');
+  const [ownerName, setOwnerName] = useState('');
+  const [primaryEmail, setPrimaryEmail] = useState('');
+  const [phoneCode, setPhoneCode] = useState('+91');
+  const [phoneNumber, setPhoneNumber] = useState('');
+
+  // Primary contact must ALWAYS reflect the Primary Client (organization owner)
+  useEffect(() => {
+    if (!user || isRevision || isDraftMode) return;
+
+    const parsePhoneNumber = (raw: string) => {
+      if (!raw) return { code: '+91', number: '' };
+      const trimmed = raw.trim();
+      const codes = ['+91', '+971', '+61', '+65', '+44', '+1'];
+      for (const c of codes) {
+        if (trimmed.startsWith(c)) {
+          return { code: c, number: trimmed.slice(c.length).trim() };
+        }
+      }
+      const parts = trimmed.split(' ');
+      if (parts.length > 1 && parts[0].startsWith('+')) {
+        return { code: parts[0], number: parts.slice(1).join(' ') };
+      }
+      return { code: '+91', number: trimmed };
+    };
+
+    const isSub = user.role === 'client_sub' || user.role?.toString() === 'client_sub';
+    const cpPrimary = user.company_profile?.primary_contact;
+    const primaryMember = orgMembers.find(
+      (m) => m.role === 'client_primary' || m.role === 'client'
+    );
+
+    setCompanyName(user.company_name || user.company_profile?.company_name || '');
+
+    if (isSub) {
+      // Subordinate logged in: ALWAYS use Primary Client's contact details
+      const targetName = cpPrimary?.full_name || primaryMember?.full_name || 'Primary Client';
+      const targetEmail = cpPrimary?.email || primaryMember?.email || '';
+      const targetPhone = cpPrimary?.phone_number || primaryMember?.phone_number || '';
+
+      setOwnerName(targetName);
+      setPrimaryEmail(targetEmail);
+      const parsed = parsePhoneNumber(targetPhone);
+      setPhoneCode(parsed.code);
+      setPhoneNumber(parsed.number);
+    } else {
+      // Primary Client logged in
+      setOwnerName(user.full_name || cpPrimary?.full_name || '');
+      setPrimaryEmail(user.email || cpPrimary?.email || '');
+      const rawPhone = user.phone_number || cpPrimary?.phone_number || '';
+      const parsed = parsePhoneNumber(rawPhone);
+      setPhoneCode(parsed.code);
+      setPhoneNumber(parsed.number);
     }
-  }, [user, isRevision, isDraftMode]);
+  }, [user, orgMembers, isRevision, isDraftMode]);
 
   // Complete draft & revision hydration logic
   useEffect(() => {
@@ -148,6 +250,14 @@ export default function ClientNewProjectRequestPage() {
 
       if (reqPayload.city) setCity(reqPayload.city);
       if (reqPayload.state) setState(reqPayload.state);
+      if (reqPayload.requested_area_sqkm || reqPayload.target_area_sqkm) {
+        setRequestedAreaSqKm(String(reqPayload.requested_area_sqkm || reqPayload.target_area_sqkm));
+      }
+      if (Array.isArray(reqPayload.airspace_zones)) {
+        setAirspaceZones(reqPayload.airspace_zones);
+      } else if (typeof reqPayload.airspace_zone === 'string') {
+        setAirspaceZones([reqPayload.airspace_zone]);
+      }
 
       if (reqPayload.company_name) setCompanyName(reqPayload.company_name);
       if (reqPayload.primary_contact?.name) setOwnerName(reqPayload.primary_contact.name);
@@ -334,6 +444,7 @@ export default function ClientNewProjectRequestPage() {
         try {
           const proj = await projectApi.getProject(targetId);
           if (!isMounted || !proj) return;
+          setLoadedProjectStatus(proj.status || '');
           const reqPayload = (proj.requirements_payload || {}) as Record<string, any>;
           hydrateFromPayload(proj.title || '', reqPayload, proj.status === 'draft' ? proj.id : undefined);
           if (proj.status === 'draft') {
@@ -353,50 +464,6 @@ export default function ClientNewProjectRequestPage() {
       isMounted = false;
     };
   }, [rawProjectId, rawDraftId, currentDraftId]);
-
-  // Project Communication Contacts - Dynamically fetched from company profile authenticated members
-  const [orgMembers, setOrgMembers] = useState<UserProfile[]>([]);
-  const [selectedContacts, setSelectedContacts] = useState<string[]>([]);
-  const [isContactDropdownOpen, setIsContactDropdownOpen] = useState(false);
-  const [contactSearchInput, setContactSearchInput] = useState('');
-  const [isLoadingMembers, setIsLoadingMembers] = useState(false);
-  const contactDropdownRef = useRef<HTMLDivElement>(null);
-
-  // Fetch company members who have authenticated into the application
-  useEffect(() => {
-    let isMounted = true;
-    setIsLoadingMembers(true);
-    usersApi
-      .getOrganizationMembers()
-      .then((members) => {
-        if (!isMounted) return;
-        setOrgMembers(members || []);
-      })
-      .catch((err) => {
-        console.error('Failed to load organization members:', err);
-      })
-      .finally(() => {
-        if (isMounted) setIsLoadingMembers(false);
-      });
-
-    return () => {
-      isMounted = false;
-    };
-  }, []);
-
-  // Close contact dropdown on click outside
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (
-        contactDropdownRef.current &&
-        !contactDropdownRef.current.contains(event.target as Node)
-      ) {
-        setIsContactDropdownOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
 
   // 3. Payload / Sensor State
   const [selectedPayload, setSelectedPayload] = useState<PayloadType>('61mp_camera');
@@ -623,6 +690,7 @@ export default function ClientNewProjectRequestPage() {
 
   // Save Draft Action (Database-backed & LocalStorage fallback)
   const handleSaveDraft = async () => {
+    if (isPilot || isStage1Passed) return;
     try {
       setIsSavingDraft(true);
       setErrorMessage(null);
@@ -774,10 +842,14 @@ export default function ClientNewProjectRequestPage() {
           description: remarks || `Draft survey project: ${draftTitle}`,
           survey_location: finalSurveyLocation,
           survey_type: selectedPayload,
-          target_area_sqkm: 25.0,
+          target_area_sqkm: requestedAreaSqKm ? parseFloat(requestedAreaSqKm) : undefined,
           status: ProjectStatus.DRAFT,
           is_draft: true,
-          requirements_payload: payloadPayload,
+          requirements_payload: {
+            ...payloadPayload,
+            requested_area_sqkm: requestedAreaSqKm ? parseFloat(requestedAreaSqKm) : null,
+            target_area_sqkm: requestedAreaSqKm ? parseFloat(requestedAreaSqKm) : null,
+          },
         });
         if (created?.id) {
           targetId = created.id;
@@ -819,6 +891,7 @@ export default function ClientNewProjectRequestPage() {
   // Submit Request Action
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isPilot || isStage1Passed) return;
     setErrorMessage(null);
 
     if (!projectName.trim()) {
@@ -838,6 +911,12 @@ export default function ClientNewProjectRequestPage() {
 
     if (!state.trim()) {
       setErrorMessage('State is required.');
+      return;
+    }
+
+    const areaNum = parseFloat(requestedAreaSqKm);
+    if (!requestedAreaSqKm || isNaN(areaNum) || areaNum <= 0) {
+      setErrorMessage('Please provide a valid Requested Area (sq. Km) Scanning (positive number).');
       return;
     }
 
@@ -920,6 +999,7 @@ export default function ClientNewProjectRequestPage() {
         start_date: startDate,
         end_date: endDate,
         tenure_days: tenureDays,
+        airspace_zones: airspaceZones,
         kml_filename: [...existingKmlFiles.map((f) => f.name), ...kmlFiles.map((f) => f.name)].join(', ') || null,
         scope_filename: [...existingScopeFiles.map((f) => f.name), ...scopeFiles.map((f) => f.name)].join(', ') || null,
         kml_files: [
@@ -980,6 +1060,8 @@ export default function ClientNewProjectRequestPage() {
             date: new Date().toISOString().split('T')[0],
           })),
         ],
+        requested_area_sqkm: areaNum,
+        target_area_sqkm: areaNum,
         remarks: remarks || null,
       };
 
@@ -994,6 +1076,7 @@ export default function ClientNewProjectRequestPage() {
           requirements_payload: payloadPayload,
           survey_location: finalSurveyLocation,
           survey_type: selectedPayload,
+          target_area_sqkm: areaNum,
         });
 
         // Clear local draft storage
@@ -1010,7 +1093,7 @@ export default function ClientNewProjectRequestPage() {
         await requestApi.submitRequest(projectId, {
           survey_location: finalSurveyLocation,
           survey_type: selectedPayload,
-          target_area_sqkm: 25.0,
+          target_area_sqkm: areaNum,
           requirements_payload: payloadPayload,
         });
 
@@ -1018,6 +1101,7 @@ export default function ClientNewProjectRequestPage() {
         await projectApi.updateProject(projectId, {
           title: projectName.trim(),
           description: remarks || `Survey mapping project: ${projectName.trim()}`,
+          target_area_sqkm: areaNum,
         }).catch(() => null);
 
         // Clear draft storage
@@ -1035,7 +1119,7 @@ export default function ClientNewProjectRequestPage() {
           description: remarks || `Survey mapping project: ${projectName.trim()}`,
           survey_location: finalSurveyLocation,
           survey_type: selectedPayload,
-          target_area_sqkm: 25.0,
+          target_area_sqkm: areaNum,
           requirements_payload: payloadPayload,
         });
 
@@ -1056,8 +1140,137 @@ export default function ClientNewProjectRequestPage() {
     }
   };
 
+  // Combines authenticated organization members and saved company profile team members
+  const allContactOptions = useMemo(() => {
+    const list: Array<{
+      id: string;
+      name: string;
+      email: string;
+      phone: string;
+      designation: string;
+      isPrimary: boolean;
+    }> = [];
+
+    // 1. Authenticated organization members
+    orgMembers.forEach((m) => {
+      const isPrimary = m.role === 'client_primary' || m.role === 'client';
+      list.push({
+        id: m.id || m.email,
+        name: m.full_name || m.email,
+        email: m.email,
+        phone: m.phone_number || '',
+        designation: m.designation || (isPrimary ? 'Primary Client' : 'Team Member'),
+        isPrimary,
+      });
+    });
+
+    // 2. Primary contact from company profile if not already in list
+    const cpPrimary = user?.company_profile?.primary_contact;
+    if (
+      cpPrimary &&
+      cpPrimary.email &&
+      !list.some((c) => c.email.toLowerCase() === cpPrimary.email.toLowerCase())
+    ) {
+      list.unshift({
+        id: cpPrimary.email,
+        name: cpPrimary.full_name || cpPrimary.email,
+        email: cpPrimary.email,
+        phone: cpPrimary.phone_number || '',
+        designation: cpPrimary.department || 'Primary Client',
+        isPrimary: true,
+      });
+    }
+
+    // 3. Team members from company profile if not already in list
+    const cpTeam = user?.company_profile?.team_members as any[];
+    if (Array.isArray(cpTeam)) {
+      cpTeam.forEach((tm) => {
+        if (tm.email && !list.some((c) => c.email.toLowerCase() === tm.email.toLowerCase())) {
+          list.push({
+            id: tm.id ? String(tm.id) : tm.email,
+            name: tm.full_name || tm.email,
+            email: tm.email,
+            phone: tm.phone_number || '',
+            designation: tm.department || 'Team Member',
+            isPrimary: false,
+          });
+        }
+      });
+    }
+
+    return list;
+  }, [orgMembers, user]);
+
   // Available member suggestions from company profile
-  const availableMembers = orgMembers.map((m) => m.full_name || m.email);
+  const availableMembers = allContactOptions.map((m) => m.name || m.email);
+
+  // Helper to retrieve contact details as per filled by that user in their own profile
+  const getContactProfile = (contactKey: string) => {
+    const trimmed = contactKey.trim().toLowerCase();
+    const member = orgMembers.find(
+      (m) =>
+        m.id === contactKey ||
+        (m.full_name && m.full_name.trim().toLowerCase() === trimmed) ||
+        (m.email && m.email.trim().toLowerCase() === trimmed)
+    );
+    const cpPrimary = user?.company_profile?.primary_contact;
+    const isCpPrimary =
+      cpPrimary &&
+      ((cpPrimary.full_name && cpPrimary.full_name.trim().toLowerCase() === trimmed) ||
+        (cpPrimary.email && cpPrimary.email.trim().toLowerCase() === trimmed));
+
+    const tm = (user?.company_profile?.team_members as any[])?.find(
+      (t: any) =>
+        (t.full_name && t.full_name.trim().toLowerCase() === trimmed) ||
+        (t.email && t.email.trim().toLowerCase() === trimmed)
+    );
+
+    const isCurrentUser =
+      user &&
+      ((user.full_name && user.full_name.trim().toLowerCase() === trimmed) ||
+        (user.email && user.email.trim().toLowerCase() === trimmed));
+
+    const isPrimary =
+      member?.role === 'client_primary' ||
+      member?.role === 'client' ||
+      isCpPrimary ||
+      (!isSubClient && isCurrentUser);
+
+    const roleLabel = isPrimary
+      ? 'Primary Client'
+      : member?.role === 'client_sub' || (isSubClient && isCurrentUser)
+      ? 'Subordinate Member'
+      : 'Team Member';
+
+    return {
+      name:
+        member?.full_name ||
+        (isCpPrimary ? cpPrimary?.full_name : null) ||
+        (isCurrentUser ? user?.full_name : null) ||
+        tm?.full_name ||
+        contactKey,
+      email:
+        member?.email ||
+        (isCpPrimary ? cpPrimary?.email : null) ||
+        (isCurrentUser ? user?.email : null) ||
+        tm?.email ||
+        '—',
+      phone:
+        member?.phone_number ||
+        (isCpPrimary ? cpPrimary?.phone_number : null) ||
+        (isCurrentUser ? user?.phone_number : null) ||
+        tm?.phone_number ||
+        'Not provided',
+      designation:
+        member?.designation ||
+        (isCpPrimary ? cpPrimary?.department : null) ||
+        (isCurrentUser ? user?.designation : null) ||
+        tm?.department ||
+        roleLabel,
+      role: member?.role || (isPrimary ? 'client_primary' : 'client_sub'),
+      isPrimary,
+    };
+  };
 
   return (
     <form
@@ -1139,11 +1352,10 @@ export default function ClientNewProjectRequestPage() {
           </p>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+        {isReadOnly ? (
           <button
             type="button"
-            onClick={handleSaveDraft}
-            disabled={isSavingDraft || isSubmitting}
+            onClick={() => router.push(projectId ? `/projects/${projectId}/overview` : '/projects')}
             className="btn btn-secondary"
             style={{
               display: 'inline-flex',
@@ -1155,63 +1367,128 @@ export default function ClientNewProjectRequestPage() {
               padding: '0 1rem',
               backgroundColor: '#ffffff',
               border: '1px solid #d4d4d8',
-              cursor: isSavingDraft || isSubmitting ? 'not-allowed' : 'pointer',
+              cursor: 'pointer',
             }}
           >
-            {isSavingDraft ? (
-              <>
-                <Loader2 size={15} className="animate-spin" /> Saving Draft...
-              </>
-            ) : (
-              <>
-                <FileText size={15} /> Save Draft
-              </>
-            )}
+            ← Back to Project Overview
           </button>
-          <button
-            type="submit"
-            disabled={isSubmitting || isSavingDraft}
-            className="btn btn-primary"
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '0.45rem',
-              height: '38px',
-              fontSize: '0.8rem',
-              fontWeight: 700,
-              padding: '0 1.15rem',
-              backgroundColor: '#09090b',
-              color: '#ffffff',
-            }}
-          >
-            {isSubmitting ? (
-              'Submitting...'
-            ) : (
-              <>
-                <Send size={14} /> {isRevision ? 'Submit Request Revision' : 'Submit Request'}
-              </>
-            )}
-          </button>
-        </div>
+        ) : (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+            <button
+              type="button"
+              onClick={handleSaveDraft}
+              disabled={isSavingDraft || isSubmitting}
+              className="btn btn-secondary"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.45rem',
+                height: '38px',
+                fontSize: '0.8rem',
+                fontWeight: 600,
+                padding: '0 1rem',
+                backgroundColor: '#ffffff',
+                border: '1px solid #d4d4d8',
+                cursor: isSavingDraft || isSubmitting ? 'not-allowed' : 'pointer',
+              }}
+            >
+              {isSavingDraft ? (
+                <>
+                  <Loader2 size={15} className="animate-spin" /> Saving Draft...
+                </>
+              ) : (
+                <>
+                  <FileText size={15} /> Save Draft
+                </>
+              )}
+            </button>
+            <button
+              type="submit"
+              disabled={isSubmitting || isSavingDraft}
+              className="btn btn-primary"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.45rem',
+                height: '38px',
+                fontSize: '0.8rem',
+                fontWeight: 700,
+                padding: '0 1.15rem',
+                backgroundColor: '#09090b',
+                color: '#ffffff',
+              }}
+            >
+              {isSubmitting ? (
+                'Submitting...'
+              ) : (
+                <>
+                  <Send size={14} /> {isRevision ? 'Submit Request Revision' : 'Submit Request'}
+                </>
+              )}
+            </button>
+          </div>
+        )}
       </div>
+
+      {/* ── Sealed or Pilot Read-Only Banner ── */}
+      {isReadOnly ? (
+        <div
+          style={{
+            padding: '0.75rem 1rem',
+            backgroundColor: '#fafafa',
+            border: '1px solid #d4d4d8',
+            borderRadius: '6px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem',
+            fontSize: '0.8rem',
+            color: '#18181b',
+            fontWeight: 600,
+          }}
+        >
+          <Lock size={15} color="#09090b" style={{ flexShrink: 0 }} />
+          <span>
+            <strong>Stage 1 Request Sealed (Read-Only):</strong> This survey request has been submitted and sealed. All parameters, boundaries, and deliverables are permanently locked as an immutable audit record.
+          </span>
+        </div>
+      ) : isPilot ? (
+        <div
+          style={{
+            padding: '0.75rem 1rem',
+            backgroundColor: '#f4f4f5',
+            border: '1px solid #d4d4d8',
+            borderRadius: '6px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem',
+            fontSize: '0.8rem',
+            color: '#18181b',
+          }}
+        >
+          <Lock size={15} color="#71717a" style={{ flexShrink: 0 }} />
+          <span>
+            <strong>Pilot View-Only Mode:</strong> Drone pilots have read-only access to survey request parameters. Modifying or submitting request specifications is restricted.
+          </span>
+        </div>
+      ) : null}
 
       {/* ── Active Draft Restored Banner ── */}
       {isDraftMode && !isRevision && (
         <div
           style={{
             padding: '0.75rem 1rem',
-            backgroundColor: '#f8fafc',
-            border: '1px solid #cbd5e1',
+            backgroundColor: '#fafafa',
+            border: '1px solid #d4d4d8',
             borderRadius: '6px',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
             fontSize: '0.8rem',
-            color: '#334155',
+            color: '#27272a',
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <FileText size={15} color="#0284c7" />
+            <FileText size={15} color="#09090b" />
             <span>
               <strong>Draft Restored:</strong> Showing your previously saved draft details. All fields and documents have been restored.
             </span>
@@ -1222,7 +1499,7 @@ export default function ClientNewProjectRequestPage() {
             style={{
               background: 'none',
               border: 'none',
-              color: '#dc2626',
+              color: '#09090b',
               fontWeight: 600,
               fontSize: '0.75rem',
               cursor: 'pointer',
@@ -1269,10 +1546,10 @@ export default function ClientNewProjectRequestPage() {
         <div
           style={{
             padding: '0.85rem 1.25rem',
-            backgroundColor: '#fef2f2',
-            border: '1.5px solid #ef4444',
+            backgroundColor: '#f4f4f5',
+            border: '1.5px solid #09090b',
             borderRadius: '6px',
-            color: '#991b1b',
+            color: '#09090b',
             fontWeight: 600,
             fontSize: '0.85rem',
             display: 'flex',
@@ -1280,7 +1557,7 @@ export default function ClientNewProjectRequestPage() {
             gap: '0.5rem',
           }}
         >
-          <AlertCircle size={18} color="#ef4444" />
+          <AlertCircle size={18} color="#09090b" />
           <span>{errorMessage}</span>
         </div>
       )}
@@ -1304,6 +1581,7 @@ export default function ClientNewProjectRequestPage() {
         </div>
       )}
 
+      <fieldset disabled={isReadOnly} style={{ border: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '1.25rem', pointerEvents: isReadOnly ? 'none' : 'auto' }}>
       {/* ── 1. Project Details ── */}
       <div
         className="wf-card"
@@ -1322,7 +1600,7 @@ export default function ClientNewProjectRequestPage() {
         </h2>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
           <label style={{ fontSize: '0.775rem', fontWeight: 600, color: '#09090b' }}>
-            Project Name <span style={{ color: '#ef4444' }}>*</span>
+            Project Name <span style={{ color: '#09090b' }}>*</span>
           </label>
           <input
             type="text"
@@ -1344,7 +1622,7 @@ export default function ClientNewProjectRequestPage() {
         {/* Project Location (Address) */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
           <label style={{ fontSize: '0.775rem', fontWeight: 600, color: '#09090b' }}>
-            Project Location <span style={{ color: '#ef4444' }}>*</span>
+            Project Location <span style={{ color: '#09090b' }}>*</span>
             <span style={{ fontSize: '0.725rem', fontWeight: 400, color: '#71717a', marginLeft: '0.45rem' }}>
               (Enter the physical site address — do not use company or project name)
             </span>
@@ -1370,7 +1648,7 @@ export default function ClientNewProjectRequestPage() {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '1rem' }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
             <label style={{ fontSize: '0.775rem', fontWeight: 600, color: '#09090b' }}>
-              City <span style={{ color: '#ef4444' }}>*</span>
+              City <span style={{ color: '#09090b' }}>*</span>
             </label>
             <input
               type="text"
@@ -1391,7 +1669,7 @@ export default function ClientNewProjectRequestPage() {
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
             <label style={{ fontSize: '0.775rem', fontWeight: 600, color: '#09090b' }}>
-              State <span style={{ color: '#ef4444' }}>*</span>
+              State <span style={{ color: '#09090b' }}>*</span>
             </label>
             <select
               required
@@ -1415,6 +1693,35 @@ export default function ClientNewProjectRequestPage() {
               ))}
             </select>
           </div>
+        </div>
+
+        {/* Requested Area (sq. Km) Scanning */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', marginTop: '0.25rem' }}>
+          <label style={{ fontSize: '0.775rem', fontWeight: 600, color: '#09090b', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+            <span>Requested Area (sq. Km) Scanning</span>
+            <span style={{ color: '#09090b' }}>*</span>
+            <span style={{ fontSize: '0.725rem', fontWeight: 400, color: '#71717a', marginLeft: '0.25rem' }}>
+              (How many square kilometers are requested for scanning and mapping)
+            </span>
+          </label>
+          <input
+            type="number"
+            step="0.01"
+            min="0.01"
+            required
+            placeholder="e.g. 25.5"
+            value={requestedAreaSqKm}
+            onChange={(e) => setRequestedAreaSqKm(e.target.value)}
+            className="form-input"
+            style={{
+              fontSize: '0.825rem',
+              height: '38px',
+              border: '1px solid #d4d4d8',
+              borderRadius: '6px',
+              padding: '0 0.75rem',
+              maxWidth: '320px',
+            }}
+          />
         </div>
       </div>
 
@@ -1442,7 +1749,7 @@ export default function ClientNewProjectRequestPage() {
             gap: '1.25rem',
           }}
         >
-          {/* Left Sub-Card: Profile Contact Info (Auto-filled by default from Profile) */}
+          {/* Left Sub-Card: Profile Contact Info (Always Primary Client's details) */}
           <div
             style={{
               display: 'flex',
@@ -1454,24 +1761,41 @@ export default function ClientNewProjectRequestPage() {
               backgroundColor: '#ffffff',
             }}
           >
-            <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#09090b' }}>
-              Primary Contact (Auto-filled)
-            </span>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#09090b' }}>
+                Primary Contact (Auto-filled)
+              </span>
+              <span
+                style={{
+                  fontSize: '0.675rem',
+                  fontWeight: 600,
+                  color: '#09090b',
+                  backgroundColor: '#f4f4f5',
+                  padding: '2px 8px',
+                  borderRadius: '4px',
+                  border: '1px solid #d4d4d8',
+                }}
+              >
+                Primary Client
+              </span>
+            </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
               <label style={{ fontSize: '0.725rem', fontWeight: 600, color: '#09090b' }}>
-                Owner / Contact Person <span style={{ color: '#ef4444' }}>*</span>
+                Owner / Contact Person <span style={{ color: '#09090b' }}>*</span>
               </label>
               <input
                 type="text"
                 required
+                readOnly={isSubClient}
                 value={ownerName}
                 onChange={(e) => setOwnerName(e.target.value)}
                 className="form-input"
                 style={{
                   fontSize: '0.8rem',
                   height: '36px',
-                  backgroundColor: '#ffffff',
+                  backgroundColor: isSubClient ? '#f4f4f5' : '#ffffff',
+                  color: isSubClient ? '#52525b' : '#09090b',
                   border: '1px solid #d4d4d8',
                   borderRadius: '4px',
                 }}
@@ -1481,18 +1805,20 @@ export default function ClientNewProjectRequestPage() {
             <div style={{ display: 'grid', gridTemplateColumns: '1.1fr 1fr', gap: '0.75rem' }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
                 <label style={{ fontSize: '0.725rem', fontWeight: 600, color: '#09090b' }}>
-                  Email <span style={{ color: '#ef4444' }}>*</span>
+                  Email <span style={{ color: '#09090b' }}>*</span>
                 </label>
                 <input
                   type="email"
                   required
+                  readOnly={isSubClient}
                   value={primaryEmail}
                   onChange={(e) => setPrimaryEmail(e.target.value)}
                   className="form-input"
                   style={{
                     fontSize: '0.8rem',
                     height: '36px',
-                    backgroundColor: '#ffffff',
+                    backgroundColor: isSubClient ? '#f4f4f5' : '#ffffff',
+                    color: isSubClient ? '#52525b' : '#09090b',
                     border: '1px solid #d4d4d8',
                     borderRadius: '4px',
                   }}
@@ -1501,18 +1827,19 @@ export default function ClientNewProjectRequestPage() {
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
                 <label style={{ fontSize: '0.725rem', fontWeight: 600, color: '#09090b' }}>
-                  Phone Number <span style={{ color: '#ef4444' }}>*</span>
+                  Phone Number <span style={{ color: '#09090b' }}>*</span>
                 </label>
                 <div style={{ display: 'flex', gap: '0.35rem' }}>
                   <select
                     value={phoneCode}
+                    disabled={isSubClient}
                     onChange={(e) => setPhoneCode(e.target.value)}
                     className="form-select"
                     style={{
                       width: '68px',
                       fontSize: '0.75rem',
                       height: '36px',
-                      backgroundColor: '#ffffff',
+                      backgroundColor: isSubClient ? '#f4f4f5' : '#ffffff',
                       border: '1px solid #d4d4d8',
                       borderRadius: '4px',
                       padding: '0 0.3rem',
@@ -1528,6 +1855,7 @@ export default function ClientNewProjectRequestPage() {
                   <input
                     type="text"
                     required
+                    readOnly={isSubClient}
                     value={phoneNumber}
                     onChange={(e) => setPhoneNumber(e.target.value)}
                     className="form-input"
@@ -1535,7 +1863,8 @@ export default function ClientNewProjectRequestPage() {
                       flex: 1,
                       fontSize: '0.8rem',
                       height: '36px',
-                      backgroundColor: '#ffffff',
+                      backgroundColor: isSubClient ? '#f4f4f5' : '#ffffff',
+                      color: isSubClient ? '#52525b' : '#09090b',
                       border: '1px solid #d4d4d8',
                       borderRadius: '4px',
                     }}
@@ -1546,7 +1875,7 @@ export default function ClientNewProjectRequestPage() {
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
               <label style={{ fontSize: '0.725rem', fontWeight: 600, color: '#09090b' }}>
-                Company <span style={{ color: '#ef4444' }}>*</span>
+                Company <span style={{ color: '#09090b' }}>*</span>
               </label>
               <input
                 type="text"
@@ -1563,6 +1892,11 @@ export default function ClientNewProjectRequestPage() {
                 }}
               />
             </div>
+            {isSubClient && (
+              <span style={{ fontSize: '0.7rem', color: '#71717a', lineHeight: 1.3 }}>
+                Linked automatically to your company&apos;s primary client contact credentials.
+              </span>
+            )}
           </div>
 
           {/* Right Sub-Card: Project Communication Contacts */}
@@ -1579,7 +1913,7 @@ export default function ClientNewProjectRequestPage() {
           >
             <div>
               <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#09090b' }}>
-                Project Communication Contacts <span style={{ color: '#ef4444' }}>*</span>
+                Project Communication Contacts <span style={{ color: '#09090b' }}>*</span>
               </span>
               <p style={{ fontSize: '0.725rem', color: 'var(--text-secondary)', marginTop: '0.2rem', lineHeight: 1.35 }}>
                 Select one or more team members from your organization who should be included in project communications with the Latrics team.
@@ -1608,7 +1942,7 @@ export default function ClientNewProjectRequestPage() {
                 <ChevronDown size={15} color="#71717a" />
               </div>
 
-              {/* Dropdown Menu - Lists Only Authenticated Members Under This Company Profile */}
+              {/* Dropdown Menu - Lists Authenticated Members Under This Company Profile */}
               {isContactDropdownOpen && (
                 <div
                   style={{
@@ -1622,7 +1956,7 @@ export default function ClientNewProjectRequestPage() {
                     boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
                     zIndex: 50,
                     padding: '0.5rem',
-                    maxHeight: '220px',
+                    maxHeight: '230px',
                     overflowY: 'auto',
                     display: 'flex',
                     flexDirection: 'column',
@@ -1664,44 +1998,75 @@ export default function ClientNewProjectRequestPage() {
                     <div style={{ padding: '0.5rem', fontSize: '0.75rem', color: '#71717a', textAlign: 'center' }}>
                       Loading team members...
                     </div>
-                  ) : availableMembers.length > 0 ? (
-                    availableMembers
-                      .filter((name) =>
-                        name.toLowerCase().includes(contactSearchInput.toLowerCase())
-                      )
-                      .map((name) => {
-                        const isSelected = selectedContacts.includes(name);
+                  ) : allContactOptions.length > 0 ? (
+                    allContactOptions
+                      .filter((contact) => {
+                        const name = contact.name || contact.email;
+                        return (
+                          name.toLowerCase().includes(contactSearchInput.toLowerCase()) ||
+                          contact.email.toLowerCase().includes(contactSearchInput.toLowerCase())
+                        );
+                      })
+                      .map((contact) => {
+                        const contactKey = contact.name || contact.email;
+                        const isSelected = selectedContacts.includes(contactKey);
+
                         return (
                           <div
-                            key={name}
+                            key={contact.id || contactKey}
                             onClick={() => {
                               if (isSelected) {
-                                handleRemoveContact(name);
+                                handleRemoveContact(contactKey);
                               } else {
-                                handleAddContact(name);
+                                handleAddContact(contactKey);
                               }
                             }}
                             style={{
                               display: 'flex',
                               alignItems: 'center',
                               justifyContent: 'space-between',
-                              padding: '0.4rem 0.6rem',
+                              padding: '0.45rem 0.65rem',
                               borderRadius: '4px',
                               cursor: 'pointer',
                               backgroundColor: isSelected ? '#f4f4f5' : 'transparent',
-                              fontSize: '0.775rem',
-                              fontWeight: isSelected ? 600 : 400,
-                              color: '#09090b',
+                            }}
+                            onMouseEnter={(e) => {
+                              if (!isSelected) e.currentTarget.style.backgroundColor = '#fafafa';
+                            }}
+                            onMouseLeave={(e) => {
+                              if (!isSelected) e.currentTarget.style.backgroundColor = 'transparent';
                             }}
                           >
-                            <span>{name}</span>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.1rem' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                                <span style={{ fontSize: '0.78rem', fontWeight: isSelected ? 700 : 600, color: '#09090b' }}>
+                                  {contact.name}
+                                </span>
+                                <span
+                                  style={{
+                                    fontSize: '0.65rem',
+                                    color: contact.isPrimary ? '#09090b' : '#71717a',
+                                    backgroundColor: contact.isPrimary ? '#f4f4f5' : '#f4f4f5',
+                                    border: contact.isPrimary ? '1px solid #d4d4d8' : 'none',
+                                    padding: '1px 5px',
+                                    borderRadius: '3px',
+                                    fontWeight: 500,
+                                  }}
+                                >
+                                  {contact.designation}
+                                </span>
+                              </div>
+                              <div style={{ fontSize: '0.7rem', color: '#71717a' }}>
+                                {contact.email} {contact.phone ? `• ${contact.phone}` : ''}
+                              </div>
+                            </div>
                             {isSelected && <Check size={14} color="#09090b" />}
                           </div>
                         );
                       })
                   ) : (
                     <div style={{ padding: '0.5rem', fontSize: '0.75rem', color: '#71717a', textAlign: 'center' }}>
-                      No other authenticated team members found in company profile.
+                      No team members found in company profile.
                     </div>
                   )}
                 </div>
@@ -1751,6 +2116,105 @@ export default function ClientNewProjectRequestPage() {
                 </span>
               )}
             </div>
+
+            {/* Selected Contact Details List (As per filled in that user's own profile) */}
+            {selectedContacts.length > 0 && (
+              <div
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '0.6rem',
+                  marginTop: '0.65rem',
+                  paddingTop: '0.75rem',
+                  borderTop: '1px solid #e4e4e7',
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: '0.75rem',
+                    fontWeight: 700,
+                    color: '#09090b',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.4rem',
+                  }}
+                >
+                  <UserCheck size={14} color="#09090b" />
+                  <span>Selected Contact Details ({selectedContacts.length})</span>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                  {selectedContacts.map((contactKey) => {
+                    const profile = getContactProfile(contactKey);
+                    return (
+                      <div
+                        key={contactKey}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          padding: '0.65rem 0.85rem',
+                          backgroundColor: '#fafafa',
+                          border: '1px solid #e4e4e7',
+                          borderRadius: '6px',
+                          gap: '0.75rem',
+                        }}
+                      >
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem', flex: 1 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', flexWrap: 'wrap' }}>
+                            <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#09090b' }}>
+                              {profile.name}
+                            </span>
+                            <span
+                              style={{
+                                fontSize: '0.675rem',
+                                color: profile.isPrimary ? '#09090b' : '#52525b',
+                                backgroundColor: profile.isPrimary ? '#f4f4f5' : '#f4f4f5',
+                                border: profile.isPrimary ? '1px solid #d4d4d8' : '1px solid #e4e4e7',
+                                padding: '1px 6px',
+                                borderRadius: '4px',
+                                fontWeight: 600,
+                              }}
+                            >
+                              {profile.designation}
+                            </span>
+                          </div>
+                          <div style={{ display: 'flex', gap: '1.25rem', flexWrap: 'wrap', fontSize: '0.735rem', color: '#52525b', marginTop: '0.15rem' }}>
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                              <Mail size={12} color="#71717a" /> {profile.email}
+                            </span>
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                              <Phone size={12} color="#71717a" /> {profile.phone}
+                            </span>
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveContact(contactKey)}
+                          style={{
+                            background: 'none',
+                            border: 'none',
+                            cursor: 'pointer',
+                            padding: '4px',
+                            color: '#71717a',
+                            borderRadius: '4px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                          }}
+                          onMouseEnter={(e) => (e.currentTarget.style.color = '#09090b')}
+                          onMouseLeave={(e) => (e.currentTarget.style.color = '#71717a')}
+                          title="Remove contact"
+                        >
+                          <X size={15} />
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -1778,7 +2242,7 @@ export default function ClientNewProjectRequestPage() {
         >
           <div>
             <h2 className="wf-title" style={{ fontSize: '0.95rem', fontWeight: 700, color: '#09090b' }}>
-              3. Payload / Sensor <span style={{ color: '#ef4444' }}>*</span>
+              3. Payload / Sensor <span style={{ color: '#09090b' }}>*</span>
             </h2>
             <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '0.15rem' }}>
               Select the payload / sensor for this project (single selection).
@@ -1904,6 +2368,97 @@ export default function ClientNewProjectRequestPage() {
               </span>
             </div>
           </div>
+
+          {/* ── DGCA Airspace Zone Classification (Fitted inside Payload/Sensor blank space area) ── */}
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '0.65rem',
+              marginTop: '0.75rem',
+              paddingTop: '0.85rem',
+              borderTop: '1px solid #f4f4f5',
+            }}
+          >
+            <div>
+              <h3 style={{ fontSize: '0.825rem', fontWeight: 700, color: '#09090b', margin: 0 }}>
+                DGCA Airspace Zone Classification
+              </h3>
+              <p style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginTop: '0.15rem', margin: 0 }}>
+                Verify DGCA Digital Sky airspace classification and clearance prerequisites for the flight perimeter.
+              </p>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.55rem' }}>
+              {[
+                { name: 'Green Zone', desc: 'Up to 400 ft AGL. No prior DGCA flight permission required.', color: '#09090b' },
+                { name: 'Yellow Zone', desc: 'Controlled airspace. Prior ATC clearance required.', color: '#52525b' },
+                { name: 'Red Zone', desc: 'Restricted / Prohibited airspace. Central MoD clearance required.', color: '#09090b' },
+              ].map((zone) => {
+                const isSelected = airspaceZones.includes(zone.name);
+                return (
+                  <div
+                    key={zone.name}
+                    onClick={() => {
+                      if (isReadOnly) return;
+                      setAirspaceZones((prev) =>
+                        prev.includes(zone.name)
+                          ? prev.filter((z) => z !== zone.name)
+                          : [...prev, zone.name]
+                      );
+                    }}
+                    style={{
+                      border: isSelected ? '1.5px solid #09090b' : '1px solid #e4e4e7',
+                      backgroundColor: isSelected ? '#fafafa' : '#ffffff',
+                      borderRadius: '6px',
+                      padding: '0.7rem 0.6rem',
+                      cursor: isReadOnly ? 'default' : 'pointer',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '0.35rem',
+                      transition: 'all 0.15s ease',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                        <span
+                          style={{
+                            width: '8px',
+                            height: '8px',
+                            borderRadius: '50%',
+                            backgroundColor: zone.color,
+                            display: 'inline-block',
+                            flexShrink: 0,
+                          }}
+                        />
+                        <span style={{ fontSize: '0.785rem', fontWeight: 700, color: '#09090b' }}>
+                          {zone.name}
+                        </span>
+                      </div>
+                      <div
+                        style={{
+                          width: '16px',
+                          height: '16px',
+                          borderRadius: '3px',
+                          border: isSelected ? '1.5px solid #09090b' : '1px solid #d4d4d8',
+                          backgroundColor: isSelected ? '#09090b' : '#ffffff',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          flexShrink: 0,
+                        }}
+                      >
+                        {isSelected && <Check size={11} color="#ffffff" strokeWidth={3} />}
+                      </div>
+                    </div>
+                    <span style={{ fontSize: '0.675rem', color: '#71717a', lineHeight: 1.3 }}>
+                      {zone.desc}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         </div>
 
         {/* ── 4. Deliverables ── */}
@@ -1921,7 +2476,7 @@ export default function ClientNewProjectRequestPage() {
         >
           <div>
             <h2 className="wf-title" style={{ fontSize: '0.95rem', fontWeight: 700, color: '#09090b' }}>
-              4. Deliverables <span style={{ color: '#ef4444' }}>*</span>
+              4. Deliverables <span style={{ color: '#09090b' }}>*</span>
             </h2>
             <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '0.15rem' }}>
               Select deliverables based on the selected payload and processing type.
@@ -2018,11 +2573,11 @@ export default function ClientNewProjectRequestPage() {
               alignItems: 'center',
               gap: '0.45rem',
               padding: '0.45rem 0.65rem',
-              backgroundColor: '#f8fafc',
-              border: '1px solid #e2e8f0',
+              backgroundColor: '#fafafa',
+              border: '1px solid #e4e4e7',
               borderRadius: '4px',
               fontSize: '0.7rem',
-              color: '#64748b',
+              color: '#52525b',
             }}
           >
             <Info size={13} style={{ flexShrink: 0 }} />
@@ -2333,7 +2888,7 @@ export default function ClientNewProjectRequestPage() {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
               <label style={{ fontSize: '0.725rem', fontWeight: 600, color: '#09090b' }}>
-                Expected Start Date <span style={{ color: '#ef4444' }}>*</span>
+                Expected Start Date <span style={{ color: '#09090b' }}>*</span>
               </label>
               <input
                 type="date"
@@ -2352,7 +2907,7 @@ export default function ClientNewProjectRequestPage() {
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
               <label style={{ fontSize: '0.725rem', fontWeight: 600, color: '#09090b' }}>
-                Expected End Date <span style={{ color: '#ef4444' }}>*</span>
+                Expected End Date <span style={{ color: '#09090b' }}>*</span>
               </label>
               <input
                 type="date"
@@ -2409,7 +2964,7 @@ export default function ClientNewProjectRequestPage() {
             <div>
               <h2 className="wf-title" style={{ fontSize: '0.95rem', fontWeight: 700, color: '#09090b', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                 <span>6. KML / Boundary Upload</span>
-                <span style={{ color: '#ef4444' }}>*</span>
+                <span style={{ color: '#09090b' }}>*</span>
                 {(existingKmlFiles.length + kmlFiles.length) > 0 && (
                   <span
                     style={{
@@ -2431,7 +2986,7 @@ export default function ClientNewProjectRequestPage() {
               </p>
             </div>
 
-            {(existingKmlFiles.length + kmlFiles.length) > 0 && (
+            {!isReadOnly && (existingKmlFiles.length + kmlFiles.length) > 0 && (
               <div style={{ display: 'flex', gap: '0.4rem' }}>
                 <button
                   type="button"
@@ -2440,7 +2995,7 @@ export default function ClientNewProjectRequestPage() {
                     setExistingKmlFiles([]);
                   }}
                   className="btn btn-secondary"
-                  style={{ fontSize: '0.7rem', padding: '0.25rem 0.55rem', height: '28px', color: '#dc2626' }}
+                  style={{ fontSize: '0.7rem', padding: '0.25rem 0.55rem', height: '28px', color: '#09090b' }}
                   title="Clear All Files"
                 >
                   Clear All
@@ -2458,8 +3013,9 @@ export default function ClientNewProjectRequestPage() {
             )}
           </div>
 
-          <div
-            onDragOver={(e) => {
+          {!isReadOnly && (
+            <div
+              onDragOver={(e) => {
               e.preventDefault();
               setIsDraggingKml(true);
             }}
@@ -2537,6 +3093,7 @@ export default function ClientNewProjectRequestPage() {
               />
             </div>
           </div>
+          )}
 
           {/* Attached KML Files List */}
           {(existingKmlFiles.length + kmlFiles.length) > 0 && (
@@ -2549,29 +3106,31 @@ export default function ClientNewProjectRequestPage() {
                     alignItems: 'center',
                     justifyContent: 'space-between',
                     padding: '0.5rem 0.75rem',
-                    backgroundColor: '#f8fafc',
-                    border: '1px solid #e2e8f0',
+                    backgroundColor: '#fafafa',
+                    border: '1px solid #e4e4e7',
                     borderRadius: '5px',
                     fontSize: '0.775rem',
                   }}
                 >
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.55rem', minWidth: 0 }}>
-                    <Paperclip size={14} color="#64748b" style={{ flexShrink: 0 }} />
-                    <span style={{ fontWeight: 600, color: '#0f172a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    <Paperclip size={14} color="#52525b" style={{ flexShrink: 0 }} />
+                    <span style={{ fontWeight: 600, color: '#09090b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                       {file.name}
                     </span>
-                    <span style={{ fontSize: '0.7rem', color: '#64748b' }}>
+                    <span style={{ fontSize: '0.7rem', color: '#52525b' }}>
                       {file.size || 'Existing File'}
                     </span>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => handleRemoveExistingKmlFile(idx)}
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px', color: '#94a3b8' }}
-                    title="Remove file"
-                  >
-                    <X size={14} />
-                  </button>
+                  {!isReadOnly && (
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveExistingKmlFile(idx)}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px', color: '#71717a' }}
+                      title="Remove file"
+                    >
+                      <X size={14} />
+                    </button>
+                  )}
                 </div>
               ))}
 
@@ -2638,7 +3197,7 @@ export default function ClientNewProjectRequestPage() {
             <div>
               <h2 className="wf-title" style={{ fontSize: '0.95rem', fontWeight: 700, color: '#09090b', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                 <span>7. Scope Document</span>
-                <span style={{ color: '#ef4444' }}>*</span>
+                <span style={{ color: '#09090b' }}>*</span>
                 {(existingScopeFiles.length + scopeFiles.length) > 0 && (
                   <span
                     style={{
@@ -2660,7 +3219,7 @@ export default function ClientNewProjectRequestPage() {
               </p>
             </div>
 
-            {(existingScopeFiles.length + scopeFiles.length) > 0 && (
+            {!isReadOnly && (existingScopeFiles.length + scopeFiles.length) > 0 && (
               <div style={{ display: 'flex', gap: '0.4rem' }}>
                 <button
                   type="button"
@@ -2669,7 +3228,7 @@ export default function ClientNewProjectRequestPage() {
                     setExistingScopeFiles([]);
                   }}
                   className="btn btn-secondary"
-                  style={{ fontSize: '0.7rem', padding: '0.25rem 0.55rem', height: '28px', color: '#dc2626' }}
+                  style={{ fontSize: '0.7rem', padding: '0.25rem 0.55rem', height: '28px', color: '#09090b' }}
                   title="Clear All Documents"
                 >
                   Clear All
@@ -2687,6 +3246,7 @@ export default function ClientNewProjectRequestPage() {
             )}
           </div>
 
+          {!isReadOnly && (
           <div
             onDragOver={(e) => {
               e.preventDefault();
@@ -2766,6 +3326,7 @@ export default function ClientNewProjectRequestPage() {
               />
             </div>
           </div>
+          )}
 
           {/* Attached Scope Documents List */}
           {(existingScopeFiles.length + scopeFiles.length) > 0 && (
@@ -2778,29 +3339,31 @@ export default function ClientNewProjectRequestPage() {
                     alignItems: 'center',
                     justifyContent: 'space-between',
                     padding: '0.5rem 0.75rem',
-                    backgroundColor: '#f8fafc',
-                    border: '1px solid #e2e8f0',
+                    backgroundColor: '#fafafa',
+                    border: '1px solid #e4e4e7',
                     borderRadius: '5px',
                     fontSize: '0.775rem',
                   }}
                 >
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.55rem', minWidth: 0 }}>
-                    <FileText size={14} color="#64748b" style={{ flexShrink: 0 }} />
-                    <span style={{ fontWeight: 600, color: '#0f172a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    <FileText size={14} color="#52525b" style={{ flexShrink: 0 }} />
+                    <span style={{ fontWeight: 600, color: '#09090b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                       {file.name}
                     </span>
-                    <span style={{ fontSize: '0.7rem', color: '#64748b' }}>
+                    <span style={{ fontSize: '0.7rem', color: '#52525b' }}>
                       {file.size || 'Existing Document'}
                     </span>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => handleRemoveExistingScopeFile(idx)}
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px', color: '#94a3b8' }}
-                    title="Remove document"
-                  >
-                    <X size={14} />
-                  </button>
+                  {!isReadOnly && (
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveExistingScopeFile(idx)}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px', color: '#71717a' }}
+                      title="Remove document"
+                    >
+                      <X size={14} />
+                    </button>
+                  )}
                 </div>
               ))}
 
@@ -2899,6 +3462,7 @@ export default function ClientNewProjectRequestPage() {
           </div>
         </div>
       </div>
+      </fieldset>
 
       {/* ── Bottom Action & Confirmation Bar ── */}
       <div
@@ -2918,14 +3482,17 @@ export default function ClientNewProjectRequestPage() {
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.775rem', color: '#09090b' }}>
           <Info size={16} color="#09090b" style={{ flexShrink: 0 }} />
-          <span>Please review all details before submitting. You can save as draft and submit later.</span>
+          <span>
+            {isReadOnly
+              ? 'This survey request has been submitted and sealed. Specifications are permanently read-only.'
+              : 'Please review all details before submitting. You can save as draft and submit later.'}
+          </span>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+        {isReadOnly ? (
           <button
             type="button"
-            onClick={handleSaveDraft}
-            disabled={isSavingDraft || isSubmitting}
+            onClick={() => router.push(projectId ? `/projects/${projectId}/overview` : '/projects')}
             className="btn btn-secondary"
             style={{
               display: 'inline-flex',
@@ -2937,45 +3504,82 @@ export default function ClientNewProjectRequestPage() {
               padding: '0 1rem',
               backgroundColor: '#ffffff',
               border: '1px solid #d4d4d8',
-              cursor: isSavingDraft || isSubmitting ? 'not-allowed' : 'pointer',
+              cursor: 'pointer',
             }}
           >
-            {isSavingDraft ? (
-              <>
-                <Loader2 size={15} className="animate-spin" /> Saving Draft...
-              </>
-            ) : (
-              <>
-                <FileText size={15} /> Save Draft
-              </>
-            )}
+            ← Back to Project Overview
           </button>
-          <button
-            type="submit"
-            disabled={isSubmitting || isSavingDraft}
-            className="btn btn-primary"
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '0.45rem',
-              height: '38px',
-              fontSize: '0.8rem',
-              fontWeight: 700,
-              padding: '0 1.15rem',
-              backgroundColor: '#09090b',
-              color: '#ffffff',
-            }}
-          >
-            {isSubmitting ? (
-              'Submitting...'
-            ) : (
-              <>
-                <Send size={14} /> {isRevision ? 'Submit Request Revision' : 'Submit Request'}
-              </>
-            )}
-          </button>
-        </div>
+        ) : (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+            <button
+              type="button"
+              onClick={handleSaveDraft}
+              disabled={isSavingDraft || isSubmitting}
+              className="btn btn-secondary"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.45rem',
+                height: '38px',
+                fontSize: '0.8rem',
+                fontWeight: 600,
+                padding: '0 1rem',
+                backgroundColor: '#ffffff',
+                border: '1px solid #d4d4d8',
+                cursor: isSavingDraft || isSubmitting ? 'not-allowed' : 'pointer',
+              }}
+            >
+              {isSavingDraft ? (
+                <>
+                  <Loader2 size={15} className="animate-spin" /> Saving Draft...
+                </>
+              ) : (
+                <>
+                  <FileText size={15} /> Save Draft
+                </>
+              )}
+            </button>
+            <button
+              type="submit"
+              disabled={isSubmitting || isSavingDraft}
+              className="btn btn-primary"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.45rem',
+                height: '38px',
+                fontSize: '0.8rem',
+                fontWeight: 700,
+                padding: '0 1.15rem',
+                backgroundColor: '#09090b',
+                color: '#ffffff',
+              }}
+            >
+              {isSubmitting ? (
+                'Submitting...'
+              ) : (
+                <>
+                  <Send size={14} /> {isRevision ? 'Submit Request Revision' : 'Submit Request'}
+                </>
+              )}
+            </button>
+          </div>
+        )}
       </div>
     </form>
+  );
+}
+
+export default function ClientNewProjectRequestPage() {
+  return (
+    <Suspense
+      fallback={
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '60vh' }}>
+          <Loader2 size={32} className="animate-spin" color="#09090b" />
+        </div>
+      }
+    >
+      <ClientNewProjectRequestPageContent />
+    </Suspense>
   );
 }
