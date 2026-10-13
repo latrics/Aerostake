@@ -9,6 +9,7 @@ from app.modules.allocations.schema import AllocationCreate, AllocationStatusUpd
 from app.modules.notifications.service import notification_service
 from app.modules.projects.model import Project, ProjectStatusEnum
 from app.modules.projects.repository import project_repository
+from app.modules.projects.service import project_service
 from app.modules.sectors.model import Sector, SectorStatusEnum
 from app.modules.sectors.repository import sector_repository
 from app.modules.timeline.service import timeline_service
@@ -121,6 +122,13 @@ class AllocationService:
         if not allocation:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Allocation not found")
 
+        # RBAC: Clients cannot update flight mission allocations
+        if current_user.role in [RoleEnum.CLIENT, RoleEnum.CLIENT_PRIMARY, RoleEnum.CLIENT_SUB]:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Clients do not have permission to update flight mission allocations",
+            )
+
         # Pilots can only update their own allocations
         if current_user.role == RoleEnum.PILOT and allocation.pilot_id != current_user.id:
             raise HTTPException(
@@ -195,9 +203,7 @@ class AllocationService:
         project_id: uuid.UUID,
         current_user: User,
     ) -> List[AllocationOut]:
-        project = await project_repository.get_by_id(db, project_id)
-        if not project:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+        project = await project_service.get_project_model(db, current_user, project_id)
 
         allocs = await allocation_repository.list_by_project(db, project_id)
         out_list: List[AllocationOut] = []

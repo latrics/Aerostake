@@ -210,11 +210,14 @@ export function LatricsOperationsDashboard() {
   }
 
   return (
-    <div style={{ padding: '0.5rem 0 2rem 0', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', paddingBottom: '3rem' }}>
       {/* ── Top Header with Universal PageHeader ── */}
       <PageHeader
         title="Dashboard"
         subtitle="Overview of operations and key performance metrics"
+        onRefresh={fetchData}
+        isRefreshing={isLoading}
+        refreshTooltip="Refresh operations dashboard"
       >
         {/* Universal Search */}
         <div
@@ -224,9 +227,11 @@ export function LatricsOperationsDashboard() {
             backgroundColor: '#ffffff',
             border: '1px solid var(--border-color)',
             borderRadius: '6px',
-            padding: '0.4rem 0.75rem',
+            padding: '0 0.75rem',
+            height: '36px',
             gap: '0.5rem',
             width: '260px',
+            boxSizing: 'border-box',
           }}
         >
           <Search size={14} color="#71717a" />

@@ -4,6 +4,7 @@ import React, { useRef } from 'react';
 import { Download, Printer, CheckCircle2, Building, Calendar, FileText, ArrowLeft, ShieldCheck, Mail, MapPin, X } from 'lucide-react';
 import { Portal } from '@/components/Portal';
 import { Invoice } from '../types';
+import { formatDateDDMMYYYY } from '@/lib/date';
 
 interface DigitalInvoiceModalProps {
   isOpen: boolean;
@@ -72,16 +73,7 @@ export function DigitalInvoiceModal({
   if (!isOpen || !invoice) return null;
 
   const formatDate = (dateStr?: string | null) => {
-    if (!dateStr) return '—';
-    try {
-      return new Date(dateStr).toLocaleDateString('en-IN', {
-        day: '2-digit',
-        month: 'short',
-        year: 'numeric',
-      });
-    } catch {
-      return dateStr;
-    }
+    return formatDateDDMMYYYY(dateStr);
   };
 
   const handlePrint = () => {
@@ -89,10 +81,11 @@ export function DigitalInvoiceModal({
   };
 
   const handleDownloadCsv = () => {
-    const headers = ['Sl No.', 'Date', 'Item Name', 'Unit / Qty', 'Price (INR)', 'Tenure', 'Total Price (INR)'];
+    const headers = ['Sl No.', 'Date', 'Sector', 'Item Name', 'Unit / Qty', 'Price (INR)', 'Tenure', 'Total Price (INR)'];
     const rows = (invoice.items || []).map((it) => [
       it.sl_no,
       it.date,
+      `"${invoice.sector_code ? `Sector ${invoice.sector_code}` : 'General'}"`,
       `"${(it.item_name || '').replace(/"/g, '""')}"`,
       it.unit,
       it.price,
@@ -103,6 +96,7 @@ export function DigitalInvoiceModal({
     const csvContent =
       `"Invoice Number","${invoice.invoice_number}"\n` +
       `"Project","${displayProjectName}"\n` +
+      `"Sector Target","${invoice.sector_code ? `Sector ${invoice.sector_code}` : 'General (Project-Wide)'}"\n` +
       `"Client","${displayCompanyName}"\n` +
       `"Bill Date","${invoice.bill_date}"\n` +
       `"Total Amount","INR ${invoice.total_amount}"\n\n` +
@@ -338,9 +332,43 @@ export function DigitalInvoiceModal({
                 </div>
 
                 <div>
-                  <span style={{ fontSize: '0.7rem', fontWeight: 800, textTransform: 'uppercase', color: '#71717a', letterSpacing: '0.5px' }}>
-                    PROJECT DETAILS:
-                  </span>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}>
+                    <span style={{ fontSize: '0.7rem', fontWeight: 800, textTransform: 'uppercase', color: '#71717a', letterSpacing: '0.5px' }}>
+                      PROJECT DETAILS:
+                    </span>
+                    {invoice.sector_code ? (
+                      <span
+                        style={{
+                          fontSize: '0.675rem',
+                          fontWeight: 800,
+                          backgroundColor: '#eff6ff',
+                          color: '#1d4ed8',
+                          border: '1px solid #bfdbfe',
+                          padding: '0.15rem 0.45rem',
+                          borderRadius: '4px',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '0.25rem',
+                        }}
+                      >
+                        Sector {invoice.sector_code}
+                      </span>
+                    ) : (
+                      <span
+                        style={{
+                          fontSize: '0.675rem',
+                          fontWeight: 700,
+                          backgroundColor: '#f4f4f5',
+                          color: '#52525b',
+                          border: '1px solid #e4e4e7',
+                          padding: '0.15rem 0.45rem',
+                          borderRadius: '4px',
+                        }}
+                      >
+                        General (Project-Wide)
+                      </span>
+                    )}
+                  </div>
                   <h4 style={{ margin: '0.3rem 0 0.15rem 0', fontSize: '1rem', fontWeight: 800, color: '#09090b' }}>
                     {displayProjectName}
                   </h4>

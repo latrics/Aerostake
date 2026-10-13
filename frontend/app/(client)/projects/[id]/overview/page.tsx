@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, useMemo, Suspense } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef, Suspense } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/lib/auth';
 import {
@@ -59,6 +59,9 @@ import {
   ShieldCheck,
   Award,
   IdCard,
+  Home,
+  Flag,
+  Settings,
 } from 'lucide-react';
 import { SubmitRequestModal } from '@/modules/requests/components/SubmitRequestModal';
 import { Portal } from '@/components/Portal';
@@ -77,12 +80,15 @@ import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { Project } from '@/modules/projects/types';
 import { Sector } from '@/modules/sectors/types';
 import { TimelineEvent } from '@/modules/timeline/types';
-import { OperationalPlan } from '@/modules/planning/types';
-import { PaymentRecord } from '@/modules/payments/types';
+import { OperationalPlan, PlannedProjectTenure } from '@/modules/planning/types';
+import { PaymentRecord, Invoice, ClientWalletSummary } from '@/modules/payments/types';
 import { RequestVersion } from '@/modules/requests/types';
 import { CapturingStageWorkspace } from '@/modules/sectors/components/CapturingStageWorkspace';
 import { ProcessingStageWorkspace } from '@/modules/processing/components/ProcessingStageWorkspace';
+import { DeliveredStageWorkspace } from '@/modules/delivery/components/DeliveredStageWorkspace';
 import { MobilisationConfirmationSection } from '@/modules/mobilisation/components/MobilisationConfirmationSection';
+import { downloadDocument } from '@/lib/document-utils';
+import { formatDateDDMMYYYY, formatDateTimeDDMMYYYY } from '@/lib/date';
 
 const PIPELINE_STAGES = [
   { id: 1, key: 'request', name: 'Request', label: '1. Request', desc: 'Requirements & AOI' },
@@ -120,17 +126,40 @@ function ProjectOverviewContent() {
   const [liveTimeline, setLiveTimeline] = useState<TimelineEvent[]>([]);
   const [livePlan, setLivePlan] = useState<OperationalPlan | null>(null);
   const [livePayments, setLivePayments] = useState<PaymentRecord[]>([]);
+  const [liveWallet, setLiveWallet] = useState<ClientWalletSummary | null>(null);
+  const [liveInvoices, setLiveInvoices] = useState<Invoice[]>([]);
   const [liveRequests, setLiveRequests] = useState<RequestVersion[]>([]);
   const [livePlanningVersions, setLivePlanningVersions] = useState<any[]>([]);
   const [allDirectoryUsers, setAllDirectoryUsers] = useState<UserProfile[]>([]);
   const [orgMembers, setOrgMembers] = useState<UserProfile[]>([]);
   const [staffUsers, setStaffUsers] = useState<UserProfile[]>([]);
   const [pilotUsers, setPilotUsers] = useState<UserProfile[]>([]);
+  const [planningDraftData, setPlanningDraftData] = useState<any>(null);
+  const [livePlanningDraft, setLivePlanningDraft] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const hasInitialLoadedRef = useRef(false);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const idKey = projectId || 'default';
+      const saved =
+        localStorage.getItem(`latrics_planning_draft_${idKey}`) ||
+        localStorage.getItem(`latrics_planning_draft_default`);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed.formData) {
+          setPlanningDraftData(parsed.formData);
+        }
+      }
+    } catch {}
+  }, [projectId]);
 
   const fetchProjectOverview = useCallback(async () => {
     if (!projectId) return;
-    setIsLoading(true);
+    if (!hasInitialLoadedRef.current) {
+      setIsLoading(true);
+    }
     try {
       const [
         projRes,
@@ -138,8 +167,11 @@ function ProjectOverviewContent() {
         timeRes,
         planRes,
         payRes,
+        walletRes,
+        invoicesRes,
         reqsRes,
         planVersRes,
+        planDraftRes,
         orgMemRes,
         opsUsersRes,
         adminUsersRes,
@@ -151,8 +183,11 @@ function ProjectOverviewContent() {
         timelineApi.getProjectTimeline(projectId),
         planningApi.getActivePlan(projectId),
         paymentsApi.listProjectPayments(projectId),
+        paymentsApi.getProjectWallet(projectId).catch(() => null),
+        paymentsApi.listProjectInvoices(projectId).catch(() => []),
         requestApi.listProjectRequests(projectId),
         planningApi.listPlanningVersions(projectId),
+        planningApi.getPlanningDraft(projectId).catch(() => null),
         usersApi.getOrganizationMembers().catch(() => []),
         usersApi.listUsers('operations').catch(() => []),
         usersApi.listUsers('admin').catch(() => []),
@@ -165,8 +200,11 @@ function ProjectOverviewContent() {
       if (timeRes.status === 'fulfilled') setLiveTimeline(timeRes.value || []);
       if (planRes.status === 'fulfilled') setLivePlan(planRes.value);
       if (payRes.status === 'fulfilled') setLivePayments(payRes.value || []);
+      if (walletRes.status === 'fulfilled') setLiveWallet(walletRes.value);
+      if (invoicesRes.status === 'fulfilled') setLiveInvoices(invoicesRes.value || []);
       if (reqsRes.status === 'fulfilled') setLiveRequests(reqsRes.value || []);
       if (planVersRes.status === 'fulfilled') setLivePlanningVersions(planVersRes.value || []);
+      if (planDraftRes.status === 'fulfilled') setLivePlanningDraft(planDraftRes.value);
 
       const knownMap = new Map<string, UserProfile>();
 
@@ -209,9 +247,77 @@ function ProjectOverviewContent() {
     } catch (err) {
       console.error('Error fetching project overview:', err);
     } finally {
+      hasInitialLoadedRef.current = true;
       setIsLoading(false);
     }
   }, [projectId]);
+
+  const refreshSectors = useCallback(async () => {
+    if (!projectId) return;
+    try {
+      const secRes = await sectorApi.listProjectSectors(projectId);
+      setLiveSectors(secRes || []);
+    } catch (err) {
+      console.error('Error silently refreshing sectors:', err);
+    }
+  }, [projectId]);
+
+  // Extract planned project tenure (Section 7 Expected Timelines)
+  const plannedTenure: PlannedProjectTenure | null = useMemo(() => {
+    // 1. From livePlanningDraft
+    const draftFd = livePlanningDraft?.form_data || {};
+    if (draftFd.expectedStartDate || draftFd.expectedEndDate || draftFd.expectedSurveyDays) {
+      return {
+        expectedStartDate: draftFd.expectedStartDate || '',
+        expectedEndDate: draftFd.expectedEndDate || '',
+        expectedSurveyDays: draftFd.expectedSurveyDays || '',
+        pilotTravelDate: draftFd.pilotTravelDate || '',
+        dataDeliveryTimelineDays: draftFd.dataDeliveryTimelineDays || '',
+      };
+    }
+
+    // 2. From latest livePlanningVersions
+    if (livePlanningVersions && livePlanningVersions.length > 0) {
+      for (const ver of livePlanningVersions) {
+        const verFd = ver.form_data || {};
+        if (verFd.expectedStartDate || verFd.expectedEndDate || verFd.expectedSurveyDays) {
+          return {
+            expectedStartDate: verFd.expectedStartDate || '',
+            expectedEndDate: verFd.expectedEndDate || '',
+            expectedSurveyDays: verFd.expectedSurveyDays || '',
+            pilotTravelDate: verFd.pilotTravelDate || '',
+            dataDeliveryTimelineDays: verFd.dataDeliveryTimelineDays || '',
+          };
+        }
+      }
+    }
+
+    // 3. From planningDraftData (localStorage cache)
+    if (planningDraftData && (planningDraftData.expectedStartDate || planningDraftData.expectedEndDate)) {
+      return {
+        expectedStartDate: planningDraftData.expectedStartDate || '',
+        expectedEndDate: planningDraftData.expectedEndDate || '',
+        expectedSurveyDays: planningDraftData.expectedSurveyDays || '',
+        pilotTravelDate: planningDraftData.pilotTravelDate || '',
+        dataDeliveryTimelineDays: planningDraftData.dataDeliveryTimelineDays || '',
+      };
+    }
+
+    // 4. From liveProject requirements payload
+    const reqPayload = (liveProject?.requirements_payload || {}) as Record<string, any>;
+    const pl = reqPayload.planning || reqPayload.form_data || reqPayload.feasibility || {};
+    if (pl.expectedStartDate || pl.expectedEndDate) {
+      return {
+        expectedStartDate: pl.expectedStartDate || '',
+        expectedEndDate: pl.expectedEndDate || '',
+        expectedSurveyDays: pl.expectedSurveyDays || '',
+        pilotTravelDate: pl.pilotTravelDate || '',
+        dataDeliveryTimelineDays: pl.dataDeliveryTimelineDays || '',
+      };
+    }
+
+    return null;
+  }, [livePlanningDraft, livePlanningVersions, planningDraftData, liveProject]);
 
   useEffect(() => {
     fetchProjectOverview();
@@ -401,16 +507,7 @@ function ProjectOverviewContent() {
   }, [liveProject, livePlan]);
 
   const formatDate = useCallback((dateStr?: string | null) => {
-    if (!dateStr) return '—';
-    try {
-      return new Date(dateStr).toLocaleDateString('en-GB', {
-        day: '2-digit',
-        month: '2-digit',
-        year: 'numeric',
-      });
-    } catch {
-      return dateStr;
-    }
+    return formatDateDDMMYYYY(dateStr);
   }, []);
 
   const projectDetails = useMemo(() => {
@@ -435,7 +532,14 @@ function ProjectOverviewContent() {
     }
 
     const reqPayload = (liveProject.requirements_payload || {}) as Record<string, any>;
-    const areaVal = liveProject.target_area_sqkm || reqPayload.target_area_sqkm;
+    const planningCalculatedArea =
+      (livePlanningVersions?.[0]?.form_data?.kmlCalculatedArea ? Number(livePlanningVersions[0].form_data.kmlCalculatedArea) : null) ||
+      (planningDraftData?.kmlCalculatedArea ? Number(planningDraftData.kmlCalculatedArea) : null);
+    const areaVal =
+      planningCalculatedArea ||
+      liveProject.target_area_sqkm ||
+      reqPayload.requested_area_sqkm ||
+      reqPayload.target_area_sqkm;
     const areaStr = areaVal ? `${areaVal} sq. km` : '—';
 
     const startDateRaw = reqPayload.start_date || liveProject.created_at;
@@ -476,7 +580,7 @@ function ProjectOverviewContent() {
       projectManager: 'LATRICS Operations',
       primaryContact: user?.full_name || liveProject.client_name || user?.company_name || '—',
     };
-  }, [liveProject, livePlan, liveSectors, projectId, user, formatDate]);
+  }, [liveProject, livePlan, liveSectors, projectId, user, formatDate, livePlanningVersions, planningDraftData?.kmlCalculatedArea]);
 
   // Helper to dynamically match a profile from all directory users, org members, and current session
   const findMatchingProfile = useCallback(
@@ -613,38 +717,138 @@ function ProjectOverviewContent() {
   }, [liveProject, staffUsers, isOps, user, findMatchingProfile]);
 
   const assignedPilots = useMemo<PilotCrewMember[]>(() => {
+    // 1. Raw entries from mobilisation requirements payload
     const reqPayload = (liveProject?.requirements_payload || {}) as Record<string, any>;
     const mob = reqPayload.mobilisation || {};
-    if (Array.isArray(mob.pilots) && mob.pilots.length > 0) {
-      return mob.pilots.map((p: any) => {
-        const matchedPilot =
-          findMatchingProfile([p.id, p.user_id, p.email, p.name]) ||
-          pilotUsers.find(
-            (u) =>
-              u.id === p.id ||
-              (p.email && u.email?.toLowerCase() === p.email.toLowerCase()) ||
-              (p.name && u.full_name?.toLowerCase() === p.name.toLowerCase())
-          );
+    const rawPilots: any[] = Array.isArray(mob.pilots) ? [...mob.pilots] : [];
 
-        const pilotProfile = (matchedPilot?.pilot_profile || (matchedPilot?.company_profile as any)?.pilot_profile || {}) as Record<string, any>;
-        const rawPhone = matchedPilot?.phone_number || p.contactNo;
-        const safePhone = rawPhone && typeof rawPhone === 'string' && !rawPhone.includes('@') && rawPhone.trim().length >= 5 ? rawPhone.trim() : null;
-
-        return {
-          id: p.id || matchedPilot?.id || `pilot_${Date.now()}`,
-          name: matchedPilot?.full_name || p.name || 'Certified Pilot',
-          email: matchedPilot?.email || p.email,
-          role: p.role || matchedPilot?.designation || 'Certified Remote Pilot',
-          contactNo: safePhone || '—',
-          age: pilotProfile.age ? String(pilotProfile.age) : p.age,
-          aadhaarNo: pilotProfile.aadhaar_number || p.aadhaarNo,
-          dgcaLicenseNo: pilotProfile.dgca_license_number || p.dgcaLicenseNo || (matchedPilot ? 'DGCA Verified' : undefined),
-          insuranceActive: p.insuranceActive ?? true,
-        };
+    // 2. Also collect pilots assigned across liveSectors
+    if (Array.isArray(liveSectors)) {
+      liveSectors.forEach((sec) => {
+        const planning = sec.planning || (sec.polygon_coordinates as any)?.planning || {};
+        if (Array.isArray(planning.assigned_pilots) && planning.assigned_pilots.length > 0) {
+          planning.assigned_pilots.forEach((ap: any) => {
+            if (ap && (ap.name || ap.email)) {
+              rawPilots.push({
+                id: ap.id,
+                name: ap.name,
+                email: ap.email,
+                contactNo: ap.phone || ap.contactNo,
+                is_pending_invite: ap.status === 'pending_invite' || planning.is_pending_invite,
+              });
+            }
+          });
+        } else if (planning.assigned_pilot) {
+          rawPilots.push({
+            id: planning.assigned_pilot_id,
+            name: planning.assigned_pilot,
+            email: planning.pilot_email,
+            contactNo: planning.pilot_phone,
+            is_pending_invite: planning.is_pending_invite,
+          });
+        }
       });
     }
-    return [];
-  }, [liveProject, pilotUsers, findMatchingProfile]);
+
+    if (rawPilots.length === 0) return [];
+
+    // 3. Deduplicate raw pilots
+    const deduplicated: any[] = [];
+    rawPilots.forEach((p) => {
+      if (!p || (!p.name && !p.email && !p.id)) return;
+      const cleanEmail = p.email ? p.email.trim().toLowerCase() : null;
+      const cleanName = p.name ? p.name.trim().toLowerCase() : null;
+      const cleanId = p.id ? String(p.id).trim() : null;
+
+      const existingIndex = deduplicated.findIndex((e) => {
+        if (cleanId && e.id && String(e.id).trim() === cleanId) return true;
+        if (cleanEmail && e.email && e.email.trim().toLowerCase() === cleanEmail) return true;
+        if (cleanName && e.name && e.name.trim().toLowerCase() === cleanName) return true;
+        return false;
+      });
+
+      if (existingIndex >= 0) {
+        const existing = deduplicated[existingIndex];
+        if (!existing.email && cleanEmail) existing.email = p.email;
+        if ((!existing.contactNo || existing.contactNo === '—') && p.contactNo) existing.contactNo = p.contactNo;
+        if (p.is_pending_invite !== undefined) {
+          existing.is_pending_invite = existing.is_pending_invite || p.is_pending_invite;
+        }
+        if (p.age && !existing.age) existing.age = p.age;
+        if (p.aadhaarNo && !existing.aadhaarNo) existing.aadhaarNo = p.aadhaarNo;
+        if (p.dgcaLicenseNo && !existing.dgcaLicenseNo) existing.dgcaLicenseNo = p.dgcaLicenseNo;
+      } else {
+        deduplicated.push({ ...p });
+      }
+    });
+
+    // 4. Map each deduplicated pilot with matched profile from directory
+    return deduplicated.map((p: any) => {
+      const matchedPilot =
+        findMatchingProfile([p.id, p.user_id, p.email, p.name]) ||
+        pilotUsers.find(
+          (u) =>
+            (p.id && u.id === p.id) ||
+            (p.email && u.email?.toLowerCase() === p.email.toLowerCase()) ||
+            (p.name && u.full_name?.toLowerCase() === p.name.toLowerCase())
+        ) ||
+        allDirectoryUsers.find(
+          (u) =>
+            (p.id && u.id === p.id) ||
+            (p.email && u.email?.toLowerCase() === p.email.toLowerCase()) ||
+            (p.name && u.full_name?.toLowerCase() === p.name.toLowerCase())
+        );
+
+      const pilotProfile = (matchedPilot?.pilot_profile || (matchedPilot?.company_profile as any)?.pilot_profile || {}) as Record<string, any>;
+
+      // Check if user has authenticated & filled their profile in directory
+      const hasDirectoryProfile = Boolean(
+        pilotProfile.dgca_license_number ||
+        pilotProfile.aadhaar_number ||
+        pilotProfile.age
+      );
+
+      const isRegistered = Boolean(matchedPilot && matchedPilot.id);
+      const isPendingInvite = Boolean(p.is_pending_invite && !isRegistered);
+
+      const rawPhone = matchedPilot?.phone_number || p.contactNo || p.phone;
+      const safePhone = rawPhone && typeof rawPhone === 'string' && !rawPhone.includes('@') && rawPhone.trim().length >= 5 ? rawPhone.trim() : null;
+
+      // When pilot hasn't authenticated / registered yet, or hasn't updated profile:
+      // display ONLY what Ops filled (name, email, phone) and rest remain blank!
+      const age = hasDirectoryProfile && pilotProfile.age
+        ? String(pilotProfile.age)
+        : (!isPendingInvite && !p.is_pending_invite && p.age ? String(p.age) : undefined);
+
+      const aadhaarNo = hasDirectoryProfile && pilotProfile.aadhaar_number
+        ? pilotProfile.aadhaar_number
+        : (!isPendingInvite && !p.is_pending_invite && p.aadhaarNo ? p.aadhaarNo : undefined);
+
+      const dgcaLicenseNo = hasDirectoryProfile && pilotProfile.dgca_license_number
+        ? pilotProfile.dgca_license_number
+        : (!isPendingInvite && !p.is_pending_invite && p.dgcaLicenseNo && p.dgcaLicenseNo !== 'DGCA Verified' ? p.dgcaLicenseNo : undefined);
+
+      const isProfileCompleted = Boolean(hasDirectoryProfile || (dgcaLicenseNo && !isPendingInvite && !p.is_pending_invite));
+
+      return {
+        id: p.id || matchedPilot?.id || `pilot_${p.email || p.name || Date.now()}`,
+        name: matchedPilot?.full_name || p.name || 'Certified Pilot',
+        email: matchedPilot?.email || p.email,
+        role: isPendingInvite
+          ? 'Remote Pilot (Invited)'
+          : isProfileCompleted
+          ? (matchedPilot?.designation || p.role || 'Certified Remote Pilot')
+          : 'Assigned Remote Pilot',
+        contactNo: safePhone || (p.contactNo && p.contactNo !== '—' ? p.contactNo : '—'),
+        age,
+        aadhaarNo,
+        dgcaLicenseNo,
+        insuranceActive: p.insuranceActive ?? true,
+        isPendingInvite,
+        isProfileCompleted,
+      };
+    });
+  }, [liveProject, liveSectors, pilotUsers, allDirectoryUsers, findMatchingProfile]);
 
   const handleOpenEditClientModal = async () => {
     setEditPrimaryName(primaryContact.name !== 'Primary Client' ? primaryContact.name : user?.full_name || '');
@@ -924,11 +1128,16 @@ function ProjectOverviewContent() {
         : payload.address || payload.location_address || liveProject?.survey_location || '—';
     const city = payload.city || liveProject?.city || '—';
     const state = payload.state || liveProject?.state || '—';
+    const planningCalculatedArea =
+      (livePlanningVersions?.[0]?.form_data?.kmlCalculatedArea ? Number(livePlanningVersions[0].form_data.kmlCalculatedArea) : null) ||
+      (planningDraftData?.kmlCalculatedArea ? Number(planningDraftData.kmlCalculatedArea) : null);
     const area =
-      projectDetails.totalArea && projectDetails.totalArea !== '—'
+      planningCalculatedArea
+        ? `${planningCalculatedArea} sq. km`
+        : projectDetails.totalArea && projectDetails.totalArea !== '—'
         ? projectDetails.totalArea
-        : payload.target_area_sqkm
-        ? `${payload.target_area_sqkm} sq. km`
+        : payload.target_area_sqkm || payload.requested_area_sqkm
+        ? `${payload.target_area_sqkm || payload.requested_area_sqkm} sq. km`
         : '—';
 
     // Dates
@@ -977,12 +1186,27 @@ function ProjectOverviewContent() {
       modes.push('Post-Processing');
     }
 
+    const isProcessingType = (val: string) => {
+      const clean = val.trim().toLowerCase().replace(/[\s-_]/g, '');
+      return (
+        clean === 'preprocessing' ||
+        clean === 'postprocessing' ||
+        clean === 'pre' ||
+        clean === 'post' ||
+        clean === 'both' ||
+        clean === 'processing'
+      );
+    };
+
     // Deliverables
     const deliverablesList: string[] = [];
     if (Array.isArray(payload.deliverables) && payload.deliverables.length > 0) {
       payload.deliverables.forEach((d: string) => {
         if (typeof d === 'string' && d.trim()) {
-          deliverablesList.push(d.replace(/_/g, ' '));
+          const clean = d.replace(/_/g, ' ');
+          if (!isProcessingType(clean) && !deliverablesList.some((item) => item.toLowerCase() === clean.toLowerCase())) {
+            deliverablesList.push(clean);
+          }
         }
       });
     }
@@ -990,7 +1214,7 @@ function ProjectOverviewContent() {
       Object.entries(payload.post_deliverables).forEach(([k, v]) => {
         if (v) {
           const cleanK = k.replace(/_/g, ' ');
-          if (!deliverablesList.some((item) => item.toLowerCase() === cleanK.toLowerCase())) {
+          if (!isProcessingType(cleanK) && !deliverablesList.some((item) => item.toLowerCase() === cleanK.toLowerCase())) {
             deliverablesList.push(cleanK);
           }
         }
@@ -1000,7 +1224,7 @@ function ProjectOverviewContent() {
       Object.entries(payload.pre_deliverables).forEach(([k, v]) => {
         if (v) {
           const cleanK = k.replace(/_/g, ' ');
-          if (!deliverablesList.some((item) => item.toLowerCase() === cleanK.toLowerCase())) {
+          if (!isProcessingType(cleanK) && !deliverablesList.some((item) => item.toLowerCase() === cleanK.toLowerCase())) {
             deliverablesList.push(cleanK);
           }
         }
@@ -1011,22 +1235,34 @@ function ProjectOverviewContent() {
     }
 
     // Boundary & Scope Files
+    const boundaryObj =
+      (Array.isArray(payload.attachments) &&
+        payload.attachments.find((a: any) => (a.type || '').includes('KML') || (a.category || '').includes('Boundary') || (a.name || '').endsWith('.kml') || (a.name || '').endsWith('.kmz'))) ||
+      (Array.isArray(payload.kml_files) && payload.kml_files[0]) ||
+      null;
+
     const boundaryFilename =
       payload.kml_filename ||
-      (Array.isArray(payload.kml_files) && payload.kml_files[0]?.name) ||
+      boundaryObj?.name ||
+      'Survey_Boundary.kml';
+
+    const boundaryDataUrl = boundaryObj?.dataUrl || null;
+
+    const scopeObj =
       (Array.isArray(payload.attachments) &&
-        payload.attachments.find((a: any) => (a.type || '').includes('KML') || (a.category || '').includes('Boundary'))?.name) ||
-      'School_KML.kml';
+        payload.attachments.find((a: any) => (a.type || '').includes('PDF') || (a.category || '').includes('Scope') || (a.name || '').endsWith('.pdf'))) ||
+      (Array.isArray(payload.scope_files) && payload.scope_files[0]) ||
+      null;
 
     const scopeFilename =
       payload.scope_filename ||
-      (Array.isArray(payload.scope_files) && payload.scope_files[0]?.name) ||
-      (Array.isArray(payload.attachments) &&
-        payload.attachments.find((a: any) => (a.type || '').includes('PDF') || (a.category || '').includes('Scope'))?.name) ||
+      scopeObj?.name ||
       null;
 
-    // Remarks
-    const remarks = payload.remarks || liveProject?.description || 'Standard survey operations and DGCA airspace compliance requirements.';
+    const scopeDataUrl = scopeObj?.dataUrl || null;
+
+    // Remarks: strictly client-entered remarks, no auto-generated text
+    const remarks = (payload.remarks || payload.client_notes || '').trim() || null;
 
     return {
       rawLoc,
@@ -1046,29 +1282,13 @@ function ProjectOverviewContent() {
       modes,
       deliverablesList,
       boundaryFilename,
+      boundaryDataUrl,
       scopeFilename,
+      scopeDataUrl,
       remarks,
       version: activeRequest?.version || 1,
     };
-  }, [liveProject, activeRequest, projectDetails, user, formatDate]);
-
-  const [planningDraftData, setPlanningDraftData] = useState<any>(null);
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    try {
-      const idKey = projectId || 'default';
-      const saved =
-        localStorage.getItem(`latrics_planning_draft_${idKey}`) ||
-        localStorage.getItem(`latrics_planning_draft_default`);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (parsed.formData) {
-          setPlanningDraftData(parsed.formData);
-        }
-      }
-    } catch {}
-  }, [projectId]);
+  }, [liveProject, activeRequest, projectDetails, user, formatDate, livePlanningVersions, planningDraftData?.kmlCalculatedArea]);
 
   const isPlanningFilled = useMemo(() => {
     // 1. If project has a formal PlanningFormVersion record with populated data
@@ -1250,7 +1470,7 @@ function ProjectOverviewContent() {
     const totalFlightDuration = formData.flightDurationMinutes
       ? `${formData.flightDurationMinutes} mins`
       : '—';
-    const landings = formData.numberOfLandings ? `${formData.numberOfLandings} Sorties` : '—';
+    const landings = formData.numberOfLandings ? `${formData.numberOfLandings} Flights` : '—';
     const batterySets = formData.batterySetsRequired ? `${formData.batterySetsRequired} Sets` : '—';
 
     // 7. Expected Operational Timelines
@@ -1332,8 +1552,23 @@ function ProjectOverviewContent() {
     const s = liveProject?.status?.toLowerCase() || 'submitted';
     if (s === 'completed') return 'completed';
     if (s === 'active') {
-      const allDone = liveSectors.length > 0 && liveSectors.every((sec) => sec.status === 'completed');
-      if (allDone) {
+      const payload = (liveProject?.requirements_payload || {}) as Record<string, any>;
+      const procDeliv = (payload.processing_deliverables || {}) as Record<string, any>;
+      const isDeliveredReady = Boolean(
+        procDeliv.cleared_for_delivered_at ||
+        payload.formal_acceptance?.accepted
+      );
+      const isCapturingDone = Boolean(
+        payload.stage_progression?.capturing_completed ||
+        (liveSectors.length > 0 && liveSectors.every((sec) => sec.status === 'completed' || sec.status === 'surveyed'))
+      );
+
+      if (isDeliveredReady) {
+        if (step <= 5) return 'completed';
+        if (step === 6) return 'active';
+        return 'pending';
+      }
+      if (isCapturingDone) {
         if (step <= 4) return 'completed';
         if (step === 5) return 'active';
         return 'pending';
@@ -1385,7 +1620,18 @@ function ProjectOverviewContent() {
           ? formatDate(livePlan.created_at)
           : '—',
       status: getStepStatus(st.id),
-      icon: st.id === 5 ? Lock : st.id === 6 ? Plane : CheckCircle2,
+      icon:
+        st.id === 1
+          ? ClipboardList
+          : st.id === 2
+          ? Compass
+          : st.id === 3
+          ? Users
+          : st.id === 4
+          ? Plane
+          : st.id === 5
+          ? Cpu
+          : Award,
     }));
   }, [projectDetails, livePlan, getStepStatus, formatDate]);
 
@@ -1471,7 +1717,7 @@ function ProjectOverviewContent() {
           ? '50%'
           : '0%',
       dataCaptured: sec.status === 'completed' ? '12.4 GB' : '—',
-      lastUpdated: sec.updated_at ? formatDate(sec.updated_at) : '—',
+      lastUpdated: sec.updated_at ? formatDateDDMMYYYY(sec.updated_at) : '—',
       polygonSvg: 'M 40,110 L 85,110 L 85,140 L 105,140 L 105,185 L 75,185 L 75,210 L 45,210 L 30,170 Z',
       labelPos: { x: 62, y: 155 },
     }));
@@ -1485,13 +1731,7 @@ function ProjectOverviewContent() {
         title: evt.title || (evt.action ? evt.action.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()) : 'Activity Event'),
         description: evt.description || evt.message || 'Event logged',
         date: evt.created_at
-          ? new Date(evt.created_at).toLocaleDateString('en-GB', {
-              day: '2-digit',
-              month: 'short',
-              year: 'numeric',
-              hour: '2-digit',
-              minute: '2-digit',
-            })
+          ? formatDateTimeDDMMYYYY(evt.created_at)
           : '—',
         actor: evt.actor_name || 'LATRICS Operations',
         actorType: evt.actor_role || 'system',
@@ -1713,6 +1953,156 @@ function ProjectOverviewContent() {
     );
   };
 
+  const currentActiveStageName = useMemo(() => {
+    const active = PIPELINE_STAGES.find((s) => s.id === currentActiveStageNumber);
+    return active ? active.name : 'Capturing';
+  }, [currentActiveStageNumber]);
+
+  const statusStyle = useMemo(() => {
+    const s = (liveProject?.status || '').toLowerCase();
+    if (s === 'active' || s === 'in_progress') {
+      return {
+        label: 'Active Flight',
+        bg: '#f4f4f5',
+        color: '#18181b',
+        dotColor: '#18181b',
+        border: 'none',
+      };
+    }
+    if (s === 'approved') {
+      return {
+        label: 'Approved',
+        bg: '#ecfdf5',
+        color: '#065f46',
+        dotColor: '#10b981',
+        border: '1px solid #a7f3d0',
+      };
+    }
+    if (s === 'planning' || s === 'under_review') {
+      return {
+        label: 'In Planning',
+        bg: '#fefce8',
+        color: '#854d0e',
+        dotColor: '#eab308',
+        border: '1px solid #fef08a',
+      };
+    }
+    if (s === 'completed') {
+      return {
+        label: 'Completed',
+        bg: '#f4f4f5',
+        color: '#18181b',
+        dotColor: '#18181b',
+        border: 'none',
+      };
+    }
+    if (s === 'submitted') {
+      return {
+        label: 'Request Submitted',
+        bg: '#eff6ff',
+        color: '#1d4ed8',
+        dotColor: '#3b82f6',
+        border: 'none',
+      };
+    }
+    return {
+      label: liveProject?.status
+        ? liveProject.status.charAt(0).toUpperCase() + liveProject.status.slice(1)
+        : 'Draft',
+      bg: '#f4f4f5',
+      color: '#52525b',
+      dotColor: '#71717a',
+      border: 'none',
+    };
+  }, [liveProject?.status]);
+
+  const projectMetaItems = useMemo(() => {
+    const items: Array<{ id: string; icon: React.ReactNode; label: string }> = [];
+
+    // 1. Location (only if available and not a generic placeholder)
+    const reqPayload = (liveProject?.requirements_payload || {}) as Record<string, any>;
+    const addr = (reqPayload.address || reqPayload.location_address || reqPayload.site_address || '').trim();
+    const rawLoc = (liveProject?.survey_location || '').trim();
+    const isPlaceholder =
+      !rawLoc ||
+      rawLoc.toLowerCase() === 'survey area' ||
+      rawLoc.toLowerCase() === 'survey location site' ||
+      (user?.company_name && rawLoc.toLowerCase() === user.company_name.toLowerCase()) ||
+      (liveProject?.title && rawLoc.toLowerCase() === liveProject.title.toLowerCase());
+
+    let finalLoc: string | null = null;
+    if (addr && addr !== '—') {
+      finalLoc = addr;
+    } else if (rawLoc && !isPlaceholder && rawLoc !== '—') {
+      finalLoc = rawLoc;
+    } else {
+      const city = (reqPayload.city || liveProject?.city || '').trim();
+      const state = (reqPayload.state || liveProject?.state || '').trim();
+      if (city && state) finalLoc = `${city}, ${state}`;
+      else if (city) finalLoc = city;
+      else if (state) finalLoc = state;
+    }
+
+    if (finalLoc) {
+      items.push({
+        id: 'location',
+        icon: <MapPin size={15} color="#6b7280" />,
+        label: finalLoc,
+      });
+    }
+
+    // 2. Target Area (only if available and > 0)
+    const planningCalculatedArea =
+      (livePlanningVersions?.[0]?.form_data?.kmlCalculatedArea ? Number(livePlanningVersions[0].form_data.kmlCalculatedArea) : null) ||
+      (planningDraftData?.kmlCalculatedArea ? Number(planningDraftData.kmlCalculatedArea) : null);
+    const areaVal =
+      planningCalculatedArea ||
+      liveProject?.target_area_sqkm ||
+      reqPayload.requested_area_sqkm ||
+      reqPayload.target_area_sqkm;
+    if (areaVal && Number(areaVal) > 0) {
+      items.push({
+        id: 'area',
+        icon: <Compass size={15} color="#6b7280" />,
+        label: `${areaVal} sq. km`,
+      });
+    }
+
+    // 3. Sensor / Payload (only if available and not placeholder)
+    const sensorVal =
+      liveProject?.payload ||
+      reqPayload.payload_sensor ||
+      reqPayload.sensor ||
+      reqPayload.payload ||
+      reqPayload.mobilisation?.hardware?.sensorPayload ||
+      liveProject?.survey_type ||
+      reqPayload.survey_type;
+    if (sensorVal && typeof sensorVal === 'string' && sensorVal.trim() && sensorVal !== '—') {
+      items.push({
+        id: 'sensor',
+        icon: <Camera size={15} color="#6b7280" />,
+        label: sensorVal.replace(/_/g, ' ').trim(),
+      });
+    }
+
+    // 4. Created Date (only if available from backend)
+    if (liveProject?.created_at) {
+      try {
+        const d = new Date(liveProject.created_at);
+        if (!isNaN(d.getTime())) {
+          const formatted = formatDateDDMMYYYY(d);
+          items.push({
+            id: 'created',
+            icon: <Calendar size={15} color="#6b7280" />,
+            label: `Created ${formatted}`,
+          });
+        }
+      } catch {}
+    }
+
+    return items;
+  }, [liveProject, user, livePlanningVersions, planningDraftData?.kmlCalculatedArea]);
+
   if (isLoading) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '60vh', gap: '0.75rem' }}>
@@ -1724,182 +2114,311 @@ function ProjectOverviewContent() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-      {/* ── 1. Top Breadcrumbs & Clean Project Title Bar (No Redundant Info) ── */}
+      {/* ── UNIFIED EXECUTIVE PROJECT CONTROL & LIFECYCLE STAGES PIPELINE ── */}
       <div
         className="wf-card"
         style={{
+          padding: '1.5rem 1.75rem',
           display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          padding: '1rem 1.25rem',
-          flexWrap: 'wrap',
-          gap: '1rem',
+          flexDirection: 'column',
+          backgroundColor: '#ffffff',
+          borderRadius: '16px',
+          border: '1px solid #e5e7eb',
+          boxShadow: '0 1px 3px rgba(0, 0, 0, 0.04)',
         }}
       >
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
-          {/* Breadcrumb Navigation */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.775rem' }}>
-            <Link
-              href="/projects"
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '0.2rem',
-                color: 'var(--text-secondary)',
-                fontWeight: 500,
-                textDecoration: 'none',
-              }}
-            >
-              <ChevronLeft size={13} /> Projects
-            </Link>
-            <span style={{ color: 'var(--text-muted)' }}>/</span>
-            <span style={{ color: '#09090b', fontWeight: 600 }}>{projectDetails.title}</span>
-          </div>
-
-          {/* Title and Status Badge */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-            <h1 style={{ fontSize: '1.4rem', fontWeight: 800, color: '#09090b', margin: 0, lineHeight: 1.2 }}>
-              {projectDetails.title}
-            </h1>
-            <span
-              style={{
-                fontSize: '0.725rem',
-                fontWeight: 700,
-                padding: '0.15rem 0.55rem',
-                borderRadius: '4px',
-                border: '1px solid #09090b',
-                backgroundColor: '#ffffff',
-                textTransform: 'lowercase',
-                letterSpacing: '0.02em',
-              }}
-            >
-              {projectDetails.status}
-            </span>
-          </div>
-        </div>
-
-        {/* Action Buttons */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
-          {isPlanningPhase && (
-            <button
-              onClick={() => router.push(`/projects/${projectId}/plan-review`)}
-              className="btn btn-primary"
-              style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem', height: '36px' }}
-            >
-              <FileText size={14} /> Plan Review
-            </button>
-          )}
-          <button
-            className="btn btn-secondary"
-            style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem', height: '36px' }}
-          >
-            <Download size={14} /> Export Report
-          </button>
-        </div>
-      </div>
-
-      {/* ── 3. 6-Step Lifecycle Horizontal Stepper Bar (Exact Match to Screenshot) ── */}
-      <div className="wf-card" style={{ padding: '1rem 1.25rem' }}>
+        {/* Top Partition: Breadcrumbs, Project Identity, Dynamic Badges & Action Buttons */}
         <div
           style={{
             display: 'flex',
-            alignItems: 'center',
             justifyContent: 'space-between',
-            position: 'relative',
-            overflowX: 'auto',
-            padding: '0.5rem 0',
+            alignItems: 'flex-start',
+            flexWrap: 'wrap',
+            gap: '1rem',
           }}
         >
-          {lifecycleSteps.map((step, idx) => {
-            const Icon = step.icon;
-            const isCompleted = step.status === 'completed';
-            const isActive = step.status === 'active';
-            const isSelected = selectedStageId === step.step;
-
-            return (
-              <div
-                key={step.step}
-                onClick={() => {
-                  setSelectedStageId(step.step);
-                  setActiveTab('stage');
-                }}
+          {/* Left Column: Breadcrumb + Project Title + Status Pill + Metadata */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', minWidth: 0, flex: '1 1 340px' }}>
+            {/* Breadcrumb Navigation Trail */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', fontSize: '0.8rem', color: '#6b7280' }}>
+              <Link
+                href="/projects"
                 style={{
-                  display: 'flex',
-                  flexDirection: 'column',
+                  display: 'inline-flex',
                   alignItems: 'center',
-                  textAlign: 'center',
-                  minWidth: '110px',
-                  flex: 1,
-                  position: 'relative',
-                  cursor: 'pointer',
-                  padding: '0.4rem 0.2rem',
-                  borderRadius: '6px',
-                  backgroundColor: isSelected ? '#f4f4f5' : 'transparent',
-                  transition: 'all 0.15s ease',
+                  color: '#9ca3af',
+                  textDecoration: 'none',
+                  transition: 'color 0.15s ease',
                 }}
-                title={`Click to view Stage ${step.step} (${step.label}) - ${isCompleted ? 'Closed (Read-Only)' : isActive ? 'Active' : 'Upcoming'}`}
+                onMouseEnter={(e) => (e.currentTarget.style.color = '#111827')}
+                onMouseLeave={(e) => (e.currentTarget.style.color = '#9ca3af')}
               >
-                {/* Horizontal Connector Line */}
-                {idx < lifecycleSteps.length - 1 && (
+                <Home size={15} />
+              </Link>
+              <ChevronRight size={13} color="#9ca3af" />
+              <Link
+                href="/projects"
+                style={{
+                  color: '#6b7280',
+                  fontWeight: 500,
+                  textDecoration: 'none',
+                  transition: 'color 0.15s ease',
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.color = '#111827')}
+                onMouseLeave={(e) => (e.currentTarget.style.color = '#6b7280')}
+              >
+                Projects
+              </Link>
+              <ChevronRight size={13} color="#9ca3af" />
+              <span style={{ color: '#111827', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {liveProject?.title || projectDetails.title}
+              </span>
+              <span
+                style={{
+                  fontSize: '0.68rem',
+                  fontWeight: 600,
+                  padding: '0.15rem 0.5rem',
+                  borderRadius: '6px',
+                  backgroundColor: '#f3f4f6',
+                  color: '#6b7280',
+                  fontFamily: 'monospace',
+                  letterSpacing: '0.03em',
+                  marginLeft: '0.2rem',
+                }}
+              >
+                PROJ-{(liveProject?.id || projectId).slice(0, 8).toUpperCase()}
+              </span>
+            </div>
+
+            {/* Title & Status Badge Row */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem', flexWrap: 'wrap' }}>
+              <h1 style={{ fontSize: '1.75rem', fontWeight: 800, color: '#111827', margin: 0, lineHeight: 1.15, letterSpacing: '-0.02em' }}>
+                {liveProject?.title || projectDetails.title}
+              </h1>
+              <span
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.35rem',
+                  fontSize: '0.75rem',
+                  fontWeight: 600,
+                  padding: '0.25rem 0.75rem',
+                  borderRadius: '9999px',
+                  backgroundColor: statusStyle.bg,
+                  color: statusStyle.color,
+                  border: statusStyle.border,
+                  letterSpacing: '0.01em',
+                }}
+              >
+                <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: statusStyle.dotColor }} />
+                {statusStyle.label}
+              </span>
+            </div>
+
+            {/* Dynamic Metadata Row (Only displaying data present in backend) */}
+            {projectMetaItems.length > 0 && (
+              <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '0.2rem', marginTop: '0.15rem' }}>
+                {projectMetaItems.map((item, idx) => (
+                  <React.Fragment key={item.id}>
+                    {idx > 0 && <span style={{ color: '#d1d5db', margin: '0 0.5rem' }}>|</span>}
+                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.8rem', color: '#4b5563', fontWeight: 500 }}>
+                      {item.icon}
+                      <span>{item.label}</span>
+                    </div>
+                  </React.Fragment>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Structural Divider */}
+        <div style={{ height: '1px', backgroundColor: '#f3f4f6', margin: '1.25rem 0 1rem 0' }} />
+
+        {/* Bottom Partition: Project Stages Stepper */}
+        <div style={{ display: 'flex', flexDirection: 'column' }}>
+          {/* Stepper Header Strip */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '1.5rem' }}>
+            <span style={{ fontSize: '0.85rem', fontWeight: 600, color: '#6b7280' }}>
+              Project Stage
+            </span>
+            <span style={{ fontSize: '0.8rem', color: '#6b7280' }}>
+              Stage {currentActiveStageNumber} of 6
+              <span style={{ color: '#d1d5db', margin: '0 0.5rem' }}>•</span>
+              <strong style={{ color: '#111827', fontWeight: 700 }}>{currentActiveStageName}</strong>
+            </span>
+          </div>
+
+          {/* 6-Stage Stepper Track with Connected Line Connectors */}
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'flex-start',
+              position: 'relative',
+              width: '100%',
+              padding: '0 0.5rem',
+            }}
+          >
+            {PIPELINE_STAGES.map((st, idx) => {
+              const isLast = idx === PIPELINE_STAGES.length - 1;
+              const status = getStepStatus(st.id);
+              const isCompleted = status === 'completed';
+              const isActive = status === 'active';
+              const isUpcoming = status === 'pending';
+              const isSelected = selectedStageId === st.id;
+
+              const StageIcon =
+                st.id === 1
+                  ? FileText
+                  : st.id === 2
+                  ? FileText
+                  : st.id === 3
+                  ? Users
+                  : st.id === 4
+                  ? Plane
+                  : st.id === 5
+                  ? Settings
+                  : Flag;
+
+              const nextStatus = !isLast ? getStepStatus(PIPELINE_STAGES[idx + 1].id) : null;
+              let connectorStyle: React.CSSProperties = {
+                borderTop: '2px dashed #d1d5db',
+              };
+              if (isCompleted && nextStatus === 'completed') {
+                connectorStyle = { borderTop: '2.5px solid #16a34a' };
+              } else if (isCompleted && nextStatus === 'active') {
+                connectorStyle = { borderTop: '2.5px solid #18181b' };
+              }
+
+              return (
+                <div
+                  key={st.id}
+                  onClick={() => {
+                    setSelectedStageId(st.id);
+                    setActiveTab('stage');
+                  }}
+                  style={{
+                    flex: 1,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    textAlign: 'center',
+                    position: 'relative',
+                    cursor: 'pointer',
+                  }}
+                >
+                  {/* Connecting Line to next stage */}
+                  {!isLast && (
+                    <div
+                      style={{
+                        position: 'absolute',
+                        top: '24px',
+                        left: '50%',
+                        width: '100%',
+                        height: '0px',
+                        zIndex: 1,
+                        transform: 'translateY(-50%)',
+                        ...connectorStyle,
+                      }}
+                    />
+                  )}
+
+                  {/* Node Circle */}
                   <div
                     style={{
-                      position: 'absolute',
-                      top: '18px',
-                      left: '50%',
-                      width: '100%',
-                      height: '2px',
-                      backgroundColor: isCompleted ? '#09090b' : '#e4e4e7',
-                      zIndex: 1,
+                      position: 'relative',
+                      zIndex: 2,
+                      width: '48px',
+                      height: '48px',
+                      borderRadius: '50%',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      transition: 'all 0.2s ease',
+                      backgroundColor: isCompleted
+                        ? '#e8f8f0'
+                        : isActive
+                        ? '#18181b'
+                        : '#f3f4f6',
+                      boxShadow: isActive
+                        ? '0 0 0 6px #f4f4f5'
+                        : isSelected
+                        ? '0 0 0 4px #e4e4e7'
+                        : 'none',
                     }}
-                  />
-                )}
+                  >
+                    <StageIcon
+                      size={20}
+                      color={isCompleted ? '#16a34a' : isActive ? '#ffffff' : '#6b7280'}
+                      strokeWidth={isActive ? 2.2 : 2}
+                    />
 
-                {/* Step Node Icon Circle */}
-                <div
-                  style={{
-                    width: '30px',
-                    height: '30px',
-                    borderRadius: '50%',
-                    border: isSelected ? '2.5px solid #09090b' : '1.5px solid #09090b',
-                    backgroundColor: isCompleted || isActive ? '#ffffff' : '#fafafa',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    zIndex: 2,
-                    marginBottom: '0.4rem',
-                    color: isCompleted || isActive ? '#09090b' : '#a1a1aa',
-                    boxShadow: isSelected ? '0 0 0 3px rgba(0,0,0,0.15)' : 'none',
-                  }}
-                >
-                  <Icon size={14} strokeWidth={isCompleted || isActive ? 2.5 : 1.5} />
+                    {/* Green Checkmark Badge for Completed Stages */}
+                    {isCompleted && (
+                      <div
+                        style={{
+                          position: 'absolute',
+                          top: '-2px',
+                          right: '-2px',
+                          width: '16px',
+                          height: '16px',
+                          borderRadius: '50%',
+                          backgroundColor: '#16a34a',
+                          border: '2px solid #ffffff',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}
+                      >
+                        <Check size={9} strokeWidth={3.5} color="#ffffff" />
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Stage Details Below Circle */}
+                  <div style={{ marginTop: '0.75rem', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                    <span style={{ fontSize: '0.75rem', fontWeight: 600, color: '#9ca3af', lineHeight: 1 }}>
+                      0{st.id}
+                    </span>
+                    <span
+                      style={{
+                        fontSize: '0.875rem',
+                        fontWeight: 700,
+                        color: '#111827',
+                        marginTop: '0.25rem',
+                        lineHeight: 1.2,
+                      }}
+                    >
+                      {st.name}
+                    </span>
+                    <span
+                      style={{
+                        fontSize: '0.75rem',
+                        fontWeight: 500,
+                        color: isCompleted ? '#6b7280' : isActive ? '#6b7280' : '#9ca3af',
+                        marginTop: '0.15rem',
+                        lineHeight: 1.2,
+                      }}
+                    >
+                      {isCompleted ? 'Completed' : isActive ? 'In Progress' : 'Upcoming'}
+                    </span>
+                    {isSelected && (
+                      <div
+                        style={{
+                          width: '16px',
+                          height: '3px',
+                          borderRadius: '2px',
+                          backgroundColor: '#18181b',
+                          marginTop: '0.35rem',
+                        }}
+                      />
+                    )}
+                  </div>
                 </div>
-
-                {/* Step Text Label */}
-                <span
-                  style={{
-                    fontSize: '0.725rem',
-                    fontWeight: isSelected ? 800 : isCompleted || isActive ? 700 : 500,
-                    color: isSelected ? '#09090b' : isCompleted || isActive ? '#09090b' : 'var(--text-muted)',
-                    lineHeight: 1.2,
-                  }}
-                >
-                  {step.label}
-                </span>
-
-                {/* Step Date / Status Subtitle */}
-                <span
-                  style={{
-                    fontSize: '0.65rem',
-                    color: isSelected ? '#09090b' : 'var(--text-secondary)',
-                    marginTop: '0.15rem',
-                    fontWeight: isSelected ? 600 : 400,
-                  }}
-                >
-                  {isCompleted ? 'Closed' : isActive ? 'Active' : 'Upcoming'}
-                </span>
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
         </div>
       </div>
 
@@ -1934,7 +2453,13 @@ function ProjectOverviewContent() {
         <CapturingStageWorkspace
           project={liveProject}
           sectors={liveSectors}
+          plannedTenure={plannedTenure}
           onRefresh={fetchProjectOverview}
+          onSectorsRefresh={refreshSectors}
+          onAdvanceStage={(st) => {
+            setSelectedStageId(st);
+            setActiveTab('stage');
+          }}
           availablePilots={pilotUsers.map((p) => ({ id: p.id, name: p.full_name || p.email || 'Pilot', email: p.email }))}
           availableDrones={['DJI Matrice 350 RTK', 'Zenmuse P1', 'DJI Mavic 3 Enterprise', 'WingtraOne GEN II']}
           userRole={user?.role}
@@ -1946,24 +2471,40 @@ function ProjectOverviewContent() {
         <ProcessingStageWorkspace
           project={liveProject}
           onRefresh={fetchProjectOverview}
+          onAdvanceStage={(st) => {
+            setSelectedStageId(st);
+            setActiveTab('stage');
+          }}
+          userRole={user?.role}
+          userName={user?.full_name || user?.company_name || 'User'}
+          stageMessages={currentStageMessages}
+          onSendMessage={handleSendStageMessage}
+        />
+      ) : activeTab === 'stage' && selectedStage.id === 6 ? (
+        <DeliveredStageWorkspace
+          project={liveProject}
+          payments={livePayments}
+          wallet={liveWallet}
+          invoices={liveInvoices}
+          onRefresh={fetchProjectOverview}
           userRole={user?.role}
           userName={user?.full_name || user?.company_name || 'User'}
           stageMessages={currentStageMessages}
           onSendMessage={handleSendStageMessage}
         />
       ) : activeTab === 'stage' ? (
-        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '1.25rem', alignItems: 'stretch' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 2fr) minmax(0, 1fr)', gap: '1.25rem', alignItems: 'stretch' }}>
           {/* Left: Current Stage Details & Context Card */}
           <div
             className="wf-card"
             style={{
               display: 'flex',
               flexDirection: 'column',
-              gap: (selectedStage.id === 1 || selectedStage.id === 2) ? '0.75rem' : '1.25rem',
               height: '100%',
-              minHeight: '520px',
+              minHeight: '620px',
               maxHeight: '620px',
               overflow: 'hidden',
+              padding: 0,
             }}
           >
             <div
@@ -1974,8 +2515,9 @@ function ProjectOverviewContent() {
                 alignItems: 'center',
                 flexWrap: 'wrap',
                 gap: '0.5rem',
-                paddingBottom: (selectedStage.id === 1 || selectedStage.id === 2) ? '0.75rem' : 0,
-                borderBottom: (selectedStage.id === 1 || selectedStage.id === 2) ? '1px solid var(--border-color)' : 'none',
+                padding: '0.85rem 1.25rem',
+                margin: 0,
+                borderBottom: '1px solid var(--border-color)',
                 flexShrink: 0,
               }}
             >
@@ -2142,6 +2684,33 @@ function ProjectOverviewContent() {
                     </button>
                   </div>
                 )}
+
+                {selectedStage.id === 6 && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                    <button
+                      onClick={() => router.push(`/activity-logs?projectId=${projectId}&tab=documents`)}
+                      className={projectDetails.status === 'completed' ? 'btn btn-primary' : 'btn btn-secondary'}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '0.4rem',
+                        height: '32px',
+                        padding: '0 0.85rem',
+                        fontSize: '0.75rem',
+                        fontWeight: 600,
+                        whiteSpace: 'nowrap',
+                        backgroundColor: projectDetails.status === 'completed' ? '#09090b' : '#ffffff',
+                        color: projectDetails.status === 'completed' ? '#ffffff' : '#09090b',
+                        border: projectDetails.status === 'completed' ? '1px solid #09090b' : '1px solid #d4d4d8',
+                        borderRadius: '4px',
+                      }}
+                      title="Access all survey deliverables and flight documents"
+                    >
+                      <Download size={13} />
+                      Access Deliverables
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -2240,10 +2809,10 @@ function ProjectOverviewContent() {
                   style={{
                     flex: 1,
                     overflowY: 'auto',
-                    paddingRight: '0.4rem',
+                    padding: '1.25rem',
                     display: 'flex',
                     flexDirection: 'column',
-                    gap: '1.25rem',
+                    gap: '1rem',
                   }}
                 >
                   {/* Section 1: Project & Survey Location */}
@@ -2276,7 +2845,14 @@ function ProjectOverviewContent() {
                       </div>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem' }}>
                         <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Target Survey Area</span>
-                        <strong style={{ color: '#09090b' }}>{reqFormDetails.area}</strong>
+                        <strong style={{ color: '#09090b', display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}>
+                          <span>{reqFormDetails.area}</span>
+                          {(livePlanningVersions?.[0]?.form_data?.kmlCalculatedArea || planningDraftData?.kmlCalculatedArea) && (
+                            <span style={{ fontSize: '0.65rem', color: '#16a34a', fontWeight: 600, backgroundColor: '#f0fdf4', padding: '1px 5px', borderRadius: '3px', border: '1px solid #bbf7d0' }}>
+                              Calculated by Latrics
+                            </span>
+                          )}
+                        </strong>
                       </div>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem' }}>
                         <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Submission Date</span>
@@ -2411,31 +2987,135 @@ function ProjectOverviewContent() {
                     </div>
 
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', padding: '0.65rem 0.85rem', backgroundColor: '#fafafa', border: '1px solid var(--border-color)', borderRadius: '6px' }}>
-                        <FileText size={18} color="#09090b" style={{ flexShrink: 0 }} />
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#09090b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                            {reqFormDetails.boundaryFilename}
+                      <div
+                        onClick={() => {
+                          downloadDocument({
+                            name: reqFormDetails.boundaryFilename,
+                            dataUrl: reqFormDetails.boundaryDataUrl || undefined,
+                            type: reqFormDetails.boundaryFilename.endsWith('.kmz') ? 'KMZ' : 'KML',
+                            projectTitle: liveProject?.title,
+                          });
+                        }}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          gap: '0.65rem',
+                          padding: '0.65rem 0.85rem',
+                          backgroundColor: '#fafafa',
+                          border: '1px solid var(--border-color)',
+                          borderRadius: '6px',
+                          cursor: 'pointer',
+                          transition: 'border-color 0.15s ease, background-color 0.15s ease',
+                        }}
+                        title={`Click to download ${reqFormDetails.boundaryFilename} directly`}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.55rem', minWidth: 0, flex: 1 }}>
+                          <FileText size={18} color="#09090b" style={{ flexShrink: 0 }} />
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#09090b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textDecoration: 'underline', textUnderlineOffset: '2px' }}>
+                              {reqFormDetails.boundaryFilename}
+                            </div>
+                            <span style={{ fontSize: '0.675rem', color: 'var(--text-muted)' }}>Survey Boundary File (KML/KMZ)</span>
                           </div>
-                          <span style={{ fontSize: '0.675rem', color: 'var(--text-muted)' }}>Survey Boundary File (KML/KMZ)</span>
                         </div>
-                        <span style={{ fontSize: '0.65rem', fontWeight: 700, padding: '0.15rem 0.4rem', backgroundColor: '#f4f4f5', border: '1px solid #d4d4d8', borderRadius: '3px', color: '#52525b' }}>
-                          AOI KML
-                        </span>
+                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', flexShrink: 0 }} onClick={(e) => e.stopPropagation()}>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              downloadDocument({
+                                name: reqFormDetails.boundaryFilename,
+                                dataUrl: reqFormDetails.boundaryDataUrl || undefined,
+                                type: reqFormDetails.boundaryFilename.endsWith('.kmz') ? 'KMZ' : 'KML',
+                                projectTitle: liveProject?.title,
+                              });
+                            }}
+                            title="Download boundary file directly"
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '0.25rem',
+                              padding: '0.3rem 0.65rem',
+                              fontSize: '0.725rem',
+                              fontWeight: 600,
+                              color: '#ffffff',
+                              backgroundColor: '#09090b',
+                              border: 'none',
+                              borderRadius: '4px',
+                              cursor: 'pointer',
+                              transition: 'background-color 0.15s ease',
+                            }}
+                          >
+                            <Download size={13} />
+                            Download
+                          </button>
+                        </div>
                       </div>
 
                       {reqFormDetails.scopeFilename ? (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', padding: '0.65rem 0.85rem', backgroundColor: '#fafafa', border: '1px solid var(--border-color)', borderRadius: '6px' }}>
-                          <FileText size={18} color="#09090b" style={{ flexShrink: 0 }} />
-                          <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#09090b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                              {reqFormDetails.scopeFilename}
+                        <div
+                          onClick={() => {
+                            downloadDocument({
+                              name: reqFormDetails.scopeFilename!,
+                              dataUrl: reqFormDetails.scopeDataUrl || undefined,
+                              type: 'PDF',
+                              projectTitle: liveProject?.title,
+                            });
+                          }}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: '0.65rem',
+                            padding: '0.65rem 0.85rem',
+                            backgroundColor: '#fafafa',
+                            border: '1px solid var(--border-color)',
+                            borderRadius: '6px',
+                            cursor: 'pointer',
+                            transition: 'border-color 0.15s ease, background-color 0.15s ease',
+                          }}
+                          title={`Click to download ${reqFormDetails.scopeFilename} directly`}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.55rem', minWidth: 0, flex: 1 }}>
+                            <FileText size={18} color="#09090b" style={{ flexShrink: 0 }} />
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#09090b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textDecoration: 'underline', textUnderlineOffset: '2px' }}>
+                                {reqFormDetails.scopeFilename}
+                              </div>
+                              <span style={{ fontSize: '0.675rem', color: 'var(--text-muted)' }}>Scope Specification Document</span>
                             </div>
-                            <span style={{ fontSize: '0.675rem', color: 'var(--text-muted)' }}>Scope Specification Document</span>
                           </div>
-                          <span style={{ fontSize: '0.65rem', fontWeight: 700, padding: '0.15rem 0.4rem', backgroundColor: '#f4f4f5', border: '1px solid #d4d4d8', borderRadius: '3px', color: '#52525b' }}>
-                            Scope Doc
-                          </span>
+                          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', flexShrink: 0 }} onClick={(e) => e.stopPropagation()}>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                downloadDocument({
+                                  name: reqFormDetails.scopeFilename!,
+                                  dataUrl: reqFormDetails.scopeDataUrl || undefined,
+                                  type: 'PDF',
+                                  projectTitle: liveProject?.title,
+                                });
+                              }}
+                              title="Download scope document directly"
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '0.25rem',
+                                padding: '0.3rem 0.65rem',
+                                fontSize: '0.725rem',
+                                fontWeight: 600,
+                                color: '#ffffff',
+                                backgroundColor: '#09090b',
+                                border: 'none',
+                                borderRadius: '4px',
+                                cursor: 'pointer',
+                                transition: 'background-color 0.15s ease',
+                              }}
+                            >
+                              <Download size={13} />
+                              Download
+                            </button>
+                          </div>
                         </div>
                       ) : (
                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', padding: '0.65rem 0.85rem', backgroundColor: '#fafafa', border: '1px dashed var(--border-color)', borderRadius: '6px', color: 'var(--text-muted)', fontSize: '0.75rem' }}>
@@ -2454,8 +3134,8 @@ function ProjectOverviewContent() {
                         6. Remarks &amp; Special Site Instructions
                       </h4>
                     </div>
-                    <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: 0, lineHeight: 1.5, fontStyle: reqFormDetails.remarks ? 'normal' : 'italic' }}>
-                      &ldquo;{reqFormDetails.remarks}&rdquo;
+                    <p style={{ fontSize: '0.8rem', color: reqFormDetails.remarks ? '#09090b' : 'var(--text-secondary)', margin: 0, lineHeight: 1.5, fontStyle: reqFormDetails.remarks ? 'normal' : 'italic' }}>
+                      {reqFormDetails.remarks ? reqFormDetails.remarks : 'No special remarks or site instructions provided.'}
                     </p>
                   </div>
                 </div>
@@ -2559,33 +3239,12 @@ function ProjectOverviewContent() {
                   style={{
                     flex: 1,
                     overflowY: 'auto',
-                    paddingRight: '0.4rem',
+                    padding: '1.25rem',
                     display: 'flex',
                     flexDirection: 'column',
-                    gap: '1.25rem',
+                    gap: '1rem',
                   }}
                 >
-                  {/* Completed & Sealed Stage Banner */}
-                  {getStepStatus(2) === 'completed' && (
-                    <div
-                      style={{
-                        padding: '0.6rem 0.85rem',
-                        backgroundColor: '#fafafa',
-                        border: '1px solid #d4d4d8',
-                        borderRadius: '6px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '0.45rem',
-                        fontSize: '0.75rem',
-                        color: '#18181b',
-                        fontWeight: 600,
-                      }}
-                    >
-                      <Lock size={14} color="#09090b" />
-                      <span>Stage 2 (Planning) Completed &amp; Sealed — Operational plan is locked as an immutable audit record.</span>
-                    </div>
-                  )}
-
                   {/* 1. KML Findings & Boundary Demarcation */}
                   <div style={{ border: '1px solid var(--border-color)', borderRadius: '8px', padding: '1rem', backgroundColor: '#ffffff' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.85rem', borderBottom: '1px solid #f4f4f5', paddingBottom: '0.5rem' }}>
@@ -2771,7 +3430,7 @@ function ProjectOverviewContent() {
                         <strong style={{ color: '#09090b' }}>{planningDetails.totalFlightDuration}</strong>
                       </div>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem' }}>
-                        <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Mission Sorties / Landings</span>
+                        <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Mission Flights / Landings</span>
                         <strong style={{ color: '#09090b' }}>{planningDetails.landings}</strong>
                       </div>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem' }}>
@@ -2844,45 +3503,7 @@ function ProjectOverviewContent() {
 
             {/* Stage 3: Mobilising Details */}
             {selectedStage.id === 3 && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', overflowY: 'auto', paddingRight: '0.25rem' }}>
-                {/* Stage Header Info Banner */}
-                <div
-                  style={{
-                    backgroundColor: '#fafafa',
-                    border: '1px solid #e4e4e7',
-                    borderRadius: '8px',
-                    padding: '0.85rem 1rem',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    gap: '1rem',
-                    flexWrap: 'wrap',
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
-                    <div
-                      style={{
-                        width: '34px',
-                        height: '34px',
-                        borderRadius: '6px',
-                        backgroundColor: '#09090b',
-                        color: '#ffffff',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        flexShrink: 0,
-                      }}
-                    >
-                      <Plane size={18} />
-                    </div>
-                    <div>
-                      <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#09090b' }}>
-                        Stakeholder Contacts &amp; Flight Crew Mobilisation
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
+              <div style={{ flex: 1, overflowY: 'auto', padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                 {/* 2-Column Grid: Left = Client Contacts, Right = LATRICS Operations & Flight Crew */}
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', alignItems: 'stretch' }}>
                   {/* Column 1: Client Parameter */}
@@ -3235,20 +3856,52 @@ function ProjectOverviewContent() {
                                     {p.name}
                                   </span>
                                 </div>
-                                <span
-                                  style={{
-                                    fontSize: '0.65rem',
-                                    fontWeight: 700,
-                                    color: '#09090b',
-                                    backgroundColor: '#f4f4f5',
-                                    padding: '0.1rem 0.35rem',
-                                    borderRadius: '3px',
-                                    border: '1px solid #d4d4d8',
-                                    flexShrink: 0,
-                                  }}
-                                >
-                                  DGCA Certified
-                                </span>
+                                {p.isPendingInvite ? (
+                                  <span
+                                    style={{
+                                      fontSize: '0.65rem',
+                                      fontWeight: 700,
+                                      color: '#b45309',
+                                      backgroundColor: '#fef3c7',
+                                      padding: '0.1rem 0.35rem',
+                                      borderRadius: '3px',
+                                      border: '1px solid #fde68a',
+                                      flexShrink: 0,
+                                    }}
+                                  >
+                                    🟡 Pending Invite
+                                  </span>
+                                ) : !p.isProfileCompleted ? (
+                                  <span
+                                    style={{
+                                      fontSize: '0.65rem',
+                                      fontWeight: 700,
+                                      color: '#71717a',
+                                      backgroundColor: '#f4f4f5',
+                                      padding: '0.1rem 0.35rem',
+                                      borderRadius: '3px',
+                                      border: '1px solid #d4d4d8',
+                                      flexShrink: 0,
+                                    }}
+                                  >
+                                    Profile Pending
+                                  </span>
+                                ) : (
+                                  <span
+                                    style={{
+                                      fontSize: '0.65rem',
+                                      fontWeight: 700,
+                                      color: '#09090b',
+                                      backgroundColor: '#f4f4f5',
+                                      padding: '0.1rem 0.35rem',
+                                      borderRadius: '3px',
+                                      border: '1px solid #d4d4d8',
+                                      flexShrink: 0,
+                                    }}
+                                  >
+                                    DGCA Certified
+                                  </span>
+                                )}
                               </div>
 
                               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.35rem 0.6rem', fontSize: '0.725rem' }}>
@@ -3448,7 +4101,30 @@ function ProjectOverviewContent() {
                         <tr key={sec.id}>
                           <td style={{ fontWeight: 700 }}>{sec.name}</td>
                           <td>
-                            <span style={{ fontSize: '0.725rem', fontWeight: 600 }}>● {sec.status}</span>
+                            <span
+                              style={{
+                                fontSize: '0.725rem',
+                                fontWeight: 700,
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '5px',
+                                padding: '2px 8px',
+                                borderRadius: '4px',
+                                backgroundColor: sec.status === 'Completed' ? 'rgba(22, 163, 74, 0.15)' : '#f4f4f5',
+                                color: sec.status === 'Completed' ? '#16a34a' : '#52525b',
+                                border: sec.status === 'Completed' ? '1px solid #22c55e' : '1px solid #d4d4d8',
+                              }}
+                            >
+                              <span
+                                style={{
+                                  width: '6px',
+                                  height: '6px',
+                                  borderRadius: '50%',
+                                  backgroundColor: sec.status === 'Completed' ? '#16a34a' : '#71717a',
+                                }}
+                              />
+                              {sec.status}
+                            </span>
                           </td>
                           <td>{sec.coverage}</td>
                           <td>{sec.dataCaptured}</td>
@@ -3487,39 +4163,133 @@ function ProjectOverviewContent() {
               </div>
             )}
 
-            {/* Stage 6: Delivered Details */}
+            {/* Stage 6: Delivered Details (matching Stages 1, 2, 3 rich structured card layout) */}
             {selectedStage.id === 6 && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem' }}>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
-                    <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Project Handover Status</span>
-                    <span style={{ fontSize: '0.85rem', fontWeight: 700 }}>
-                      {projectDetails.status === 'completed' ? 'Completed & Handed Over' : 'Pending Stage 5 Completion'}
-                    </span>
+              <div
+                style={{
+                  flex: 1,
+                  overflowY: 'auto',
+                  padding: '1.25rem',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '1rem',
+                }}
+              >
+                {/* Section 1: Project Handover & Certification */}
+                <div style={{ border: '1px solid var(--border-color)', borderRadius: '8px', padding: '1rem', backgroundColor: '#ffffff' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.85rem', borderBottom: '1px solid #f4f4f5', paddingBottom: '0.5rem' }}>
+                    <CheckCircle2 size={15} color="#09090b" />
+                    <h4 style={{ fontSize: '0.825rem', fontWeight: 800, color: '#09090b', margin: 0 }}>
+                      1. Project Handover &amp; Final Certification
+                    </h4>
                   </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
-                    <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Inspection Certificate</span>
-                    <span style={{ fontSize: '0.85rem', fontWeight: 700 }}>
-                      {projectDetails.status === 'completed' ? 'Certified' : 'In Preparation'}
-                    </span>
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
-                    <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Final Package</span>
-                    <span style={{ fontSize: '0.85rem', fontWeight: 700 }}>Orthomosaic + CAD + LAS</span>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.85rem 1rem', fontSize: '0.8rem' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem' }}>
+                      <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Project Handover Status</span>
+                      <strong style={{ color: projectDetails.status === 'completed' ? '#059669' : '#09090b' }}>
+                        {projectDetails.status === 'completed' ? 'Completed & Handed Over' : 'Pending Data Clearance'}
+                      </strong>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem' }}>
+                      <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Inspection Certificate</span>
+                      <strong style={{ color: '#09090b' }}>
+                        {projectDetails.status === 'completed' ? 'Certified & Sealed' : 'In Preparation'}
+                      </strong>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem' }}>
+                      <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Final Package Package</span>
+                      <strong style={{ color: '#09090b' }}>Orthomosaic + DEM + CAD + LAS</strong>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem' }}>
+                      <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Operations Delivery Lead</span>
+                      <strong style={{ color: '#09090b' }}>LATRICS Flight Operations</strong>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem' }}>
+                      <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Client Verification</span>
+                      <strong style={{ color: '#09090b' }}>Verified by Client Primary</strong>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem' }}>
+                      <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Audit Record Status</span>
+                      <strong style={{ color: '#09090b' }}>Permanently Archived</strong>
+                    </div>
                   </div>
                 </div>
 
-                <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '0.85rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <span style={{ fontSize: '0.775rem', color: 'var(--text-secondary)' }}>
-                    Full survey documentation and deliverables available in the Document tab.
-                  </span>
-                  <button
-                    onClick={() => router.push(`/activity-logs?projectId=${projectId}&tab=documents`)}
-                    className="btn btn-secondary"
-                    style={{ fontSize: '0.75rem', height: '32px', display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}
-                  >
-                    <Download size={13} /> Access Project Deliverables
-                  </button>
+                {/* Section 2: Verified Survey Deliverables Package */}
+                <div style={{ border: '1px solid var(--border-color)', borderRadius: '8px', padding: '1rem', backgroundColor: '#ffffff' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.85rem', borderBottom: '1px solid #f4f4f5', paddingBottom: '0.5rem' }}>
+                    <Layers size={15} color="#09090b" />
+                    <h4 style={{ fontSize: '0.825rem', fontWeight: 800, color: '#09090b', margin: 0 }}>
+                      2. Verified Deliverables &amp; Downloads
+                    </h4>
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.65rem 0.85rem', backgroundColor: '#fafafa', border: '1px solid #f4f4f5', borderRadius: '6px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                        <FileText size={15} color="#09090b" />
+                        <div>
+                          <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#09090b' }}>High-Resolution Orthomosaic (GeoTIFF)</div>
+                          <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Calibrated 2D orthophoto map referenced to WGS84</div>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => router.push(`/activity-logs?projectId=${projectId}&tab=documents`)}
+                        className="btn btn-secondary"
+                        style={{ fontSize: '0.725rem', height: '28px', padding: '0 0.65rem', display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}
+                      >
+                        <Download size={12} /> Download
+                      </button>
+                    </div>
+
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.65rem 0.85rem', backgroundColor: '#fafafa', border: '1px solid #f4f4f5', borderRadius: '6px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                        <FileText size={15} color="#09090b" />
+                        <div>
+                          <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#09090b' }}>Digital Elevation Model &amp; Surface Model (DEM/DSM)</div>
+                          <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Topographic 3D elevation surface model and raster contour grid</div>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => router.push(`/activity-logs?projectId=${projectId}&tab=documents`)}
+                        className="btn btn-secondary"
+                        style={{ fontSize: '0.725rem', height: '28px', padding: '0 0.65rem', display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}
+                      >
+                        <Download size={12} /> Download
+                      </button>
+                    </div>
+
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.65rem 0.85rem', backgroundColor: '#fafafa', border: '1px solid #f4f4f5', borderRadius: '6px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                        <FileText size={15} color="#09090b" />
+                        <div>
+                          <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#09090b' }}>3D Dense Point Cloud (LAS) &amp; CAD Contours (DXF)</div>
+                          <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Classified LiDAR / photogrammetric point cloud and vector topography</div>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => router.push(`/activity-logs?projectId=${projectId}&tab=documents`)}
+                        className="btn btn-secondary"
+                        style={{ fontSize: '0.725rem', height: '28px', padding: '0 0.65rem', display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}
+                      >
+                        <Download size={12} /> Download
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Section 3: Project Archive & Audit Notice */}
+                <div style={{ border: '1px solid var(--border-color)', borderRadius: '8px', padding: '1rem', backgroundColor: '#ffffff' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                    <ShieldCheck size={15} color="#09090b" />
+                    <h4 style={{ fontSize: '0.825rem', fontWeight: 800, color: '#09090b', margin: 0 }}>
+                      3. Immutable Project Audit &amp; Archival Record
+                    </h4>
+                  </div>
+                  <p style={{ fontSize: '0.775rem', color: 'var(--text-secondary)', margin: 0, lineHeight: 1.5 }}>
+                    This project has concluded all field captures, photogrammetry processing, quality clearances, and client handovers. All flight paths, timestamps, coordinate demarctions, and chat communications are preserved as a sealed, immutable audit record.
+                  </p>
                 </div>
               </div>
             )}
@@ -3631,7 +4401,7 @@ function ProjectOverviewContent() {
                 </div>
               </div>
 
-              {/* Deliverables & Processing Modes */}
+              {/* Deliverables */}
               <div style={{ borderTop: '1px solid #f4f4f5', paddingTop: '0.85rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                 <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 700 }}>
                   Requested Deliverables &amp; Photogrammetry Outputs
@@ -3652,22 +4422,6 @@ function ProjectOverviewContent() {
                       }}
                     >
                       {d}
-                    </span>
-                  ))}
-                  {reqFormDetails.modes.map((m, i) => (
-                    <span
-                      key={`mode-${i}`}
-                      style={{
-                        fontSize: '0.725rem',
-                        fontWeight: 700,
-                        padding: '0.2rem 0.55rem',
-                        borderRadius: '4px',
-                        backgroundColor: '#f4f4f5',
-                        border: '1px solid #d4d4d8',
-                        color: '#09090b',
-                      }}
-                    >
-                      {m}
                     </span>
                   ))}
                 </div>
@@ -3744,7 +4498,7 @@ function ProjectOverviewContent() {
                   </span>
                   <div style={{ marginTop: '0.25rem' }}>
                     <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#09090b' }}>
-                      {assignedPilots.length > 0 ? `${assignedPilots.length} Certified Pilot(s)` : 'Field Team Assigned'}
+                      {assignedPilots.length > 0 ? `${assignedPilots.length} Pilot(s) Assigned` : 'Field Team Assigned'}
                     </div>
                     <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '0.1rem' }}>
                       {assignedPilots.length > 0 ? assignedPilots.map((p) => p.name).join(', ') : 'LATRICS Operations'}
@@ -3844,53 +4598,100 @@ function ProjectOverviewContent() {
                   )}
                 </div>
 
-                {/* Contact 4: Assigned Flight Crew / Remote Pilot(s) (Assigned Users) */}
-                <div style={{ padding: '0.85rem', backgroundColor: '#fafafa', borderRadius: '6px', border: '1px solid #e4e4e7', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', marginBottom: '0.2rem' }}>
-                    <Plane size={14} color="#09090b" />
-                    <span style={{ fontSize: '0.675rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
-                      Assigned Flight Crew
+                {/* Contact 4: Assigned Flight Crew / Remote Pilot(s) */}
+                {assignedPilots.length === 0 ? (
+                  <div style={{ padding: '0.85rem', backgroundColor: '#fafafa', borderRadius: '6px', border: '1px solid #e4e4e7', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', marginBottom: '0.2rem' }}>
+                      <Plane size={14} color="#09090b" />
+                      <span style={{ fontSize: '0.675rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
+                        Assigned Flight Crew
+                      </span>
+                    </div>
+                    <span style={{ fontSize: '0.85rem', fontWeight: 800, color: '#09090b' }}>
+                      Pending Mobilisation
+                    </span>
+                    <span style={{ fontSize: '0.725rem', color: 'var(--text-secondary)' }}>
+                      DGCA Flight Crew &amp; Pilots
+                    </span>
+                    <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontStyle: 'italic', marginTop: '0.15rem' }}>
+                      Dispatched during Mobilising stage
                     </span>
                   </div>
-                  {assignedPilots.length > 0 ? (
-                    <>
-                      <span style={{ fontSize: '0.85rem', fontWeight: 800, color: '#09090b' }}>
-                        {assignedPilots[0].name}
-                      </span>
-                      <span style={{ fontSize: '0.725rem', color: 'var(--text-secondary)' }}>
-                        {assignedPilots[0].role}
-                        {assignedPilots[0].dgcaLicenseNo ? ` • ${assignedPilots[0].dgcaLicenseNo}` : ''}
-                      </span>
-                      {assignedPilots[0].email && (
-                        <span style={{ fontSize: '0.725rem', color: 'var(--text-secondary)' }}>
-                          {assignedPilots[0].email}
-                        </span>
-                      )}
-                      {assignedPilots[0].contactNo && assignedPilots[0].contactNo !== '—' && (
-                        <span style={{ fontSize: '0.725rem', color: '#71717a' }}>
-                          Tel: {assignedPilots[0].contactNo}
-                        </span>
-                      )}
-                      {assignedPilots.length > 1 && (
-                        <div style={{ marginTop: '0.2rem', paddingTop: '0.25rem', borderTop: '1px dashed #e4e4e7', fontSize: '0.685rem', color: '#52525b' }}>
-                          + {assignedPilots.slice(1).map((p) => p.name).join(', ')}
+                ) : (
+                  assignedPilots.map((pilot, pIdx) => (
+                    <div
+                      key={pilot.id || pIdx}
+                      style={{
+                        padding: '0.85rem',
+                        backgroundColor: '#fafafa',
+                        borderRadius: '6px',
+                        border: '1px solid #e4e4e7',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '0.25rem',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.2rem' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                          <Plane size={14} color="#09090b" />
+                          <span style={{ fontSize: '0.675rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
+                            Assigned Flight Crew {assignedPilots.length > 1 ? `(${pIdx + 1})` : ''}
+                          </span>
                         </div>
-                      )}
-                    </>
-                  ) : (
-                    <>
+                        {pilot.isPendingInvite ? (
+                          <span
+                            style={{
+                              fontSize: '0.625rem',
+                              fontWeight: 700,
+                              color: '#b45309',
+                              backgroundColor: '#fef3c7',
+                              padding: '0.05rem 0.35rem',
+                              borderRadius: '3px',
+                              border: '1px solid #fde68a',
+                            }}
+                          >
+                            🟡 Invited
+                          </span>
+                        ) : pilot.dgcaLicenseNo ? (
+                          <span
+                            style={{
+                              fontSize: '0.625rem',
+                              fontWeight: 700,
+                              color: '#09090b',
+                              backgroundColor: '#f4f4f5',
+                              padding: '0.05rem 0.35rem',
+                              borderRadius: '3px',
+                              border: '1px solid #d4d4d8',
+                            }}
+                          >
+                            DGCA Certified
+                          </span>
+                        ) : null}
+                      </div>
+
                       <span style={{ fontSize: '0.85rem', fontWeight: 800, color: '#09090b' }}>
-                        Pending Mobilisation
+                        {pilot.name}
                       </span>
                       <span style={{ fontSize: '0.725rem', color: 'var(--text-secondary)' }}>
-                        DGCA Flight Crew &amp; Pilots
+                        {pilot.isPendingInvite
+                          ? 'Remote Pilot (Invitation Pending)'
+                          : pilot.dgcaLicenseNo
+                          ? `${pilot.role} • ${pilot.dgcaLicenseNo}`
+                          : pilot.role}
                       </span>
-                      <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontStyle: 'italic', marginTop: '0.15rem' }}>
-                        Dispatched during Mobilising stage
-                      </span>
-                    </>
-                  )}
-                </div>
+                      {pilot.email && (
+                        <span style={{ fontSize: '0.725rem', color: 'var(--text-secondary)' }}>
+                          {pilot.email}
+                        </span>
+                      )}
+                      {pilot.contactNo && pilot.contactNo !== '—' && (
+                        <span style={{ fontSize: '0.725rem', color: '#71717a' }}>
+                          Tel: {pilot.contactNo}
+                        </span>
+                      )}
+                    </div>
+                  ))
+                )}
               </div>
             </div>
 

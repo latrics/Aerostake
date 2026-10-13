@@ -1,6 +1,6 @@
 import uuid
 from typing import Any, Dict, List, Optional
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.modules.sectors.model import Sector, SectorStatusEnum
 from app.modules.sectors.schema import SectorCreate
@@ -13,8 +13,8 @@ class SectorRepository:
         self,
         db: AsyncSession,
         project_id: uuid.UUID,
-        plan_id: uuid.UUID,
-        sector_code: str,
+        plan_id: Optional[uuid.UUID] = None,
+        sector_code: str = "",
         polygon_coordinates: Optional[Dict[str, Any]] = None,
         target_area_sqkm: Optional[float] = None,
         estimated_flight_minutes: Optional[int] = None,
@@ -37,11 +37,11 @@ class SectorRepository:
         self,
         db: AsyncSession,
         project_id: uuid.UUID,
-        plan_id: uuid.UUID,
-        sectors_in: List[SectorCreate],
+        plan_id: Optional[uuid.UUID] = None,
+        sectors_in: Optional[List[SectorCreate]] = None,
     ) -> List[Sector]:
         created = []
-        for s_in in sectors_in:
+        for s_in in (sectors_in or []):
             sector = Sector(
                 project_id=project_id,
                 plan_id=plan_id,
@@ -57,6 +57,19 @@ class SectorRepository:
         for s in created:
             await db.refresh(s)
         return created
+
+    async def delete_by_project(
+        self,
+        db: AsyncSession,
+        project_id: uuid.UUID,
+    ) -> int:
+        stmt = select(Sector).where(Sector.project_id == project_id)
+        result = await db.execute(stmt)
+        sectors = list(result.scalars().all())
+        for s in sectors:
+            await db.delete(s)
+        await db.flush()
+        return len(sectors)
 
     async def get_by_id(
         self,
@@ -75,7 +88,7 @@ class SectorRepository:
         stmt = (
             select(Sector)
             .where(Sector.project_id == project_id)
-            .order_by(Sector.sector_code.asc())
+            .order_by(func.length(Sector.sector_code).asc(), Sector.sector_code.asc())
         )
         result = await db.execute(stmt)
         return list(result.scalars().all())
@@ -88,7 +101,7 @@ class SectorRepository:
         stmt = (
             select(Sector)
             .where(Sector.plan_id == plan_id)
-            .order_by(Sector.sector_code.asc())
+            .order_by(func.length(Sector.sector_code).asc(), Sector.sector_code.asc())
         )
         result = await db.execute(stmt)
         return list(result.scalars().all())

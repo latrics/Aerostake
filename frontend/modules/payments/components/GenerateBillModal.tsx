@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useState } from 'react';
-import { Plus, Trash2, Calculator, X, AlertCircle, Info } from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { Plus, Trash2, Calculator, X, AlertCircle, Info, Check } from 'lucide-react';
 import { Portal } from '@/components/Portal';
 import { InvoiceCreate, InvoiceItem } from '../types';
 
@@ -11,6 +11,8 @@ interface GenerateBillModalProps {
   projectName?: string;
   clientCompanyName?: string | null;
   previousBalance?: number; // positive = Due, negative = Credit
+  initialSectorId?: string | null;
+  sectors?: any[];
   onClose: () => void;
   onSubmit: (projectId: string, payload: InvoiceCreate) => Promise<void>;
 }
@@ -31,6 +33,8 @@ export function GenerateBillModal({
   projectName = 'Survey Project',
   clientCompanyName,
   previousBalance = 0,
+  initialSectorId,
+  sectors,
   onClose,
   onSubmit,
 }: GenerateBillModalProps) {
@@ -38,12 +42,18 @@ export function GenerateBillModal({
   const todayStr = new Date().toISOString().slice(0, 10);
   const dueDefaultStr = new Date(Date.now() + 15 * 86400000).toISOString().slice(0, 10);
 
-  const [title, setTitle] = useState('');
+  const [title, setTitle] = useState('General Project Survey Services & Mobilization Bill');
   const [billDate, setBillDate] = useState(todayStr);
   const [dueDate, setDueDate] = useState(dueDefaultStr);
   const [notes, setNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (isOpen && !title) {
+      setTitle('General Project Survey Services & Mobilization Bill');
+    }
+  }, [isOpen]);
 
   // Clean, simple line items
   const [items, setItems] = useState<InvoiceItem[]>([
@@ -61,9 +71,15 @@ export function GenerateBillModal({
 
   if (!isOpen) return null;
 
+  const blockNegativeAndScientificKeys = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === '-' || e.key === '+' || e.key === 'e' || e.key === 'E') {
+      e.preventDefault();
+    }
+  };
+
   const calculateLineTotal = (unit: number, price: number, tenure: string, multiply: boolean): number => {
-    const u = parseFloat(String(unit)) || 0;
-    const p = parseFloat(String(price)) || 0;
+    const u = Math.max(1, Math.abs(parseFloat(String(unit)) || 1));
+    const p = Math.max(0, Math.abs(parseFloat(String(price)) || 0));
     if (multiply) {
       const t = extractTenureNumber(tenure);
       return Math.round(u * p * t * 100) / 100;
@@ -76,11 +92,17 @@ export function GenerateBillModal({
       const next = [...prev];
       const cur = { ...next[index] };
 
-      if (field === 'unit' || field === 'price') {
-        const u = field === 'unit' ? (parseInt(val, 10) || 0) : cur.unit;
-        const p = field === 'price' ? parseFloat(val) || 0 : cur.price;
-        (cur as any)[field] = field === 'unit' ? u : val;
-        cur.total_price = calculateLineTotal(u, p, cur.tenure || '', !!cur.multiply_tenure);
+      if (field === 'unit') {
+        const cleaned = String(val).replace(/[^0-9]/g, '');
+        const parsed = parseInt(cleaned, 10);
+        const u = isNaN(parsed) ? 1 : Math.max(1, parsed);
+        cur.unit = u;
+        cur.total_price = calculateLineTotal(u, cur.price, cur.tenure || '', !!cur.multiply_tenure);
+      } else if (field === 'price') {
+        const cleaned = String(val).replace(/[^0-9.]/g, '');
+        const p = isNaN(parseFloat(cleaned)) ? 0 : Math.max(0, parseFloat(cleaned));
+        cur.price = p;
+        cur.total_price = calculateLineTotal(cur.unit, p, cur.tenure || '', !!cur.multiply_tenure);
       } else if (field === 'tenure') {
         cur.tenure = val;
         if (cur.multiply_tenure) {
@@ -91,7 +113,9 @@ export function GenerateBillModal({
         cur.multiply_tenure = multiply;
         cur.total_price = calculateLineTotal(cur.unit, cur.price, cur.tenure || '', multiply);
       } else if (field === 'total_price') {
-        cur.total_price = parseFloat(val) || 0;
+        const cleaned = String(val).replace(/[^0-9.]/g, '');
+        const t = isNaN(parseFloat(cleaned)) ? 0 : Math.max(0, parseFloat(cleaned));
+        cur.total_price = t;
       } else {
         (cur as any)[field] = val;
       }
@@ -128,7 +152,8 @@ export function GenerateBillModal({
     });
   };
 
-  const totalAmount = items.reduce((acc, it) => acc + (it.total_price || 0), 0);
+  // Strictly positive total and forward balance impact calculation
+  const totalAmount = Math.max(0, items.reduce((acc, it) => acc + Math.max(0, it.total_price || 0), 0));
   const projectedBalance = previousBalance + totalAmount;
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -136,39 +161,45 @@ export function GenerateBillModal({
     setError(null);
 
     if (items.length === 0) {
-      setError('Please add at least one cost item');
+      setError('Please add at least one line item');
       return;
     }
 
     for (let i = 0; i < items.length; i++) {
       const it = items[i];
       if (!it.item_name.trim()) {
-        setError(`Item #${i + 1}: Item name is required`);
+        setError(`Item #${i + 1}: Item description is required`);
         return;
       }
-      if (it.unit <= 0) {
-        setError(`Item #${i + 1}: Unit / Quantity must be greater than 0`);
+      if (it.unit <= 0 || isNaN(it.unit)) {
+        setError(`Item #${i + 1}: Quantity must be at least 1`);
         return;
       }
-      if (it.price < 0) {
+      if (it.price < 0 || isNaN(it.price)) {
         setError(`Item #${i + 1}: Price cannot be negative`);
+        return;
+      }
+      if (it.total_price <= 0 || isNaN(it.total_price)) {
+        setError(`Item #${i + 1}: Line total must be greater than ₹0`);
         return;
       }
     }
 
-    if (totalAmount <= 0) {
-      setError('Total bill amount must be greater than ₹0');
+    if (totalAmount <= 0 || isNaN(totalAmount)) {
+      setError('Total bill amount must be greater than ₹0. Negative inputs and reverse calculations are not permitted.');
       return;
     }
 
     try {
       setSubmitting(true);
       await onSubmit(projectId, {
-        title: title.trim(),
+        title: title.trim() || 'General Project Survey Services Bill',
         bill_date: billDate,
         due_date: dueDate || undefined,
         items,
         total_amount: totalAmount,
+        sector_id: null,
+        sector_code: null,
         notes: notes.trim() || undefined,
       });
       onClose();
@@ -302,6 +333,8 @@ export function GenerateBillModal({
                 <span>{error}</span>
               </div>
             )}
+
+
 
             {/* Bill Details */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem' }}>
@@ -446,6 +479,7 @@ export function GenerateBillModal({
                               required
                               value={item.unit}
                               onChange={(e) => handleItemChange(idx, 'unit', e.target.value)}
+                              onKeyDown={blockNegativeAndScientificKeys}
                               style={{
                                 fontSize: '0.775rem',
                                 height: '32px',
@@ -468,6 +502,7 @@ export function GenerateBillModal({
                               required
                               value={item.price}
                               onChange={(e) => handleItemChange(idx, 'price', e.target.value)}
+                              onKeyDown={blockNegativeAndScientificKeys}
                               style={{
                                 fontSize: '0.775rem',
                                 height: '32px',
@@ -520,29 +555,30 @@ export function GenerateBillModal({
                             </label>
                           </td>
 
-                          {/* Total */}
+                          {/* Total (Auto-calculated, Read-only) */}
                           <td style={{ padding: '0.5rem 0.6rem', textAlign: 'right' }}>
-                            <input
-                              type="number"
-                              step="0.01"
-                              min="0"
-                              value={item.total_price}
-                              onChange={(e) => handleItemChange(idx, 'total_price', e.target.value)}
-                              title="Auto-calculated. Click to override manually if needed."
+                            <div
+                              title="Auto-calculated (Qty × Price)"
                               style={{
                                 fontSize: '0.85rem',
                                 fontWeight: 800,
                                 height: '32px',
                                 width: '100%',
-                                padding: '0 0.4rem',
-                                border: '1px solid #e4e4e7',
+                                padding: '0 0.5rem',
+                                border: '1px solid #e2e8f0',
                                 borderRadius: '4px',
                                 textAlign: 'right',
                                 fontFamily: 'monospace',
                                 color: '#09090b',
-                                backgroundColor: '#ffffff',
+                                backgroundColor: '#f8fafc',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'flex-end',
+                                userSelect: 'none',
                               }}
-                            />
+                            >
+                              ₹{item.total_price.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </div>
                             {item.multiply_tenure && (
                               <span style={{ fontSize: '0.675rem', color: '#4338ca', fontWeight: 600, display: 'block', marginTop: '2px' }}>
                                 {item.unit} × ₹{item.price} × {tNum}d
@@ -625,7 +661,7 @@ export function GenerateBillModal({
                 </div>
 
                 <div style={{ padding: '0.5rem 0.75rem', backgroundColor: '#ffffff', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
-                  <span style={{ color: '#64748b', display: 'block', fontSize: '0.7rem' }}>+ New Bill</span>
+                  <span style={{ color: '#64748b', display: 'block', fontSize: '0.7rem' }}>+ New Bill (Adds to Balance)</span>
                   <span style={{ fontWeight: 800, fontSize: '0.95rem', color: '#4f46e5', fontFamily: 'monospace' }}>
                     +₹{totalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                   </span>
@@ -685,23 +721,27 @@ export function GenerateBillModal({
               </button>
               <button
                 type="submit"
-                disabled={submitting}
+                disabled={submitting || totalAmount <= 0}
                 style={{
                   padding: '0.55rem 1.4rem',
                   fontSize: '0.825rem',
                   fontWeight: 700,
-                  backgroundColor: '#09090b',
+                  backgroundColor: submitting || totalAmount <= 0 ? '#a1a1aa' : '#09090b',
                   color: '#ffffff',
                   border: 'none',
                   borderRadius: '6px',
-                  cursor: 'pointer',
+                  cursor: submitting || totalAmount <= 0 ? 'not-allowed' : 'pointer',
                   boxShadow: '0 2px 4px rgba(0, 0, 0, 0.15)',
                   display: 'inline-flex',
                   alignItems: 'center',
                   gap: '0.4rem',
                 }}
               >
-                {submitting ? 'Generating Digital Invoice...' : `Issue Digital Invoice (₹${totalAmount.toLocaleString('en-IN')})`}
+                {submitting
+                  ? 'Generating Digital Invoice...'
+                  : totalAmount <= 0
+                  ? 'Enter Bill Amounts to Issue Invoice'
+                  : `Issue Digital Invoice (₹${totalAmount.toLocaleString('en-IN')})`}
               </button>
             </div>
           </form>

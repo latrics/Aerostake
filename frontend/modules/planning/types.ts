@@ -58,3 +58,11 @@ export interface PlanningFormVersionCreate {
   status?: string;
 }
 
+export interface PlannedProjectTenure {
+  expectedStartDate?: string;
+  expectedEndDate?: string;
+  expectedSurveyDays?: string | number;
+  pilotTravelDate?: string;
+  dataDeliveryTimelineDays?: string | number;
+}
+

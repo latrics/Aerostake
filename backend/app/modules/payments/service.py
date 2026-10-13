@@ -25,6 +25,7 @@ from app.modules.projects.service import project_service
 from app.modules.timeline.service import timeline_service
 from app.modules.users.model import RoleEnum, User
 from app.modules.users.repository import user_repository
+from app.modules.sectors.repository import sector_repository
 
 
 def parse_date(date_str: Optional[str]) -> Optional[datetime]:
@@ -133,9 +134,7 @@ class PaymentService:
         proof_in: ClientPaymentProofIn,
     ) -> PaymentRecord:
         """Client submits payment slip/screenshot and bank UTR ID for Operations manual verification."""
-        project = await project_repository.get_by_id(db, project_id)
-        if not project:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+        project = await project_service.get_project_model(db, current_user, project_id)
 
         ref = proof_in.reference_code.strip()
         date_str = proof_in.payment_date or datetime.now(timezone.utc).strftime("%Y-%m-%d")
@@ -332,8 +331,23 @@ class PaymentService:
             calc_total += t_price
 
         final_total = round(invoice_in.total_amount if invoice_in.total_amount > 0 else calc_total, 2)
+        if final_total <= 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Total invoice bill amount must be greater than 0. Negative or reverse calculation bills are not permitted.",
+            )
         bill_dt = parse_date(invoice_in.bill_date) or datetime.now(timezone.utc)
         due_dt = parse_date(invoice_in.due_date) if invoice_in.due_date else None
+
+        sec_id = invoice_in.sector_id
+        sec_code = invoice_in.sector_code
+        if sec_id:
+            sector = await sector_repository.get_by_id(db, sec_id)
+            if sector:
+                sec_code = sec_code or sector.sector_code
+            else:
+                sec_id = None
+                sec_code = None
 
         invoice = await payment_repository.create_invoice(
             db=db,
@@ -346,15 +360,18 @@ class PaymentService:
             total_amount=final_total,
             notes=invoice_in.notes,
             created_by=current_user.id,
+            sector_id=sec_id,
+            sector_code=sec_code,
         )
 
         # Log timeline event with accurate stage of project when invoice was created
         stage_num, stage_label = get_project_stage_info(getattr(project, "status", None))
+        sector_context = f" against Sector {sec_code}" if sec_code else " (General / Project-wide)"
         await timeline_service.log_event(
             db=db,
             category="payment",
             action="invoice_generated",
-            message=f"Digital Invoice #{invoice.invoice_number} generated for ₹{final_total:,.2f} ({len(items_data)} items)",
+            message=f"Digital Invoice #{invoice.invoice_number} generated for ₹{final_total:,.2f}{sector_context} ({len(items_data)} items)",
             project_id=project.id,
             user_id=current_user.id,
             metadata={
@@ -362,6 +379,8 @@ class PaymentService:
                 "invoice_number": invoice.invoice_number,
                 "amount": final_total,
                 "items_count": len(items_data),
+                "sector_id": str(sec_id) if sec_id else None,
+                "sector_code": sec_code,
                 "stage": stage_num,
                 "stage_name": stage_label,
             },
@@ -449,9 +468,7 @@ class PaymentService:
         current_user: User,
         project_id: uuid.UUID,
     ) -> ClientWalletSummary:
-        project = await project_repository.get_by_id(db, project_id)
-        if not project:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+        project = await project_service.get_project_model(db, current_user, project_id)
 
         invoices = await payment_repository.list_invoices_by_project(db, project_id)
         payments = await payment_repository.list_verified_by_project(db, project_id)
@@ -713,9 +730,7 @@ class PaymentService:
         current_user: User,
         project_id: uuid.UUID,
     ) -> List[DateWiseCostSummary]:
-        project = await project_repository.get_by_id(db, project_id)
-        if not project:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+        project = await project_service.get_project_model(db, current_user, project_id)
 
         invoices = await payment_repository.list_invoices_by_project(db, project_id)
 

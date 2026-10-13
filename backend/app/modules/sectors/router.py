@@ -1,6 +1,6 @@
 import uuid
 from typing import List
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -10,6 +10,8 @@ from app.modules.sectors.schema import (
     SectorStatusUpdate,
     SectorPlanningUpdate,
     SectorDailyLogCreate,
+    BatchAssignPilotsRequest,
+    BatchScheduleDatesRequest,
 )
 from app.modules.sectors.service import sector_service
 from app.modules.users.model import RoleEnum, User
@@ -17,6 +19,35 @@ from app.security.auth import get_current_user
 from app.security.permissions import require_role
 
 sectors_router = APIRouter(tags=["Sectors"])
+
+
+@sectors_router.post(
+    "/projects/{project_id}/sectors/upload-kml",
+    response_model=List[SectorOut],
+    status_code=status.HTTP_201_CREATED,
+    summary="Upload sectorised KML/KMZ flight plan (Ops/Admin only)",
+)
+async def upload_sector_kml(
+    project_id: uuid.UUID,
+    file: UploadFile = File(..., description="Operational sectorised .kml or .kmz file"),
+    current_user: User = Depends(require_role(RoleEnum.ADMIN, RoleEnum.OPERATIONS)),
+    db: AsyncSession = Depends(get_db),
+):
+    """Ingest sectorised KML/KMZ file, extract placemark polygons, calculate geodetic areas, and persist database sectors."""
+    filename = file.filename or "sectors.kml"
+    if not (filename.lower().endswith(".kml") or filename.lower().endswith(".kmz")):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Only .kml and .kmz files are supported for operational sector plans.",
+        )
+    file_bytes = await file.read()
+    return await sector_service.upload_sector_kml(
+        db=db,
+        current_user=current_user,
+        project_id=project_id,
+        file_bytes=file_bytes,
+        filename=filename,
+    )
 
 
 @sectors_router.post(
@@ -56,6 +87,24 @@ async def list_project_sectors(
         db=db,
         current_user=current_user,
         project_id=project_id,
+    )
+
+
+@sectors_router.get(
+    "/sectors/pilot/assigned",
+    status_code=status.HTTP_200_OK,
+    summary="List sectors allocated to pilot or all scheduled sectors (Pilot/Ops/Admin)",
+)
+async def list_assigned_sectors(
+    pilot_id: uuid.UUID | None = None,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Retrieve all sectors assigned to the current pilot (or all pilots if Ops/Admin)."""
+    return await sector_service.list_assigned_sectors(
+        db=db,
+        current_user=current_user,
+        pilot_id=pilot_id,
     )
 
 
@@ -118,6 +167,49 @@ async def update_sector_planning(
         sector_id=sector_id,
         planning_in=planning_in,
     )
+
+
+@sectors_router.patch(
+    "/projects/{project_id}/sectors/batch-assign-pilots",
+    response_model=List[SectorOut],
+    status_code=status.HTTP_200_OK,
+    summary="Batch assign multiple sectors to a registered or invited pilot (Ops/Admin only)",
+)
+async def batch_assign_pilots(
+    project_id: uuid.UUID,
+    batch_in: BatchAssignPilotsRequest,
+    current_user: User = Depends(require_role(RoleEnum.ADMIN, RoleEnum.OPERATIONS)),
+    db: AsyncSession = Depends(get_db),
+):
+    """Batch allocate flight sectors to a pilot and update project flight roster."""
+    return await sector_service.batch_assign_pilots(
+        db=db,
+        current_user=current_user,
+        project_id=project_id,
+        batch_in=batch_in,
+    )
+
+
+@sectors_router.patch(
+    "/projects/{project_id}/sectors/batch-schedule-dates",
+    response_model=List[SectorOut],
+    status_code=status.HTTP_200_OK,
+    summary="Batch schedule scanning dates for multiple sectors independently (Ops/Admin only)",
+)
+async def batch_schedule_dates(
+    project_id: uuid.UUID,
+    schedule_in: BatchScheduleDatesRequest,
+    current_user: User = Depends(require_role(RoleEnum.ADMIN, RoleEnum.OPERATIONS)),
+    db: AsyncSession = Depends(get_db),
+):
+    """Batch configure sector scanning dates without requiring pilot assignment."""
+    return await sector_service.batch_schedule_dates(
+        db=db,
+        current_user=current_user,
+        project_id=project_id,
+        schedule_in=schedule_in,
+    )
+
 
 
 @sectors_router.post(

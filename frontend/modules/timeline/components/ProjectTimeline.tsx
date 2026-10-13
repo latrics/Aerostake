@@ -3,6 +3,7 @@
 import React, { useState, useMemo } from 'react';
 import { Clock, Calendar, ChevronRight } from 'lucide-react';
 import { TimelineEvent } from '../types';
+import { formatDateDDMMYYYY } from '@/lib/date';
 
 interface ProjectTimelineProps {
   events: TimelineEvent[];
@@ -46,11 +47,7 @@ export const ProjectTimeline: React.FC<ProjectTimelineProps> = ({ events = [] })
     filteredEvents.forEach((evt) => {
       const timeVal = evt.created_at || evt.timestamp;
       const dateLabel = timeVal
-        ? new Date(timeVal).toLocaleDateString('en-GB', {
-            day: '2-digit',
-            month: 'short',
-            year: 'numeric',
-          })
+        ? formatDateDDMMYYYY(timeVal)
         : 'Recent Events';
       if (!groups[dateLabel]) groups[dateLabel] = [];
       groups[dateLabel].push(evt);

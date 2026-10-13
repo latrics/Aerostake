@@ -59,6 +59,10 @@ class UpdateRatingPayload(BaseModel):
     rating: float
 
 
+class UpdateAgreementDatePayload(BaseModel):
+    agreement_start_date: str
+
+
 @clients_router.get(
     "",
     status_code=status.HTTP_200_OK,
@@ -186,18 +190,12 @@ async def get_clients_overview(
             p_verified_payments = pay_verified_res.scalars().all()
             total_paid = sum(float(pay.amount_usd) for pay in p_verified_payments)
 
-            pay_pending_stmt = select(PaymentRecord).where(
-                PaymentRecord.project_id == p.id,
-                PaymentRecord.status == PaymentStatusEnum.PENDING,
-            )
-            pay_pending_res = await db.execute(pay_pending_stmt)
-            legacy_pending = sum(float(pay.amount_usd) for pay in pay_pending_res.scalars().all())
-
+            # Cumulative wallet balance: Total Invoiced - Total Verified Paid
             wallet_balance = total_invoiced - total_paid
-            pending_pay = max(0.0, wallet_balance) if total_invoiced > 0 else legacy_pending
+            pending_pay = max(0.0, wallet_balance)
 
-            # Landings count (2 sorties per completed sector or 1 per project)
-            p_landings = completed_sec * 2 if completed_sec > 0 else (1 if p.status == ProjectStatusEnum.ACTIVE else 0)
+            # Landings count (1 landing per completed sector)
+            p_landings = completed_sec
 
             org_sectors_count += len(sectors)
             org_finished_sectors += completed_sec
@@ -233,12 +231,50 @@ async def get_clients_overview(
         org_converted_requests_count = len([p for p in projects if p.status in converted_statuses])
         org_requests_converted = f"{org_converted_requests_count}/{org_requests_count}" if org_requests_count > 0 else "0/0"
 
-        # Tenure Calculation: 3 years = 1095 days
-        tenure_total_days = 1095
-        created_dt = org.created_at or datetime.now(timezone.utc)
+        # ── Agreement Start Date & 3-Year Tenure (1095 days) Calculation ──
+        agr_start_str = None
+        for u in users:
+            if u.company_profile and isinstance(u.company_profile, dict):
+                val = (
+                    u.company_profile.get("agreement_start_date")
+                    or u.company_profile.get("agreement_start")
+                    or u.company_profile.get("contract_start_date")
+                )
+                if val:
+                    agr_start_str = str(val).split("T")[0]
+                    break
+
+        tenure_total_days = 1095  # 3-year standard agreement
         now_dt = datetime.now(timezone.utc)
-        days_elapsed = max(0, (now_dt - created_dt).days)
+        if agr_start_str:
+            try:
+                parsed_dt = datetime.strptime(agr_start_str, "%Y-%m-%d")
+                start_dt = parsed_dt.replace(tzinfo=timezone.utc)
+            except Exception:
+                start_dt = org.created_at or now_dt
+        else:
+            start_dt = org.created_at or now_dt
+
+        days_elapsed = max(0, (now_dt - start_dt).days)
         tenure_days_left = max(0, tenure_total_days - days_elapsed)
+
+        # Validity condition: 1,000 landings completed OR 3-year tenure completed (either triggers renewal)
+        is_landings_over = org_landings >= 1000
+        is_tenure_over = tenure_days_left <= 0
+        is_validity_over = is_landings_over or is_tenure_over
+
+        validity_reason = None
+        validity_message = None
+        if is_validity_over:
+            if is_landings_over and is_tenure_over:
+                validity_reason = "1,000 Landings & 3-Year Tenure Completed"
+                validity_message = "1,000 landings quota and 3-year agreement tenure completed. Aerostake validity over — contract renewal required."
+            elif is_landings_over:
+                validity_reason = "1,000 Landings Quota Reached"
+                validity_message = "1,000 / 1,000 Landings completed. Aerostake validity over — contract renewal required."
+            else:
+                validity_reason = "3-Year Agreement Tenure Completed"
+                validity_message = "3-Year agreement tenure completed (1,095 days). Aerostake validity over — contract renewal required."
 
         all_total_projects += total_projects_count
         all_completed_projects += completed_projects_count
@@ -287,6 +323,11 @@ async def get_clients_overview(
             "landings_max": 1000,
             "tenure_days_left": tenure_days_left,
             "tenure_total_days": tenure_total_days,
+            "agreement_start_date": agr_start_str or start_dt.strftime("%Y-%m-%d"),
+            "has_custom_agreement_date": bool(agr_start_str),
+            "is_validity_over": is_validity_over,
+            "validity_reason": validity_reason,
+            "validity_message": validity_message,
             "requests_count": org_requests_count,
             "converted_requests_count": org_converted_requests_count,
             "requests_converted": org_requests_converted,
@@ -410,4 +451,53 @@ async def update_client_rating(
         await db.commit()
 
     return {"status": "ok", "client_id": client_id, "rating": payload.rating}
+
+
+@clients_router.patch(
+    "/{client_id}/agreement-date",
+    status_code=status.HTTP_200_OK,
+    summary="Update manual Aerostake agreement start date for a client company in database",
+)
+async def update_client_agreement_date(
+    client_id: str,
+    payload: UpdateAgreementDatePayload,
+    current_user: User = Depends(require_role(RoleEnum.ADMIN, RoleEnum.OPERATIONS)),
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        org_uuid = uuid.UUID(client_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid client organization ID")
+
+    org_res = await db.execute(select(Organization).where(Organization.id == org_uuid))
+    org = org_res.scalar_one_or_none()
+    if not org:
+        raise HTTPException(status_code=404, detail="Client organization not found")
+
+    clean_date = payload.agreement_start_date.strip().split("T")[0]
+    try:
+        datetime.strptime(clean_date, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format. Expected YYYY-MM-DD")
+
+    u_stmt = select(User).where(
+        (User.organization_id == org.id) | (func.lower(User.company_name) == org.name.lower())
+    )
+    u_res = await db.execute(u_stmt)
+    users = u_res.scalars().all()
+
+    for u in users:
+        profile = dict(u.company_profile or {})
+        profile["agreement_start_date"] = clean_date
+        profile["agreement_start"] = clean_date
+        u.company_profile = profile
+
+    await db.commit()
+
+    return {
+        "status": "ok",
+        "client_id": client_id,
+        "agreement_start_date": clean_date,
+    }
+
 

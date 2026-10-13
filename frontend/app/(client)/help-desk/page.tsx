@@ -37,7 +37,7 @@ export default function ClientHelpDeskPage() {
   };
 
   return (
-    <div>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', paddingBottom: '3rem' }}>
       {/* ── Page Header ── */}
       <PageHeader
         title="Client Support & Operations Help Desk"

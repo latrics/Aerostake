@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { projectApi } from '@/modules/projects/api';
 import { Project } from '@/modules/projects/types';
+import { formatDateDDMMYYYY, formatDateTimeDDMMYYYY } from '@/lib/date';
 import {
   MobilisationFormData,
   MobilisationResponsibility,
@@ -136,10 +137,17 @@ export const MobilisationConfirmationSection: React.FC<MobilisationConfirmationS
     }
   };
 
+  const formatDateTime = (val?: string | null) => {
+    return formatDateTimeDDMMYYYY(val);
+  };
+
   const handleSelectResponsibility = (choice: MobilisationResponsibility) => {
-    if (isCompleted) return;
+    if (isCompleted || !isClient) return;
     setResponsibility(choice);
-    saveMobilisation({ responsibility: choice, mobilisationResponsibility: choice }, `Mobilization responsibility assigned to: ${choice === 'CLIENT' ? 'Client Itself' : 'Latrics Operations'}`);
+    saveMobilisation(
+      { responsibility: choice, mobilisationResponsibility: choice },
+      `Mobilization responsibility assigned to: ${choice === 'CLIENT' ? 'Client Itself' : 'Latrics Operations'}`
+    );
   };
 
   const handleUploadTicketBill = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -401,20 +409,66 @@ export const MobilisationConfirmationSection: React.FC<MobilisationConfirmationS
 
       {/* Decision Selection: Latrics Or Client itself? */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
-        <div style={{ fontSize: '0.775rem', fontWeight: 800, color: '#09090b', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-          Who will take the responsibility for mobilization?
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
+          <div style={{ fontSize: '0.775rem', fontWeight: 800, color: '#09090b', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+            Who will take the responsibility for mobilization?
+          </div>
+          {isClient ? (
+            <span style={{ fontSize: '0.7rem', color: '#52525b', fontWeight: 600 }}>
+              * Client Choice: Please choose who manages crew travel &amp; logistics
+            </span>
+          ) : (
+            <span
+              style={{
+                fontSize: '0.675rem',
+                fontWeight: 700,
+                padding: '0.15rem 0.5rem',
+                borderRadius: '4px',
+                backgroundColor: responsibility ? '#09090b' : '#f4f4f5',
+                color: responsibility ? '#ffffff' : '#52525b',
+                border: '1px solid #d4d4d8',
+              }}
+            >
+              {responsibility
+                ? `Selected by Client: ${responsibility === 'CLIENT' ? 'Client Itself' : 'Latrics Operations'}`
+                : 'Awaiting Client Choice (Latrics cannot edit selection)'}
+            </span>
+          )}
         </div>
+
+        {/* If Latrics visits and Client has not selected yet */}
+        {!isClient && !responsibility && (
+          <div
+            style={{
+              padding: '0.75rem 1rem',
+              backgroundColor: '#f8fafc',
+              border: '1px solid #e2e8f0',
+              borderRadius: '6px',
+              fontSize: '0.75rem',
+              color: '#334155',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+            }}
+          >
+            <Clock size={15} color="#09090b" />
+            <span>
+              <strong>Latrics Standby:</strong> Awaiting the Client to choose mobilization responsibility above. Latrics cannot edit this choice and will proceed once the client selects either option.
+            </span>
+          </div>
+        )}
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.85rem' }}>
           {/* Card A: Client Itself */}
           <div
-            onClick={() => handleSelectResponsibility('CLIENT')}
+            onClick={isClient && !isCompleted ? () => handleSelectResponsibility('CLIENT') : undefined}
             style={{
               border: responsibility === 'CLIENT' ? '2px solid #09090b' : '1px solid #e4e4e7',
               backgroundColor: responsibility === 'CLIENT' ? '#fafafa' : '#ffffff',
               borderRadius: '8px',
               padding: '0.85rem 1rem',
-              cursor: isCompleted ? 'default' : 'pointer',
+              cursor: isClient && !isCompleted ? 'pointer' : 'default',
+              opacity: !isClient && responsibility && responsibility !== 'CLIENT' ? 0.6 : 1,
               display: 'flex',
               flexDirection: 'column',
               gap: '0.45rem',
@@ -446,13 +500,14 @@ export const MobilisationConfirmationSection: React.FC<MobilisationConfirmationS
 
           {/* Card B: Latrics */}
           <div
-            onClick={() => handleSelectResponsibility('LATRICS')}
+            onClick={isClient && !isCompleted ? () => handleSelectResponsibility('LATRICS') : undefined}
             style={{
               border: responsibility === 'LATRICS' ? '2px solid #09090b' : '1px solid #e4e4e7',
               backgroundColor: responsibility === 'LATRICS' ? '#fafafa' : '#ffffff',
               borderRadius: '8px',
               padding: '0.85rem 1rem',
-              cursor: isCompleted ? 'default' : 'pointer',
+              cursor: isClient && !isCompleted ? 'pointer' : 'default',
+              opacity: !isClient && responsibility && responsibility !== 'LATRICS' ? 0.6 : 1,
               display: 'flex',
               flexDirection: 'column',
               gap: '0.45rem',
@@ -587,52 +642,91 @@ export const MobilisationConfirmationSection: React.FC<MobilisationConfirmationS
               lineHeight: 1.5,
             }}
           >
-            <strong>Gating Rule:</strong> By what time will the client share travel tickets and confirmations?
-            After Operations approves and validates that the tickets and bills shared are genuine, only then will the project be allowed to move to the next stage (Stage 4 Capturing).
+            <strong>Gating Rule:</strong> Client has chosen to take mobilization responsibility directly.
+            Latrics Operations provides a deadline by when all tickets and genuine bill slips must be uploaded.
+            After the client provides the required slips and proofs, Operations validates and verifies them before the project can proceed to Stage 4 (Capturing).
           </div>
 
-          {/* Target Share Deadline Picker */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
-            <label style={{ fontSize: '0.725rem', fontWeight: 700, color: '#09090b' }}>
-              Target Deadline to Share Tickets &amp; Confirmations:
-            </label>
-            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-              <input
-                type="datetime-local"
-                value={deadline}
-                disabled={isCompleted}
-                onChange={(e) => setDeadline(e.target.value)}
-                style={{
-                  height: '34px',
-                  padding: '0 0.65rem',
-                  fontSize: '0.75rem',
-                  borderRadius: '6px',
-                  border: '1px solid #d4d4d8',
-                  backgroundColor: '#ffffff',
-                  color: '#09090b',
-                  maxWidth: '260px',
-                }}
-              />
-              <button
-                type="button"
-                disabled={isSaving || isCompleted}
-                onClick={() => saveMobilisation({ clientTicketShareDeadline: deadline }, 'Ticket sharing deadline saved.')}
-                style={{
-                  height: '34px',
-                  padding: '0 0.85rem',
-                  fontSize: '0.725rem',
-                  fontWeight: 600,
-                  backgroundColor: '#09090b',
-                  color: '#ffffff',
-                  border: '1px solid #09090b',
-                  borderRadius: '6px',
-                  cursor: 'pointer',
-                }}
-              >
-                Save Deadline
-              </button>
+          {/* Target Share Deadline Picker - Specific Control for Latrics, Display for Client */}
+          {isOps && !isCompleted ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+              <label style={{ fontSize: '0.725rem', fontWeight: 700, color: '#09090b' }}>
+                Set Upload Deadline for Client Tickets &amp; Bills (Latrics Control):
+              </label>
+              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                <input
+                  type="datetime-local"
+                  value={deadline}
+                  onChange={(e) => setDeadline(e.target.value)}
+                  style={{
+                    height: '34px',
+                    padding: '0 0.65rem',
+                    fontSize: '0.75rem',
+                    borderRadius: '6px',
+                    border: '1px solid #d4d4d8',
+                    backgroundColor: '#ffffff',
+                    color: '#09090b',
+                    maxWidth: '260px',
+                  }}
+                />
+                <button
+                  type="button"
+                  disabled={isSaving || !deadline}
+                  onClick={() => saveMobilisation({ clientTicketShareDeadline: deadline }, 'Upload deadline saved and issued to client.')}
+                  style={{
+                    height: '34px',
+                    padding: '0 0.85rem',
+                    fontSize: '0.725rem',
+                    fontWeight: 600,
+                    backgroundColor: '#09090b',
+                    color: '#ffffff',
+                    border: '1px solid #09090b',
+                    borderRadius: '6px',
+                    cursor: !deadline ? 'not-allowed' : 'pointer',
+                  }}
+                >
+                  Save / Issue Deadline
+                </button>
+                {deadline && (
+                  <span style={{ fontSize: '0.725rem', color: '#52525b' }}>
+                    Active Deadline: <strong>{formatDateTime(deadline)}</strong>
+                  </span>
+                )}
+              </div>
             </div>
-          </div>
+          ) : (
+            <div
+              style={{
+                padding: '0.75rem 0.95rem',
+                backgroundColor: '#ffffff',
+                border: '1px solid #e4e4e7',
+                borderRadius: '6px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.65rem',
+              }}
+            >
+              <Clock size={16} color="#09090b" />
+              <div style={{ fontSize: '0.775rem', color: '#09090b' }}>
+                {deadline ? (
+                  <>
+                    <span style={{ color: '#71717a' }}>Upload Deadline (Set by Latrics Operations): </span>
+                    <strong style={{ color: '#09090b' }}>{formatDateTime(deadline)}</strong>
+                    <div style={{ fontSize: '0.7rem', color: '#71717a', marginTop: '0.15rem' }}>
+                      Please provide all flight/train tickets and genuine accommodation bills on or before this deadline.
+                    </div>
+                  </>
+                ) : (
+                  <div>
+                    <strong style={{ color: '#09090b' }}>Awaiting Deadline from Latrics Operations</strong>
+                    <div style={{ fontSize: '0.7rem', color: '#71717a', marginTop: '0.15rem' }}>
+                      Latrics Operations will issue a specific deadline by when tickets and bill slips must be uploaded to the portal.
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Document Upload Area */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
@@ -642,19 +736,45 @@ export const MobilisationConfirmationSection: React.FC<MobilisationConfirmationS
 
             {/* List */}
             {ticketBills.length === 0 ? (
-              <div
-                style={{
-                  padding: '1rem',
-                  border: '1px dashed #d4d4d8',
-                  borderRadius: '6px',
-                  backgroundColor: '#ffffff',
-                  textAlign: 'center',
-                  fontSize: '0.725rem',
-                  color: '#71717a',
-                }}
-              >
-                No travel tickets or bills uploaded yet. Upload flight/train tickets, boarding passes, or accommodation confirmations.
-              </div>
+              isOps ? (
+                <div
+                  style={{
+                    padding: '0.85rem 1rem',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '6px',
+                    backgroundColor: '#ffffff',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.65rem',
+                  }}
+                >
+                  <Clock size={16} color="#09090b" />
+                  <div>
+                    <div style={{ fontSize: '0.775rem', fontWeight: 700, color: '#09090b' }}>
+                      Waiting for Client to Upload Tickets &amp; Bills
+                    </div>
+                    <div style={{ fontSize: '0.725rem', color: '#64748b', marginTop: '0.15rem' }}>
+                      {deadline
+                        ? `Client must upload travel tickets and genuine bill slips on or before the deadline (${formatDateTime(deadline)}). Verification controls will activate once client uploads documents.`
+                        : 'Please set the deadline above. Once client uploads tickets and bills, Latrics will verify them here.'}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div
+                  style={{
+                    padding: '1rem',
+                    border: '1px dashed #d4d4d8',
+                    borderRadius: '6px',
+                    backgroundColor: '#ffffff',
+                    textAlign: 'center',
+                    fontSize: '0.725rem',
+                    color: '#71717a',
+                  }}
+                >
+                  No travel tickets or bills uploaded yet. Upload flight/train tickets, boarding passes, or accommodation confirmations.
+                </div>
+              )
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
                 {ticketBills.map((b) => (
@@ -700,7 +820,7 @@ export const MobilisationConfirmationSection: React.FC<MobilisationConfirmationS
                           <Eye size={11} /> View
                         </a>
                       )}
-                      {!isCompleted && (
+                      {isClient && !isCompleted && (
                         <button
                           type="button"
                           onClick={() => handleRemoveTicketBill(b.id)}
@@ -721,8 +841,8 @@ export const MobilisationConfirmationSection: React.FC<MobilisationConfirmationS
               </div>
             )}
 
-            {/* Upload Controls */}
-            {!isCompleted && (
+            {/* Upload Controls - Client Only */}
+            {isClient && !isCompleted && (
               <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginTop: '0.35rem', flexWrap: 'wrap' }}>
                 <input
                   type="text"
@@ -786,14 +906,21 @@ export const MobilisationConfirmationSection: React.FC<MobilisationConfirmationS
                   Operations Ticket Validation Action
                 </span>
                 <span style={{ fontSize: '0.675rem', fontWeight: 600, color: '#71717a' }}>
-                  LATRICS Back-Office Gatekeeper
+                  {ticketBills.length > 0 ? `${ticketBills.length} Document(s) Ready for Review` : 'Awaiting Client Uploads'}
                 </span>
               </div>
+
+              {ticketBills.length === 0 && (
+                <div style={{ fontSize: '0.725rem', color: '#71717a', fontStyle: 'italic' }}>
+                  * Operations cannot approve until the client uploads the required travel tickets and genuine bill proofs.
+                </div>
+              )}
 
               <input
                 type="text"
                 placeholder="Validation notes or clarification instructions for client..."
                 value={ticketNotes}
+                disabled={ticketBills.length === 0}
                 onChange={(e) => setTicketNotes(e.target.value)}
                 style={{
                   height: '32px',
@@ -801,14 +928,14 @@ export const MobilisationConfirmationSection: React.FC<MobilisationConfirmationS
                   fontSize: '0.725rem',
                   borderRadius: '4px',
                   border: '1px solid #d4d4d8',
-                  backgroundColor: '#ffffff',
+                  backgroundColor: ticketBills.length === 0 ? '#f4f4f5' : '#ffffff',
                 }}
               />
 
               <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
                 <button
                   type="button"
-                  disabled={isSaving}
+                  disabled={isSaving || ticketBills.length === 0}
                   onClick={handleOpsRejectTickets}
                   style={{
                     height: '32px',
@@ -819,7 +946,8 @@ export const MobilisationConfirmationSection: React.FC<MobilisationConfirmationS
                     color: '#09090b',
                     border: '1px solid #d4d4d8',
                     borderRadius: '6px',
-                    cursor: 'pointer',
+                    cursor: ticketBills.length === 0 ? 'not-allowed' : 'pointer',
+                    opacity: ticketBills.length === 0 ? 0.6 : 1,
                   }}
                 >
                   Request Clarification / Reject
@@ -838,6 +966,7 @@ export const MobilisationConfirmationSection: React.FC<MobilisationConfirmationS
                     border: '1px solid #09090b',
                     borderRadius: '6px',
                     cursor: ticketBills.length === 0 ? 'not-allowed' : 'pointer',
+                    opacity: ticketBills.length === 0 ? 0.6 : 1,
                     display: 'inline-flex',
                     alignItems: 'center',
                     gap: '0.35rem',
@@ -937,7 +1066,7 @@ export const MobilisationConfirmationSection: React.FC<MobilisationConfirmationS
                     border: '1px solid #e4e4e7',
                   }}
                 >
-                  ₹5,000 Advance Pending
+                  ₹5,000 Advance Pending from Client
                 </span>
               )}
             </div>
@@ -954,11 +1083,12 @@ export const MobilisationConfirmationSection: React.FC<MobilisationConfirmationS
               lineHeight: 1.5,
             }}
           >
-            <strong>Gating Rule:</strong> Client had to pay <strong>₹5,000 rs in advance</strong> and need to share the transaction slip for Latrics to verify.
-            Only if the transaction is verified by Ops then only project can proceed to next stage.
+            <strong>Gating Rule:</strong> Client has chosen Latrics Operations to take mobilization responsibility.
+            Client must pay <strong>₹5,000 INR</strong> in advance and upload the transaction proof slip with reference information.
+            Latrics will wait until the client submits the slip, then verify it. Once verified by Ops, the project will proceed to Stage 4 (Capturing).
           </div>
 
-          {/* Wireframe Bank Transfer Account Box */}
+          {/* Bank Transfer Account Box */}
           <div
             style={{
               border: '1px solid #d4d4d8',
@@ -988,156 +1118,236 @@ export const MobilisationConfirmationSection: React.FC<MobilisationConfirmationS
             </div>
           </div>
 
-          {/* Client Transaction Slip Submission Form */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
-            <div style={{ fontSize: '0.725rem', fontWeight: 700, color: '#09090b' }}>
-              Transaction Slip &amp; Reference Submission:
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.65rem' }}>
+          {/* Latrics Waiting Banner (shown only to Latrics when Client hasn't submitted yet) */}
+          {!isClient && !slipUrl && !utr && advanceStatus === 'PENDING_PAYMENT' && (
+            <div
+              style={{
+                padding: '0.85rem 1rem',
+                backgroundColor: '#f8fafc',
+                border: '1px solid #e2e8f0',
+                borderRadius: '6px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.65rem',
+              }}
+            >
+              <Clock size={16} color="#09090b" />
               <div>
-                <label style={{ fontSize: '0.675rem', fontWeight: 600, color: '#52525b', display: 'block', marginBottom: '0.2rem' }}>
-                  Bank UTR / Transaction Reference ID:
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g. UTR123456789012"
-                  value={utr}
-                  disabled={isCompleted}
-                  onChange={(e) => setUtr(e.target.value)}
-                  style={{
-                    width: '100%',
-                    height: '32px',
-                    padding: '0 0.65rem',
-                    fontSize: '0.725rem',
-                    borderRadius: '6px',
-                    border: '1px solid #d4d4d8',
-                    backgroundColor: '#ffffff',
-                    fontFamily: 'monospace',
-                  }}
-                />
-              </div>
-
-              <div>
-                <label style={{ fontSize: '0.675rem', fontWeight: 600, color: '#52525b', display: 'block', marginBottom: '0.2rem' }}>
-                  Payment Date:
-                </label>
-                <input
-                  type="date"
-                  value={paidAt}
-                  disabled={isCompleted}
-                  onChange={(e) => setPaidAt(e.target.value)}
-                  style={{
-                    width: '100%',
-                    height: '32px',
-                    padding: '0 0.65rem',
-                    fontSize: '0.725rem',
-                    borderRadius: '6px',
-                    border: '1px solid #d4d4d8',
-                    backgroundColor: '#ffffff',
-                  }}
-                />
+                <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#09090b' }}>
+                  Waiting for Client ₹5,000 Advance Submission
+                </div>
+                <div style={{ fontSize: '0.725rem', color: '#64748b', marginTop: '0.15rem' }}>
+                  Client has chosen Latrics Operations to manage mobilization. Latrics is on standby waiting for the client to pay the ₹5,000 INR advance and submit their transaction slip &amp; UTR reference. You will be able to verify the slip as soon as it is uploaded.
+                </div>
               </div>
             </div>
+          )}
 
-            {/* Slip Attachment */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', flexWrap: 'wrap' }}>
-              {slipName ? (
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '0.45rem',
-                    padding: '0.35rem 0.65rem',
-                    backgroundColor: '#ffffff',
-                    border: '1px solid #d4d4d8',
-                    borderRadius: '6px',
-                    fontSize: '0.725rem',
-                    fontWeight: 600,
-                  }}
-                >
-                  <Paperclip size={13} />
-                  <span>{slipName}</span>
-                  {slipUrl && (
+          {/* Latrics View of Client's Submitted Information */}
+          {!isClient && (slipUrl || utr) && (
+            <div
+              style={{
+                border: '1px solid #e4e4e7',
+                borderRadius: '6px',
+                backgroundColor: '#ffffff',
+                padding: '0.85rem',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '0.5rem',
+              }}
+            >
+              <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#09090b', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                Client Submitted Transaction Details:
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.65rem', fontSize: '0.775rem' }}>
+                <div>
+                  <span style={{ fontSize: '0.675rem', color: '#71717a', display: 'block' }}>Bank UTR / Transaction Ref:</span>
+                  <strong style={{ fontFamily: 'monospace', color: '#09090b' }}>{utr || '—'}</strong>
+                </div>
+                <div>
+                  <span style={{ fontSize: '0.675rem', color: '#71717a', display: 'block' }}>Payment Date:</span>
+                  <strong style={{ color: '#09090b' }}>{paidAt || '—'}</strong>
+                </div>
+                <div>
+                  <span style={{ fontSize: '0.675rem', color: '#71717a', display: 'block' }}>Transaction Slip:</span>
+                  {slipUrl ? (
                     <a
                       href={slipUrl}
-                      download={slipName}
+                      download={slipName || 'Transaction_Slip'}
                       target="_blank"
                       rel="noreferrer"
-                      style={{ color: '#09090b', textDecoration: 'underline', marginLeft: '0.35rem' }}
-                    >
-                      View
-                    </a>
-                  )}
-                  {!isCompleted && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSlipUrl('');
-                        setSlipName('');
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '0.35rem',
+                        color: '#09090b',
+                        fontWeight: 600,
+                        textDecoration: 'underline',
+                        marginTop: '0.15rem',
                       }}
-                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#71717a' }}
                     >
-                      <X size={12} />
-                    </button>
+                      <Paperclip size={13} /> {slipName || 'View Uploaded Slip'}
+                    </a>
+                  ) : (
+                    <span style={{ color: '#71717a' }}>No slip file attached</span>
                   )}
                 </div>
-              ) : (
-                <label
-                  style={{
-                    height: '32px',
-                    padding: '0 0.85rem',
-                    fontSize: '0.725rem',
-                    fontWeight: 600,
-                    backgroundColor: '#ffffff',
-                    color: '#09090b',
-                    border: '1px solid #d4d4d8',
-                    borderRadius: '6px',
-                    cursor: 'pointer',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '0.35rem',
-                  }}
-                >
-                  <Upload size={13} />
-                  <span>Attach Transaction Slip / Receipt</span>
-                  <input
-                    type="file"
-                    accept=".pdf,.png,.jpg,.jpeg,.webp"
-                    disabled={isCompleted}
-                    onChange={handleUploadAdvanceSlip}
-                    style={{ display: 'none' }}
-                  />
-                </label>
-              )}
-
-              {!isCompleted && (
-                <button
-                  type="button"
-                  disabled={isSaving || !utr.trim()}
-                  onClick={handleSubmitAdvanceSlip}
-                  style={{
-                    height: '32px',
-                    padding: '0 1rem',
-                    fontSize: '0.725rem',
-                    fontWeight: 700,
-                    backgroundColor: '#09090b',
-                    color: '#ffffff',
-                    border: '1px solid #09090b',
-                    borderRadius: '6px',
-                    cursor: !utr.trim() ? 'not-allowed' : 'pointer',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '0.35rem',
-                  }}
-                >
-                  Submit Slip for Verification
-                </button>
-              )}
+              </div>
             </div>
-          </div>
+          )}
 
-          {/* Operations Verification Action Box */}
+          {/* Client Transaction Slip Submission Form - Only for Client */}
+          {isClient && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
+              <div style={{ fontSize: '0.725rem', fontWeight: 700, color: '#09090b' }}>
+                Transaction Slip &amp; Reference Submission:
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.65rem' }}>
+                <div>
+                  <label style={{ fontSize: '0.675rem', fontWeight: 600, color: '#52525b', display: 'block', marginBottom: '0.2rem' }}>
+                    Bank UTR / Transaction Reference ID:
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. UTR123456789012"
+                    value={utr}
+                    disabled={isCompleted || advanceStatus === 'VERIFIED'}
+                    onChange={(e) => setUtr(e.target.value)}
+                    style={{
+                      width: '100%',
+                      height: '32px',
+                      padding: '0 0.65rem',
+                      fontSize: '0.725rem',
+                      borderRadius: '6px',
+                      border: '1px solid #d4d4d8',
+                      backgroundColor: '#ffffff',
+                      fontFamily: 'monospace',
+                    }}
+                  />
+                </div>
+
+                <div>
+                  <label style={{ fontSize: '0.675rem', fontWeight: 600, color: '#52525b', display: 'block', marginBottom: '0.2rem' }}>
+                    Payment Date:
+                  </label>
+                  <input
+                    type="date"
+                    value={paidAt}
+                    disabled={isCompleted || advanceStatus === 'VERIFIED'}
+                    onChange={(e) => setPaidAt(e.target.value)}
+                    style={{
+                      width: '100%',
+                      height: '32px',
+                      padding: '0 0.65rem',
+                      fontSize: '0.725rem',
+                      borderRadius: '6px',
+                      border: '1px solid #d4d4d8',
+                      backgroundColor: '#ffffff',
+                    }}
+                  />
+                </div>
+              </div>
+
+              {/* Slip Attachment */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', flexWrap: 'wrap' }}>
+                {slipName ? (
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.45rem',
+                      padding: '0.35rem 0.65rem',
+                      backgroundColor: '#ffffff',
+                      border: '1px solid #d4d4d8',
+                      borderRadius: '6px',
+                      fontSize: '0.725rem',
+                      fontWeight: 600,
+                    }}
+                  >
+                    <Paperclip size={13} />
+                    <span>{slipName}</span>
+                    {slipUrl && (
+                      <a
+                        href={slipUrl}
+                        download={slipName}
+                        target="_blank"
+                        rel="noreferrer"
+                        style={{ color: '#09090b', textDecoration: 'underline', marginLeft: '0.35rem' }}
+                      >
+                        View
+                      </a>
+                    )}
+                    {!isCompleted && advanceStatus !== 'VERIFIED' && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSlipUrl('');
+                          setSlipName('');
+                        }}
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#71717a' }}
+                      >
+                        <X size={12} />
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  <label
+                    style={{
+                      height: '32px',
+                      padding: '0 0.85rem',
+                      fontSize: '0.725rem',
+                      fontWeight: 600,
+                      backgroundColor: '#ffffff',
+                      color: '#09090b',
+                      border: '1px solid #d4d4d8',
+                      borderRadius: '6px',
+                      cursor: isCompleted || advanceStatus === 'VERIFIED' ? 'default' : 'pointer',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '0.35rem',
+                    }}
+                  >
+                    <Upload size={13} />
+                    <span>Attach Transaction Slip / Receipt</span>
+                    <input
+                      type="file"
+                      accept=".pdf,.png,.jpg,.jpeg,.webp"
+                      disabled={isCompleted || advanceStatus === 'VERIFIED'}
+                      onChange={handleUploadAdvanceSlip}
+                      style={{ display: 'none' }}
+                    />
+                  </label>
+                )}
+
+                {!isCompleted && advanceStatus !== 'VERIFIED' && (
+                  <button
+                    type="button"
+                    disabled={isSaving || !utr.trim()}
+                    onClick={handleSubmitAdvanceSlip}
+                    style={{
+                      height: '32px',
+                      padding: '0 1rem',
+                      fontSize: '0.725rem',
+                      fontWeight: 700,
+                      backgroundColor: '#09090b',
+                      color: '#ffffff',
+                      border: '1px solid #09090b',
+                      borderRadius: '6px',
+                      cursor: !utr.trim() ? 'not-allowed' : 'pointer',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '0.35rem',
+                    }}
+                  >
+                    Submit Slip for Verification
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Operations Verification Action Box - Only for Latrics Ops */}
           {isOps && !isCompleted && (
             <div
               style={{
@@ -1155,14 +1365,21 @@ export const MobilisationConfirmationSection: React.FC<MobilisationConfirmationS
                   Operations Advance Verification Action
                 </span>
                 <span style={{ fontSize: '0.675rem', fontWeight: 600, color: '#71717a' }}>
-                  Accounts Reconciliation Gate
+                  {slipUrl || utr ? 'Client Proof Received — Ready to Verify' : 'Waiting for Client Proof'}
                 </span>
               </div>
+
+              {(!slipUrl && !utr) && (
+                <div style={{ fontSize: '0.725rem', color: '#71717a', fontStyle: 'italic' }}>
+                  * Operations cannot verify until the client submits their ₹5,000 transaction slip and UTR details.
+                </div>
+              )}
 
               <input
                 type="text"
                 placeholder="Verification remarks or rejection reason..."
                 value={advanceNotes}
+                disabled={!slipUrl && !utr}
                 onChange={(e) => setAdvanceNotes(e.target.value)}
                 style={{
                   height: '32px',
@@ -1170,14 +1387,14 @@ export const MobilisationConfirmationSection: React.FC<MobilisationConfirmationS
                   fontSize: '0.725rem',
                   borderRadius: '4px',
                   border: '1px solid #d4d4d8',
-                  backgroundColor: '#ffffff',
+                  backgroundColor: !slipUrl && !utr ? '#f4f4f5' : '#ffffff',
                 }}
               />
 
               <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
                 <button
                   type="button"
-                  disabled={isSaving}
+                  disabled={isSaving || (!slipUrl && !utr)}
                   onClick={handleOpsRejectAdvance}
                   style={{
                     height: '32px',
@@ -1188,14 +1405,15 @@ export const MobilisationConfirmationSection: React.FC<MobilisationConfirmationS
                     color: '#09090b',
                     border: '1px solid #d4d4d8',
                     borderRadius: '6px',
-                    cursor: 'pointer',
+                    cursor: !slipUrl && !utr ? 'not-allowed' : 'pointer',
+                    opacity: !slipUrl && !utr ? 0.6 : 1,
                   }}
                 >
                   Reject Slip / Report Discrepancy
                 </button>
                 <button
                   type="button"
-                  disabled={isSaving || !utr.trim()}
+                  disabled={isSaving || (!slipUrl && !utr)}
                   onClick={handleOpsVerifyAdvance}
                   style={{
                     height: '32px',
@@ -1206,7 +1424,8 @@ export const MobilisationConfirmationSection: React.FC<MobilisationConfirmationS
                     color: '#ffffff',
                     border: '1px solid #09090b',
                     borderRadius: '6px',
-                    cursor: !utr.trim() ? 'not-allowed' : 'pointer',
+                    cursor: !slipUrl && !utr ? 'not-allowed' : 'pointer',
+                    opacity: !slipUrl && !utr ? 0.6 : 1,
                     display: 'inline-flex',
                     alignItems: 'center',
                     gap: '0.35rem',

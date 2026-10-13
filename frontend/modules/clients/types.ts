@@ -42,6 +42,11 @@ export interface ClientCompany {
   is_database_client?: boolean;
   tenure_days_left?: number;
   tenure_total_days?: number;
+  agreement_start_date?: string;
+  has_custom_agreement_date?: boolean;
+  is_validity_over?: boolean;
+  validity_reason?: string;
+  validity_message?: string;
   requests_count?: number;
   converted_requests_count?: number;
   requests_converted?: string;

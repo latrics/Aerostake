@@ -10,6 +10,7 @@ import { RequestVersion } from '@/modules/requests/types';
 import { useAuth } from '@/lib/auth';
 import { isLatricsRole } from '@/lib/role';
 import { PageHeader } from '@/components/PageHeader';
+import { formatDateDDMMYYYY } from '@/lib/date';
 import {
   calculateRequestsNotificationCount,
   isRequestUnseen,
@@ -344,18 +345,7 @@ export default function RequestsOverviewPage() {
   const totalFilteredCount = filteredAdminGroups.reduce((acc, grp) => acc + grp.requests.length, 0);
 
   const formatDate = (dateStr: string) => {
-    try {
-      const d = new Date(dateStr);
-      return d.toLocaleDateString('en-GB', {
-        day: '2-digit',
-        month: 'short',
-        year: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-      });
-    } catch {
-      return dateStr;
-    }
+    return formatDateDDMMYYYY(dateStr);
   };
 
   return (
@@ -368,6 +358,9 @@ export default function RequestsOverviewPage() {
             ? "Track and review your organization's survey requests and operational planning in real time"
             : 'Review incoming client survey requests and formulate operational planning forms across projects'
         }
+        onRefresh={fetchRequests}
+        isRefreshing={isLoading}
+        refreshTooltip="Refresh requests"
       >
         <div style={{ position: 'relative', width: '280px' }}>
           <input
@@ -379,27 +372,6 @@ export default function RequestsOverviewPage() {
             style={{ fontSize: '0.775rem', height: '36px', borderRadius: '6px', border: '1px solid #e4e4e7' }}
           />
         </div>
-
-        <button
-          onClick={() => fetchRequests()}
-          title="Refresh requests"
-          style={{
-            height: '36px',
-            padding: '0 0.85rem',
-            border: '1px solid #e4e4e7',
-            borderRadius: '6px',
-            backgroundColor: '#ffffff',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            cursor: 'pointer',
-            fontSize: '0.775rem',
-            fontWeight: 700,
-            color: '#09090b',
-          }}
-        >
-          Refresh
-        </button>
 
         {isClient && (
           <button

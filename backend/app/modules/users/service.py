@@ -296,7 +296,7 @@ class UserService:
                         )
 
                     # Send Invitation Email (valid for 1 day)
-                    invite_link = f"http://localhost:3000/accept-invite?token={token}"
+                    invite_link = f"{settings.FRONTEND_URL.rstrip('/')}/accept-invite?token={token}"
                     inviter_display = current_user.full_name or current_user.email
                     comp_display = effective_company_name or "Aerostake Organization"
 
@@ -396,6 +396,11 @@ class UserService:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="User not found",
             )
+        if current_user.role == RoleEnum.OPERATIONS and target_user.role == RoleEnum.ADMIN:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Operations team members cannot delete Administrator accounts",
+            )
         target_email = target_user.email
         await user_repository.delete(db, target_user, soft=soft)
         return {"status": "success", "message": f"User {target_email} deleted successfully"}
@@ -417,6 +422,11 @@ class UserService:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="User not found",
+            )
+        if current_user.role == RoleEnum.OPERATIONS and target_user.role == RoleEnum.ADMIN:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Operations team members cannot deactivate Administrator accounts",
             )
         updated = await user_repository.toggle_active(db, target_user, is_active)
         return UserOut.model_validate(updated)

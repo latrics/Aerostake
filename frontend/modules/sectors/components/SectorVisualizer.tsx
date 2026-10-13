@@ -201,7 +201,7 @@ export const SectorVisualizer: React.FC<SectorVisualizerProps> = ({ sectors, pro
               Geospatial Vector Map Layer
             </h4>
             <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', maxWidth: '420px' }}>
-              Rendered boundary coordinates across {sectors.length} flight polygons. Real-time telemetry signals sync during pilot flight sorties.
+              Rendered boundary coordinates across {sectors.length} flight polygons. Real-time telemetry signals sync during pilot flights.
             </p>
 
             <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1rem' }}>

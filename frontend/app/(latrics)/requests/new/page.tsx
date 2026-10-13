@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, Suspense } from 'react';
+import React, { useState, useEffect, useMemo, Suspense } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
@@ -22,6 +22,9 @@ import { useAuth } from '@/lib/auth';
 import { isLatricsRole } from '@/lib/role';
 import { projectApi } from '@/modules/projects/api';
 import { ProjectStatus } from '@/modules/projects/types';
+import { readFileAsDataUrl } from '@/lib/document-utils';
+import { PageHeader } from '@/components/PageHeader';
+import { formatDateDDMMYYYY } from '@/lib/date';
 
 const INDIAN_STATES = [
   'Andhra Pradesh',
@@ -109,13 +112,15 @@ function NewProjectRequestPageContent() {
   });
   const [otherDeliverableText, setOtherDeliverableText] = useState('');
 
-  // 4. KML / Boundary Files State (Multiple Files Support)
-  const [kmlFiles, setKmlFiles] = useState<Array<{ name: string; size: string }>>([]);
+  // 4. KML / Boundary Files State (Multiple Files Support with dataUrl preservation)
+  const [kmlFiles, setKmlFiles] = useState<Array<{ name: string; size: string; dataUrl?: string }>>([]);
   const [isDraggingKml, setIsDraggingKml] = useState(false);
-  const [airspaceZones, setAirspaceZones] = useState<string[]>(['Green Zone']);
+  const [airspaceZone, setAirspaceZone] = useState<string>('Green Zone');
+  const [manageFlightPermissions, setManageFlightPermissions] = useState<boolean>(false);
+  const airspaceZones = useMemo(() => [airspaceZone], [airspaceZone]);
 
-  // 7. Scope Document Files State (Multiple Files Support)
-  const [scopeFiles, setScopeFiles] = useState<Array<{ name: string; size: string }>>([]);
+  // 7. Scope Document Files State (Multiple Files Support with dataUrl preservation)
+  const [scopeFiles, setScopeFiles] = useState<Array<{ name: string; size: string; dataUrl?: string }>>([]);
   const [isDraggingScope, setIsDraggingScope] = useState(false);
 
   const formatFileSize = (bytes: number) => {
@@ -126,14 +131,25 @@ function NewProjectRequestPageContent() {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   };
 
-  const handleAddKmlFiles = (fileList: FileList | File[]) => {
-    const incoming = Array.from(fileList).map((f) => ({
-      name: f.name,
-      size: formatFileSize(f.size),
-    }));
+  const handleAddKmlFiles = async (fileList: FileList | File[]) => {
+    const filesArr = Array.from(fileList);
+    const newItems = await Promise.all(
+      filesArr.map(async (f) => {
+        let dUrl = '';
+        try {
+          dUrl = await readFileAsDataUrl(f);
+        } catch {}
+        return {
+          name: f.name,
+          size: formatFileSize(f.size),
+          dataUrl: dUrl,
+        };
+      })
+    );
+
     setKmlFiles((prev) => {
       const existingNames = new Set(prev.map((f) => f.name));
-      const filtered = incoming.filter((f) => !existingNames.has(f.name));
+      const filtered = newItems.filter((f) => !existingNames.has(f.name));
       return [...prev, ...filtered];
     });
   };
@@ -142,14 +158,25 @@ function NewProjectRequestPageContent() {
     setKmlFiles((prev) => prev.filter((_, i) => i !== index));
   };
 
-  const handleAddScopeFiles = (fileList: FileList | File[]) => {
-    const incoming = Array.from(fileList).map((f) => ({
-      name: f.name,
-      size: formatFileSize(f.size),
-    }));
+  const handleAddScopeFiles = async (fileList: FileList | File[]) => {
+    const filesArr = Array.from(fileList);
+    const newItems = await Promise.all(
+      filesArr.map(async (f) => {
+        let dUrl = '';
+        try {
+          dUrl = await readFileAsDataUrl(f);
+        } catch {}
+        return {
+          name: f.name,
+          size: formatFileSize(f.size),
+          dataUrl: dUrl,
+        };
+      })
+    );
+
     setScopeFiles((prev) => {
       const existingNames = new Set(prev.map((f) => f.name));
-      const filtered = incoming.filter((f) => !existingNames.has(f.name));
+      const filtered = newItems.filter((f) => !existingNames.has(f.name));
       return [...prev, ...filtered];
     });
   };
@@ -162,7 +189,9 @@ function NewProjectRequestPageContent() {
   const [endDate, setEndDate] = useState('');
   const [tenureDays, setTenureDays] = useState(0);
 
-  const [selectedPayload, setSelectedPayload] = useState('');
+  // Multi-sensor selection
+  const [selectedPayloads, setSelectedPayloads] = useState<string[]>(['zenmuse_p1']);
+  const selectedPayload = selectedPayloads.join(', ') || 'zenmuse_p1';
   const [remarks, setRemarks] = useState('');
 
   const [assignedContacts, setAssignedContacts] = useState([
@@ -218,10 +247,12 @@ function NewProjectRequestPageContent() {
       if (Array.isArray(reqPayload.assigned_contacts) && reqPayload.assigned_contacts.length > 0) {
         setAssignedContacts(reqPayload.assigned_contacts);
       }
-      if (reqPayload.payload_sensor) {
-        setSelectedPayload(reqPayload.payload_sensor);
+      if (Array.isArray(reqPayload.payload_sensors) && reqPayload.payload_sensors.length > 0) {
+        setSelectedPayloads(reqPayload.payload_sensors);
+      } else if (reqPayload.payload_sensor) {
+        setSelectedPayloads(reqPayload.payload_sensor.split(',').map((s: string) => s.trim()).filter(Boolean));
       } else if (reqPayload.survey_type) {
-        setSelectedPayload(reqPayload.survey_type);
+        setSelectedPayloads([reqPayload.survey_type]);
       }
       if (reqPayload.start_date) setStartDate(reqPayload.start_date);
       if (reqPayload.end_date) setEndDate(reqPayload.end_date);
@@ -254,10 +285,15 @@ function NewProjectRequestPageContent() {
         setDeliverables((prev) => ({ ...prev, ...map }));
       }
 
-      if (Array.isArray(reqPayload.airspace_zones)) {
-        setAirspaceZones(reqPayload.airspace_zones);
-      } else if (typeof reqPayload.airspace_zone === 'string') {
-        setAirspaceZones([reqPayload.airspace_zone]);
+      if (Array.isArray(reqPayload.airspace_zones) && reqPayload.airspace_zones.length > 0) {
+        setAirspaceZone(reqPayload.airspace_zones[0]);
+      } else if (typeof reqPayload.airspace_zone === 'string' && reqPayload.airspace_zone) {
+        setAirspaceZone(reqPayload.airspace_zone);
+      }
+      if (typeof reqPayload.latrics_manage_permissions === 'boolean') {
+        setManageFlightPermissions(reqPayload.latrics_manage_permissions);
+      } else if (typeof reqPayload.manage_flight_permissions === 'boolean') {
+        setManageFlightPermissions(reqPayload.manage_flight_permissions);
       }
 
       // Hydrate all uploaded boundary & scope files
@@ -453,7 +489,7 @@ function NewProjectRequestPageContent() {
     setStartDate('');
     setEndDate('');
     setTenureDays(0);
-    setSelectedPayload('');
+    setSelectedPayloads(['zenmuse_p1']);
     setRemarks('');
     setKmlFiles([]);
     setScopeFiles([]);
@@ -503,7 +539,7 @@ function NewProjectRequestPageContent() {
       const trimmedCity = city.trim();
       const trimmedState = state.trim();
       const finalLocation = trimmedAddress || (trimmedCity && trimmedState ? `${trimmedCity}, ${trimmedState}` : 'Survey Location');
-      const draftTitle = projectName.trim() || `Draft Request - ${new Date().toLocaleDateString('en-GB')}`;
+      const draftTitle = projectName.trim() || `Draft Request - ${formatDateDDMMYYYY(new Date())}`;
 
       const deliverablesList = Object.keys(deliverables).filter((k) => deliverables[k]);
       if (deliverables.other && otherDeliverableText.trim()) {
@@ -523,8 +559,12 @@ function NewProjectRequestPageContent() {
         start_date: startDate,
         end_date: endDate,
         tenure_days: tenureDays,
-        airspace_zones: airspaceZones,
+        airspace_zone: airspaceZone,
+        airspace_zones: [airspaceZone],
+        latrics_manage_permissions: manageFlightPermissions,
+        manage_flight_permissions: manageFlightPermissions,
         payload_sensor: selectedPayload,
+        payload_sensors: selectedPayloads,
         assigned_contacts: assignedContacts.filter((c) => c.name.trim() !== ''),
         kml_filename: kmlFiles.map((f) => f.name).join(', ') || null,
         scope_filename: scopeFiles.map((f) => f.name).join(', ') || null,
@@ -537,6 +577,7 @@ function NewProjectRequestPageContent() {
             type: f.name.endsWith('.kmz') ? 'KMZ' : 'KML',
             category: 'Boundary',
             date: new Date().toISOString().split('T')[0],
+            dataUrl: f.dataUrl,
           })),
           ...scopeFiles.map((f) => ({
             name: f.name,
@@ -544,9 +585,10 @@ function NewProjectRequestPageContent() {
             type: f.name.endsWith('.pdf') ? 'PDF' : 'Document',
             category: 'Scope Document',
             date: new Date().toISOString().split('T')[0],
+            dataUrl: f.dataUrl,
           })),
         ],
-        remarks: remarks,
+        remarks: remarks.trim() || '',
         is_draft: true,
       };
 
@@ -554,7 +596,7 @@ function NewProjectRequestPageContent() {
       if (targetId) {
         await projectApi.updateProject(targetId, {
           title: draftTitle,
-          description: remarks || `Draft request: ${draftTitle}`,
+          description: remarks.trim() || '',
           status: ProjectStatus.DRAFT,
           requirements_payload: payloadPayload,
           survey_location: finalLocation,
@@ -563,7 +605,7 @@ function NewProjectRequestPageContent() {
       } else {
         const created = await projectApi.createProject({
           title: draftTitle,
-          description: remarks || `Draft request: ${draftTitle}`,
+          description: remarks.trim() || '',
           survey_location: finalLocation,
           survey_type: selectedPayload || 'topography',
           target_area_sqkm: requestedAreaSqKm ? parseFloat(requestedAreaSqKm) : undefined,
@@ -675,7 +717,12 @@ function NewProjectRequestPageContent() {
         start_date: startDate,
         end_date: endDate,
         tenure_days: tenureDays,
+        airspace_zone: airspaceZone,
+        airspace_zones: [airspaceZone],
+        latrics_manage_permissions: manageFlightPermissions,
+        manage_flight_permissions: manageFlightPermissions,
         payload_sensor: selectedPayload,
+        payload_sensors: selectedPayloads,
         assigned_contacts: assignedContacts.filter((c) => c.name.trim() !== ''),
         kml_filename: kmlFiles.map((f) => f.name).join(', ') || null,
         scope_filename: scopeFiles.map((f) => f.name).join(', ') || null,
@@ -688,6 +735,7 @@ function NewProjectRequestPageContent() {
             type: f.name.endsWith('.kmz') ? 'KMZ' : 'KML',
             category: 'Boundary',
             date: new Date().toISOString().split('T')[0],
+            dataUrl: f.dataUrl,
           })),
           ...scopeFiles.map((f) => ({
             name: f.name,
@@ -695,16 +743,17 @@ function NewProjectRequestPageContent() {
             type: f.name.endsWith('.pdf') ? 'PDF' : 'Document',
             category: 'Scope Document',
             date: new Date().toISOString().split('T')[0],
+            dataUrl: f.dataUrl,
           })),
         ],
-        remarks: remarks,
+        remarks: remarks.trim(),
       };
 
       let targetId = currentDraftId || rawProjectId;
       if (isDraftMode && targetId) {
         await projectApi.updateProject(targetId, {
           title: projectName.trim(),
-          description: remarks || `Survey request for ${projectName.trim()}`,
+          description: remarks.trim() || '',
           status: ProjectStatus.SUBMITTED,
           survey_location: finalLocation,
           survey_type: selectedPayload || 'topography',
@@ -714,7 +763,7 @@ function NewProjectRequestPageContent() {
       } else {
         await projectApi.createProject({
           title: projectName.trim(),
-          description: remarks || `Survey request for ${projectName.trim()}`,
+          description: remarks.trim() || '',
           survey_location: finalLocation,
           survey_type: selectedPayload || 'topography',
           target_area_sqkm: areaNum,
@@ -739,70 +788,50 @@ function NewProjectRequestPageContent() {
 
   return (
     <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-      {/* ── Top Breadcrumb & User Info Header ── */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.825rem' }}>
-          <Link
-            href="/requests"
-            style={{ display: 'inline-flex', alignItems: 'center', gap: '0.2rem', color: '#09090b', fontWeight: 600 }}
-          >
-            <ChevronLeft size={14} /> Requests
-          </Link>
-          <span style={{ color: 'var(--text-muted)' }}>&gt;</span>
-          <span style={{ color: 'var(--text-secondary)' }}>
-            {isRevision ? 'Revise Request' : isDraftMode ? 'Edit Draft' : 'New Request'}
-          </span>
-        </div>
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-          <div style={{ position: 'relative', width: '280px' }}>
-            <input
-              type="text"
-              placeholder="Search projects, clients, requests..."
-              className="form-input"
-              style={{ fontSize: '0.775rem', height: '34px', paddingRight: '2rem' }}
-            />
-            <Search size={14} color="#71717a" style={{ position: 'absolute', right: '10px', top: '10px' }} />
+      {/* ── Page Header ── */}
+      <PageHeader
+        title={isRevision ? 'Revise Project Request' : isDraftMode ? 'Edit Draft Request' : 'New Project Request'}
+        subtitle={
+          isRevision
+            ? 'Update survey specifications or requirements. Submitting will create an updated revision.'
+            : isDraftMode
+            ? 'Resume and update your saved draft request. You can save updates as draft or submit when ready.'
+            : 'Submit a new survey / mapping request. All fields marked with * are required.'
+        }
+        breadcrumbs={
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+            <Link
+              href="/requests"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '0.2rem', color: '#71717a', textDecoration: 'none' }}
+            >
+              <ChevronLeft size={14} /> Requests
+            </Link>
+            <span style={{ color: 'var(--text-muted)' }}>/</span>
+            <span style={{ color: '#09090b', fontWeight: 600 }}>
+              {isRevision ? 'Revise Request' : isDraftMode ? 'Edit Draft' : 'New Request'}
+            </span>
           </div>
-        </div>
-      </div>
-
-      {/* ── Page Hero Header & Action Buttons ── */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1rem' }}>
-        <div>
-          <h1 style={{ fontSize: '1.4rem', fontWeight: 800, color: '#09090b' }}>
-            {isRevision ? 'Revise Project Request' : isDraftMode ? 'Edit Draft Request' : 'New Project Request'}
-          </h1>
-          <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '0.2rem' }}>
-            {isRevision
-              ? 'Update survey specifications or requirements. Submitting will create an updated revision.'
-              : isDraftMode
-              ? 'Resume and update your saved draft request. You can save updates as draft or submit when ready.'
-              : 'Submit a new survey / mapping request. All fields marked with * are required.'}
-          </p>
-        </div>
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
-          <button
-            type="button"
-            onClick={handleSaveDraft}
-            disabled={isSavingDraft || isSubmitting}
-            className="btn btn-secondary"
-            style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', height: '36px', fontSize: '0.8rem' }}
-          >
-            {isSavingDraft ? <Loader2 size={14} className="animate-spin" /> : <FileText size={14} />}
-            <span>{isSavingDraft ? 'Saving Draft...' : 'Save Draft'}</span>
-          </button>
-          <button
-            type="submit"
-            disabled={isSubmitting || isSavingDraft}
-            className="btn btn-primary"
-            style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', height: '36px', fontSize: '0.8rem' }}
-          >
-            {isSubmitting ? 'Submitting...' : isRevision ? 'Submit Revision' : 'Submit Request'}
-          </button>
-        </div>
-      </div>
+        }
+      >
+        <button
+          type="button"
+          onClick={handleSaveDraft}
+          disabled={isSavingDraft || isSubmitting}
+          className="btn btn-secondary"
+          style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', height: '36px', fontSize: '0.8rem', padding: '0 0.95rem', borderRadius: '6px' }}
+        >
+          {isSavingDraft ? <Loader2 size={14} className="animate-spin" /> : <FileText size={14} />}
+          <span>{isSavingDraft ? 'Saving Draft...' : 'Save Draft'}</span>
+        </button>
+        <button
+          type="submit"
+          disabled={isSubmitting || isSavingDraft}
+          className="btn btn-primary"
+          style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', height: '36px', fontSize: '0.8rem', padding: '0 1rem', borderRadius: '6px' }}
+        >
+          {isSubmitting ? 'Submitting...' : isRevision ? 'Submit Revision' : 'Submit Request'}
+        </button>
+      </PageHeader>
 
       {/* ── Active Draft Restored Banner ── */}
       {isDraftMode && !isRevision && (
@@ -1432,23 +1461,61 @@ function NewProjectRequestPageContent() {
             </p>
           </div>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem', marginTop: '0.2rem' }}>
-            <select
-              required
-              value={selectedPayload}
-              onChange={(e) => setSelectedPayload(e.target.value)}
-              className="form-select"
-              style={{ fontSize: '0.8rem', height: '36px' }}
-            >
-              <option value="">Select payloads / sensors</option>
-              <option value="zenmuse_p1">Zenmuse P1 (45 MP Full-Frame RGB)</option>
-              <option value="zenmuse_l1">Zenmuse L1 (High-Accuracy LiDAR & RGB)</option>
-              <option value="thermal_h20t">Zenmuse H20T (Thermal Infrared & Radiometric)</option>
-              <option value="multispectral">Micasense RedEdge (Multispectral 5-Band)</option>
-            </select>
+          {/* Multiple Sensor Selection */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.5rem', marginTop: '0.35rem' }}>
+            {[
+              { id: 'zenmuse_p1', label: 'Zenmuse P1 (45 MP RGB Photogrammetry)' },
+              { id: 'zenmuse_l1', label: 'Zenmuse L1 (LiDAR & High-Accuracy RGB)' },
+              { id: 'thermal_h20t', label: 'Zenmuse H20T (Thermal IR Radiometric)' },
+              { id: 'multispectral', label: 'Micasense RedEdge (Multispectral 5-Band)' },
+            ].map((sensor) => {
+              const isSelected = selectedPayloads.includes(sensor.id);
+              return (
+                <div
+                  key={sensor.id}
+                  onClick={() => {
+                    setSelectedPayloads((prev) =>
+                      prev.includes(sensor.id)
+                        ? (prev.length <= 1 ? prev : prev.filter((p) => p !== sensor.id))
+                        : [...prev, sensor.id]
+                    );
+                  }}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '0.65rem 0.75rem',
+                    borderRadius: '6px',
+                    border: isSelected ? '1.5px solid #09090b' : '1px solid #e4e4e7',
+                    backgroundColor: isSelected ? '#fafafa' : '#ffffff',
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease',
+                  }}
+                >
+                  <span style={{ fontSize: '0.785rem', fontWeight: isSelected ? 700 : 500, color: '#09090b' }}>
+                    {sensor.label}
+                  </span>
+                  <div
+                    style={{
+                      width: '16px',
+                      height: '16px',
+                      borderRadius: '3px',
+                      border: isSelected ? '1.5px solid #09090b' : '1px solid #a1a1aa',
+                      backgroundColor: isSelected ? '#09090b' : '#ffffff',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexShrink: 0,
+                    }}
+                  >
+                    {isSelected && <Check size={11} color="#ffffff" strokeWidth={3} />}
+                  </div>
+                </div>
+              );
+            })}
           </div>
 
-          {/* ── DGCA Airspace Zone Classification (Fitted inside Payload/Sensor blank space area) ── */}
+          {/* ── DGCA Airspace Zone Classification (Single Selection: 4 Options) ── */}
           <div
             style={{
               display: 'flex',
@@ -1461,29 +1528,26 @@ function NewProjectRequestPageContent() {
           >
             <div>
               <h3 style={{ fontSize: '0.825rem', fontWeight: 700, color: '#09090b', margin: 0 }}>
-                DGCA Airspace Zone Classification
+                DGCA Airspace Zone Classification (Single Selection)
               </h3>
               <p style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginTop: '0.15rem', margin: 0 }}>
-                Verify DGCA Digital Sky airspace classification and clearance prerequisites for the flight perimeter.
+                Select the single airspace classification applicable to this flight perimeter.
               </p>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.55rem' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.55rem' }}>
               {[
-                { name: 'Green Zone', desc: 'Up to 400 ft AGL. No prior DGCA flight permission required.', color: '#09090b' },
-                { name: 'Yellow Zone', desc: 'Controlled airspace. Prior ATC clearance required.', color: '#52525b' },
-                { name: 'Red Zone', desc: 'Restricted / Prohibited airspace. Central MoD clearance required.', color: '#09090b' },
+                { name: 'Green Zone', desc: 'Up to 400 ft AGL. No prior DGCA flight permission required.', color: '#16a34a' },
+                { name: 'Yellow Zone', desc: 'Controlled airspace. Prior ATC clearance required.', color: '#ca8a04' },
+                { name: 'Red Zone', desc: 'Restricted / Prohibited airspace. Central MoD clearance required.', color: '#dc2626' },
+                { name: 'Mixed Zone', desc: 'Perimeter spans multiple airspace zones. Segmented clearances needed.', color: '#7c3aed' },
               ].map((zone) => {
-                const isSelected = airspaceZones.includes(zone.name);
+                const isSelected = airspaceZone === zone.name;
                 return (
                   <div
                     key={zone.name}
                     onClick={() => {
-                      setAirspaceZones((prev) =>
-                        prev.includes(zone.name)
-                          ? prev.filter((z) => z !== zone.name)
-                          : [...prev, zone.name]
-                      );
+                      setAirspaceZone(zone.name);
                     }}
                     style={{
                       border: isSelected ? '1.5px solid #09090b' : '1px solid #e4e4e7',
@@ -1517,17 +1581,15 @@ function NewProjectRequestPageContent() {
                         style={{
                           width: '16px',
                           height: '16px',
-                          borderRadius: '3px',
-                          border: isSelected ? '1.5px solid #09090b' : '1px solid #d4d4d8',
-                          backgroundColor: isSelected ? '#09090b' : '#ffffff',
+                          borderRadius: '50%',
+                          border: isSelected ? '5px solid #09090b' : '1.5px solid #d4d4d8',
+                          backgroundColor: '#ffffff',
                           display: 'flex',
                           alignItems: 'center',
                           justifyContent: 'center',
                           flexShrink: 0,
                         }}
-                      >
-                        {isSelected && <Check size={11} color="#ffffff" strokeWidth={3} />}
-                      </div>
+                      />
                     </div>
                     <span style={{ fontSize: '0.675rem', color: '#71717a', lineHeight: 1.3 }}>
                       {zone.desc}
@@ -1535,6 +1597,50 @@ function NewProjectRequestPageContent() {
                   </div>
                 );
               })}
+            </div>
+
+            {/* Flight Permission Assistance Checkbox */}
+            <div
+              onClick={() => {
+                setManageFlightPermissions((prev) => !prev);
+              }}
+              style={{
+                marginTop: '0.35rem',
+                padding: '0.75rem 0.85rem',
+                backgroundColor: manageFlightPermissions ? '#fafafa' : '#ffffff',
+                border: manageFlightPermissions ? '1.5px solid #09090b' : '1px solid #e4e4e7',
+                borderRadius: '6px',
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: '0.65rem',
+                cursor: 'pointer',
+                transition: 'all 0.15s ease',
+              }}
+            >
+              <div
+                style={{
+                  width: '16px',
+                  height: '16px',
+                  borderRadius: '3px',
+                  border: manageFlightPermissions ? '1.5px solid #09090b' : '1px solid #a1a1aa',
+                  backgroundColor: manageFlightPermissions ? '#09090b' : '#ffffff',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                  marginTop: '2px',
+                }}
+              >
+                {manageFlightPermissions && <Check size={11} color="#ffffff" strokeWidth={3} />}
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#09090b' }}>
+                  Request LATRICS to manage and obtain Flight Permissions &amp; Clearances
+                </span>
+                <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', lineHeight: 1.35 }}>
+                  Our regulatory operations desk will handle Digital Sky portal filings, ATC liaisons, and local administrative permissions on your behalf.
+                </span>
+              </div>
             </div>
           </div>
         </div>

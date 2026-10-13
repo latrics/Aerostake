@@ -2,17 +2,14 @@ import React from 'react';
 import Link from 'next/link';
 import { Project } from '../types';
 import { ProjectStatusBadge } from './ProjectStatusBadge';
+import { formatDateDDMMYYYY } from '@/lib/date';
 
 interface ProjectCardProps {
   project: Project;
 }
 
 export const ProjectCard: React.FC<ProjectCardProps> = ({ project }) => {
-  const formattedDate = new Date(project.created_at).toLocaleDateString('en-US', {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-  });
+  const formattedDate = formatDateDDMMYYYY(project.created_at);
 
   return (
     <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>

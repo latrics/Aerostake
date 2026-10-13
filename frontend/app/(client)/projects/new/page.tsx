@@ -1,107 +1,41 @@
 'use client';
 
-import React, { useState, useEffect, useRef, useMemo, Suspense } from 'react';
+import React, { useState, useEffect, useMemo, Suspense } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
   ChevronLeft,
-  UploadCloud,
-  Info,
-  Check,
   FileText,
   Send,
   X,
   FileCheck,
-  Camera,
-  Layers,
-  Aperture,
-  ChevronDown,
   AlertCircle,
-  Users,
-  Trash2,
-  Plus,
-  Paperclip,
+  Check,
   Loader2,
-  Mail,
-  Phone,
-  ShieldCheck,
-  UserCheck,
   Lock,
 } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
 import { projectApi } from '@/modules/projects/api';
 import { ProjectStatus } from '@/modules/projects/types';
-import { requestApi } from '@/modules/requests/api';
 import { usersApi } from '@/modules/users/api';
 import { UserProfile } from '@/modules/users/types';
+import { readFileAsDataUrl } from '@/lib/document-utils';
+import { PageHeader } from '@/components/PageHeader';
 
-// Payload options
-export type PayloadType = '61mp_camera' | 'lidar' | 'oblique_camera';
+import {
+  PayloadType,
+  formatFileSize,
+} from '@/modules/projects/new-project-constants';
 
-// Processing mode
-export type ProcessingMode = 'pre_processing' | 'post_processing';
-
-// Deliverable option definition
-interface DeliverableOption {
-  id: string;
-  label: string;
-  description?: string;
-}
-
-const PRE_PROCESSING_DELIVERABLES: DeliverableOption[] = [
-  { id: 'geo_tagged_image', label: 'Geo Tagged Image' },
-  { id: 'event_files', label: 'Event Files' },
-  { id: 'point_cloud', label: 'Point Cloud' },
-  { id: 'trajectory_files', label: 'Trajectory Files' },
-];
-
-const POST_PROCESSING_DELIVERABLES: DeliverableOption[] = [
-  { id: 'orthomosaic', label: 'Orthomosaic' },
-  { id: 'topographic_map', label: 'Topographic Map' },
-  { id: 'dem', label: 'DEM' },
-  { id: 'dsm', label: 'DSM' },
-  { id: 'point_cloud', label: 'Point Cloud' },
-  { id: '3d_model', label: '3D Model' },
-  { id: 'cad', label: 'CAD' },
-  { id: 'volumetric_analysis', label: 'Volumetric Analysis' },
-  { id: 'contour', label: 'Contour' },
-];
-
-const INDIAN_STATES = [
-  'Andhra Pradesh',
-  'Arunachal Pradesh',
-  'Assam',
-  'Bihar',
-  'Chhattisgarh',
-  'Goa',
-  'Gujarat',
-  'Haryana',
-  'Himachal Pradesh',
-  'Jharkhand',
-  'Karnataka',
-  'Kerala',
-  'Madhya Pradesh',
-  'Maharashtra',
-  'Manipur',
-  'Meghalaya',
-  'Mizoram',
-  'Nagaland',
-  'Odisha',
-  'Punjab',
-  'Rajasthan',
-  'Sikkim',
-  'Tamil Nadu',
-  'Telangana',
-  'Tripura',
-  'Uttar Pradesh',
-  'Uttarakhand',
-  'West Bengal',
-  'Delhi',
-  'Chandigarh',
-  'Jammu and Kashmir',
-  'Ladakh',
-  'Puducherry',
-];
+import { ProjectBasicInfoSection } from '@/modules/projects/components/new-project/ProjectBasicInfoSection';
+import { ProjectContactAndTeamSection } from '@/modules/projects/components/new-project/ProjectContactAndTeamSection';
+import { ProjectPayloadSensorSection } from '@/modules/projects/components/new-project/ProjectPayloadSensorSection';
+import { ProjectDeliverablesSection } from '@/modules/projects/components/new-project/ProjectDeliverablesSection';
+import { ProjectScheduleSection } from '@/modules/projects/components/new-project/ProjectScheduleSection';
+import { ProjectBoundaryUploadSection } from '@/modules/projects/components/new-project/ProjectBoundaryUploadSection';
+import { ProjectScopeDocumentSection } from '@/modules/projects/components/new-project/ProjectScopeDocumentSection';
+import { ProjectRemarksSection } from '@/modules/projects/components/new-project/ProjectRemarksSection';
+import { ProjectFormBottomBar } from '@/modules/projects/components/new-project/ProjectFormBottomBar';
 
 function ClientNewProjectRequestPageContent() {
   const router = useRouter();
@@ -120,7 +54,8 @@ function ClientNewProjectRequestPageContent() {
   const [city, setCity] = useState('');
   const [state, setState] = useState('');
   const [requestedAreaSqKm, setRequestedAreaSqKm] = useState('');
-  const [airspaceZones, setAirspaceZones] = useState<string[]>(['Green Zone']);
+  const [airspaceZone, setAirspaceZone] = useState<string>('Green Zone');
+  const [manageFlightPermissions, setManageFlightPermissions] = useState<boolean>(false);
 
   const isSubClient = user?.role === 'client_sub' || user?.role?.toString() === 'client_sub';
   const isPilot = user?.role === 'pilot' || user?.role?.toString().toLowerCase() === 'pilot';
@@ -135,10 +70,7 @@ function ClientNewProjectRequestPageContent() {
   // Project Communication Contacts - Dynamically fetched from company profile authenticated members
   const [orgMembers, setOrgMembers] = useState<UserProfile[]>([]);
   const [selectedContacts, setSelectedContacts] = useState<string[]>([]);
-  const [isContactDropdownOpen, setIsContactDropdownOpen] = useState(false);
-  const [contactSearchInput, setContactSearchInput] = useState('');
   const [isLoadingMembers, setIsLoadingMembers] = useState(false);
-  const contactDropdownRef = useRef<HTMLDivElement>(null);
 
   // Fetch company members who have authenticated into the application
   useEffect(() => {
@@ -160,20 +92,6 @@ function ClientNewProjectRequestPageContent() {
     return () => {
       isMounted = false;
     };
-  }, []);
-
-  // Close contact dropdown on click outside
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (
-        contactDropdownRef.current &&
-        !contactDropdownRef.current.contains(event.target as Node)
-      ) {
-        setIsContactDropdownOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
   // 2. Contact Information State - Primary contact is ALWAYS the Primary Client's details
@@ -212,7 +130,6 @@ function ClientNewProjectRequestPageContent() {
     setCompanyName(user.company_name || user.company_profile?.company_name || '');
 
     if (isSub) {
-      // Subordinate logged in: ALWAYS use Primary Client's contact details
       const targetName = cpPrimary?.full_name || primaryMember?.full_name || 'Primary Client';
       const targetEmail = cpPrimary?.email || primaryMember?.email || '';
       const targetPhone = cpPrimary?.phone_number || primaryMember?.phone_number || '';
@@ -223,7 +140,6 @@ function ClientNewProjectRequestPageContent() {
       setPhoneCode(parsed.code);
       setPhoneNumber(parsed.number);
     } else {
-      // Primary Client logged in
       setOwnerName(user.full_name || cpPrimary?.full_name || '');
       setPrimaryEmail(user.email || cpPrimary?.email || '');
       const rawPhone = user.phone_number || cpPrimary?.phone_number || '';
@@ -253,10 +169,15 @@ function ClientNewProjectRequestPageContent() {
       if (reqPayload.requested_area_sqkm || reqPayload.target_area_sqkm) {
         setRequestedAreaSqKm(String(reqPayload.requested_area_sqkm || reqPayload.target_area_sqkm));
       }
-      if (Array.isArray(reqPayload.airspace_zones)) {
-        setAirspaceZones(reqPayload.airspace_zones);
-      } else if (typeof reqPayload.airspace_zone === 'string') {
-        setAirspaceZones([reqPayload.airspace_zone]);
+      if (Array.isArray(reqPayload.airspace_zones) && reqPayload.airspace_zones.length > 0) {
+        setAirspaceZone(reqPayload.airspace_zones[0]);
+      } else if (typeof reqPayload.airspace_zone === 'string' && reqPayload.airspace_zone) {
+        setAirspaceZone(reqPayload.airspace_zone);
+      }
+      if (typeof reqPayload.latrics_manage_permissions === 'boolean') {
+        setManageFlightPermissions(reqPayload.latrics_manage_permissions);
+      } else if (typeof reqPayload.manage_flight_permissions === 'boolean') {
+        setManageFlightPermissions(reqPayload.manage_flight_permissions);
       }
 
       if (reqPayload.company_name) setCompanyName(reqPayload.company_name);
@@ -280,11 +201,17 @@ function ClientNewProjectRequestPageContent() {
         );
       }
 
-      if (reqPayload.payload_sensor) {
-        setSelectedPayload(reqPayload.payload_sensor);
+      if (Array.isArray(reqPayload.payload_sensors) && reqPayload.payload_sensors.length > 0) {
+        setSelectedPayloads(reqPayload.payload_sensors);
+      } else if (reqPayload.payload_sensor) {
+        const raw = String(reqPayload.payload_sensor).toLowerCase();
+        const valid: PayloadType[] = [];
+        if (raw.includes('61mp')) valid.push('61mp_camera');
+        if (raw.includes('lidar')) valid.push('lidar');
+        if (raw.includes('oblique')) valid.push('oblique_camera');
+        setSelectedPayloads(valid.length > 0 ? valid : ['61mp_camera']);
       }
 
-      // Hydrate processing modes
       if (Array.isArray(reqPayload.processing_modes)) {
         setOptPreProcessing(reqPayload.processing_modes.includes('pre_processing'));
         setOptPostProcessing(reqPayload.processing_modes.includes('post_processing'));
@@ -304,7 +231,6 @@ function ClientNewProjectRequestPageContent() {
       if (reqPayload.tenure_days) setTenureDays(reqPayload.tenure_days);
       if (reqPayload.remarks) setRemarks(reqPayload.remarks);
 
-      // Hydrate deliverables
       if (reqPayload.pre_deliverables && typeof reqPayload.pre_deliverables === 'object' && Object.keys(reqPayload.pre_deliverables).length > 0) {
         setPreDeliverables((prev) => ({ ...prev, ...reqPayload.pre_deliverables }));
       }
@@ -335,7 +261,6 @@ function ClientNewProjectRequestPageContent() {
         setPostDeliverables((prev) => ({ ...prev, ...postMap }));
       }
 
-      // Hydrate all uploaded boundary & scope files
       const kmlList: Array<{ name: string; size?: string }> = [];
       const scopeList: Array<{ name: string; size?: string }> = [];
       const seenKml = new Set<string>();
@@ -407,7 +332,6 @@ function ClientNewProjectRequestPageContent() {
     (async () => {
       let targetId = currentDraftId || rawProjectId;
 
-      // 1. If targetId was not in URL, check localStorage for saved draft
       if (!targetId && typeof window !== 'undefined') {
         try {
           const cachedStr = localStorage.getItem('latrics_project_draft');
@@ -417,7 +341,6 @@ function ClientNewProjectRequestPageContent() {
               if (cachedData.draftId) {
                 targetId = cachedData.draftId;
               }
-              // Immediately hydrate full form from localStorage for instant display
               hydrateFromPayload(cachedData.projectName || '', cachedData, cachedData.draftId);
             }
           }
@@ -426,7 +349,6 @@ function ClientNewProjectRequestPageContent() {
         }
       }
 
-      // 2. If still no targetId, query database for the user's latest saved draft
       if (!targetId) {
         try {
           const allProjects = await projectApi.listProjects().catch(() => []);
@@ -439,7 +361,6 @@ function ClientNewProjectRequestPageContent() {
         }
       }
 
-      // 3. If targetId resolved, load latest fresh state from database
       if (targetId) {
         try {
           const proj = await projectApi.getProject(targetId);
@@ -466,13 +387,24 @@ function ClientNewProjectRequestPageContent() {
   }, [rawProjectId, rawDraftId, currentDraftId]);
 
   // 3. Payload / Sensor State
-  const [selectedPayload, setSelectedPayload] = useState<PayloadType>('61mp_camera');
+  const [selectedPayloads, setSelectedPayloads] = useState<PayloadType[]>(['61mp_camera']);
 
-  // 4. Deliverables State (Multi-type selection: client can opt Pre Processing, Post Processing, or BOTH)
+  const togglePayload = (payload: PayloadType) => {
+    if (isReadOnly) return;
+    setSelectedPayloads((prev) => {
+      if (prev.includes(payload)) {
+        if (prev.length <= 1) return prev;
+        return prev.filter((p) => p !== payload);
+      } else {
+        return [...prev, payload];
+      }
+    });
+  };
+
+  // 4. Deliverables State
   const [optPreProcessing, setOptPreProcessing] = useState<boolean>(false);
   const [optPostProcessing, setOptPostProcessing] = useState<boolean>(true);
 
-  // Pre-processing selected checkboxes
   const [preDeliverables, setPreDeliverables] = useState<Record<string, boolean>>({
     geo_tagged_image: true,
     event_files: true,
@@ -482,7 +414,6 @@ function ClientNewProjectRequestPageContent() {
   });
   const [preOtherText, setPreOtherText] = useState('');
 
-  // Post-processing selected checkboxes
   const [postDeliverables, setPostDeliverables] = useState<Record<string, boolean>>({
     orthomosaic: true,
     topographic_map: false,
@@ -497,10 +428,9 @@ function ClientNewProjectRequestPageContent() {
   });
   const [postOtherText, setPostOtherText] = useState('');
 
-  // Automatically adjust pre-processing deliverable availability when payload changes
   useEffect(() => {
-    if (selectedPayload === '61mp_camera' || selectedPayload === 'oblique_camera') {
-      // 61MP and Oblique only support Geo Tagged Image and Event Files
+    const hasLidar = selectedPayloads.includes('lidar');
+    if (!hasLidar) {
       setPreDeliverables((prev) => ({
         ...prev,
         geo_tagged_image: prev.geo_tagged_image ?? true,
@@ -508,8 +438,7 @@ function ClientNewProjectRequestPageContent() {
         point_cloud: false,
         trajectory_files: false,
       }));
-    } else if (selectedPayload === 'lidar') {
-      // LiDAR supports all 4 pre-processing deliverables
+    } else {
       setPreDeliverables((prev) => ({
         ...prev,
         geo_tagged_image: prev.geo_tagged_image ?? true,
@@ -518,15 +447,14 @@ function ClientNewProjectRequestPageContent() {
         trajectory_files: prev.trajectory_files ?? true,
       }));
     }
-  }, [selectedPayload]);
+  }, [selectedPayloads]);
 
-  // Helper to determine if a pre-processing deliverable is enabled for the selected payload
   const isPreDeliverableEnabled = (id: string): boolean => {
     if (id === 'geo_tagged_image' || id === 'event_files' || id === 'other') {
       return true;
     }
     if (id === 'point_cloud' || id === 'trajectory_files') {
-      return selectedPayload === 'lidar';
+      return selectedPayloads.includes('lidar');
     }
     return false;
   };
@@ -573,29 +501,33 @@ function ClientNewProjectRequestPageContent() {
     calculateTenure(startDate, val);
   };
 
-  // Format file size utility
-  const formatFileSize = (bytes: number) => {
-    if (!bytes || bytes === 0) return '0 B';
-    const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-  };
-
-  // 6. KML / Boundary Files State (Multiple Files Support)
+  // 6. KML & Scope Files State
   const [kmlFiles, setKmlFiles] = useState<File[]>([]);
-  const [existingKmlFiles, setExistingKmlFiles] = useState<Array<{ name: string; size?: string }>>([]);
-  const [isDraggingKml, setIsDraggingKml] = useState(false);
-  const kmlInputRef = useRef<HTMLInputElement>(null);
+  const [existingKmlFiles, setExistingKmlFiles] = useState<Array<{ name: string; size?: string; dataUrl?: string }>>([]);
 
-  // 7. Scope Document Files State (Multiple Files Support)
   const [scopeFiles, setScopeFiles] = useState<File[]>([]);
-  const [existingScopeFiles, setExistingScopeFiles] = useState<Array<{ name: string; size?: string }>>([]);
-  const [isDraggingScope, setIsDraggingScope] = useState(false);
-  const scopeInputRef = useRef<HTMLInputElement>(null);
+  const [existingScopeFiles, setExistingScopeFiles] = useState<Array<{ name: string; size?: string; dataUrl?: string }>>([]);
 
-  const handleAddKmlFiles = (newFiles: FileList | File[]) => {
+  const [fileDataUrls, setFileDataUrls] = useState<Record<string, string>>({});
+
+  const handleAddKmlFiles = async (newFiles: FileList | File[]) => {
     const incoming = Array.from(newFiles);
+    const results = await Promise.all(
+      incoming.map(async (f) => {
+        let dUrl = '';
+        try {
+          dUrl = await readFileAsDataUrl(f);
+        } catch {}
+        return { name: f.name, dUrl };
+      })
+    );
+    setFileDataUrls((prev) => {
+      const updated = { ...prev };
+      results.forEach((r) => {
+        if (r.dUrl) updated[r.name] = r.dUrl;
+      });
+      return updated;
+    });
     setKmlFiles((prev) => {
       const existingNames = new Set([...prev.map((f) => f.name), ...existingKmlFiles.map((f) => f.name)]);
       const filtered = incoming.filter((f) => !existingNames.has(f.name));
@@ -611,8 +543,24 @@ function ClientNewProjectRequestPageContent() {
     setExistingKmlFiles((prev) => prev.filter((_, i) => i !== index));
   };
 
-  const handleAddScopeFiles = (newFiles: FileList | File[]) => {
+  const handleAddScopeFiles = async (newFiles: FileList | File[]) => {
     const incoming = Array.from(newFiles);
+    const results = await Promise.all(
+      incoming.map(async (f) => {
+        let dUrl = '';
+        try {
+          dUrl = await readFileAsDataUrl(f);
+        } catch {}
+        return { name: f.name, dUrl };
+      })
+    );
+    setFileDataUrls((prev) => {
+      const updated = { ...prev };
+      results.forEach((r) => {
+        if (r.dUrl) updated[r.name] = r.dUrl;
+      });
+      return updated;
+    });
     setScopeFiles((prev) => {
       const existingNames = new Set([...prev.map((f) => f.name), ...existingScopeFiles.map((f) => f.name)]);
       const filtered = incoming.filter((f) => !existingNames.has(f.name));
@@ -628,10 +576,10 @@ function ClientNewProjectRequestPageContent() {
     setExistingScopeFiles((prev) => prev.filter((_, i) => i !== index));
   };
 
-  // 8. Remarks State (Optional)
+  // 8. Remarks State
   const [remarks, setRemarks] = useState('');
 
-  // UI state for messages & loading
+  // UI status state
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSavingDraft, setIsSavingDraft] = useState(false);
   const [draftToast, setDraftToast] = useState(false);
@@ -639,20 +587,17 @@ function ClientNewProjectRequestPageContent() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
-  // Add/remove communication contacts
   const handleAddContact = (name: string) => {
     const trimmed = name.trim();
     if (trimmed && !selectedContacts.includes(trimmed)) {
       setSelectedContacts([...selectedContacts, trimmed]);
     }
-    setContactSearchInput('');
   };
 
   const handleRemoveContact = (name: string) => {
     setSelectedContacts(selectedContacts.filter((c) => c !== name));
   };
 
-  // Discard draft and reset form
   const handleDiscardDraft = () => {
     if (typeof window !== 'undefined') {
       localStorage.removeItem('latrics_project_draft');
@@ -688,7 +633,6 @@ function ClientNewProjectRequestPageContent() {
     setDraftSavedMessage(null);
   };
 
-  // Save Draft Action (Database-backed & LocalStorage fallback)
   const handleSaveDraft = async () => {
     if (isPilot || isStage1Passed) return;
     try {
@@ -738,7 +682,12 @@ function ClientNewProjectRequestPageContent() {
         post_deliverables: optPostProcessing ? postDeliverables : {},
         pre_other_text: preOtherText,
         post_other_text: postOtherText,
-        payload_sensor: selectedPayload,
+        payload_sensor: selectedPayloads.join(', '),
+        payload_sensors: selectedPayloads,
+        airspace_zone: airspaceZone,
+        airspace_zones: [airspaceZone],
+        latrics_manage_permissions: manageFlightPermissions,
+        manage_flight_permissions: manageFlightPermissions,
         company_name: companyName,
         address: trimmedAddress,
         location_address: trimmedAddress,
@@ -767,6 +716,7 @@ function ClientNewProjectRequestPageContent() {
             type: f.name.endsWith('.kmz') ? 'KMZ' : 'KML',
             category: 'Boundary',
             date: new Date().toISOString().split('T')[0],
+            dataUrl: fileDataUrls[f.name],
           })),
         ],
         scope_files: [
@@ -779,80 +729,40 @@ function ClientNewProjectRequestPageContent() {
               : f.name.endsWith('.xlsx') || f.name.endsWith('.xls') || f.name.endsWith('.csv')
               ? 'Spreadsheet'
               : 'Document',
-            category: 'Scope Document',
+            category: 'Scope',
             date: new Date().toISOString().split('T')[0],
+            dataUrl: fileDataUrls[f.name],
           })),
         ],
-        attachments: [
-          ...existingKmlFiles.map((f) => ({
-            name: f.name,
-            size: f.size || '—',
-            type: 'KML',
-            category: 'Boundary',
-            date: new Date().toISOString().split('T')[0],
-          })),
-          ...kmlFiles.map((f) => ({
-            name: f.name,
-            size: formatFileSize(f.size),
-            type: f.name.endsWith('.kmz') ? 'KMZ' : 'KML',
-            category: 'Boundary',
-            date: new Date().toISOString().split('T')[0],
-          })),
-          ...existingScopeFiles.map((f) => ({
-            name: f.name,
-            size: f.size || '—',
-            type: 'Document',
-            category: 'Scope Document',
-            date: new Date().toISOString().split('T')[0],
-          })),
-          ...scopeFiles.map((f) => ({
-            name: f.name,
-            size: formatFileSize(f.size),
-            type: f.name.endsWith('.pdf')
-              ? 'PDF'
-              : f.name.endsWith('.xlsx') || f.name.endsWith('.xls') || f.name.endsWith('.csv')
-              ? 'Spreadsheet'
-              : 'Document',
-            category: 'Scope Document',
-            date: new Date().toISOString().split('T')[0],
-          })),
-        ],
-        remarks: remarks || null,
-        is_draft: true,
+        remarks,
+        requested_area_sqkm: requestedAreaSqKm ? parseFloat(requestedAreaSqKm) : null,
       };
 
       const finalSurveyLocation = trimmedAddress || (trimmedCity && trimmedState ? `${trimmedCity}, ${trimmedState}` : 'Specified in Scope');
-      const draftTitle = projectName.trim() || `Draft Survey - ${new Date().toLocaleDateString('en-GB')}`;
+      const areaNum = requestedAreaSqKm ? parseFloat(requestedAreaSqKm) : 10;
 
-      let targetId = currentDraftId || rawProjectId;
-      if (targetId) {
-        // Update existing draft project in backend database
-        await projectApi.updateProject(targetId, {
-          title: draftTitle,
-          description: remarks || `Draft survey project: ${draftTitle}`,
-          status: ProjectStatus.DRAFT,
-          requirements_payload: payloadPayload,
+      let savedId = currentDraftId;
+      if (savedId) {
+        await projectApi.updateProject(savedId, {
+          title: projectName.trim() || 'Untitled Draft Request',
+          description: remarks.trim() || '',
           survey_location: finalSurveyLocation,
-          survey_type: selectedPayload,
+          survey_type: selectedPayloads.join(', ') || '61mp_camera',
+          target_area_sqkm: areaNum,
+          requirements_payload: payloadPayload,
         });
       } else {
-        // Create new draft project in database
         const created = await projectApi.createProject({
-          title: draftTitle,
-          description: remarks || `Draft survey project: ${draftTitle}`,
+          title: projectName.trim() || 'Untitled Draft Request',
+          description: remarks.trim() || '',
           survey_location: finalSurveyLocation,
-          survey_type: selectedPayload,
-          target_area_sqkm: requestedAreaSqKm ? parseFloat(requestedAreaSqKm) : undefined,
+          survey_type: selectedPayloads.join(', ') || '61mp_camera',
+          target_area_sqkm: areaNum,
+          requirements_payload: payloadPayload,
           status: ProjectStatus.DRAFT,
-          is_draft: true,
-          requirements_payload: {
-            ...payloadPayload,
-            requested_area_sqkm: requestedAreaSqKm ? parseFloat(requestedAreaSqKm) : null,
-            target_area_sqkm: requestedAreaSqKm ? parseFloat(requestedAreaSqKm) : null,
-          },
         });
         if (created?.id) {
-          targetId = created.id;
+          savedId = created.id;
           setCurrentDraftId(created.id);
           setIsDraftMode(true);
           if (typeof window !== 'undefined') {
@@ -861,67 +771,72 @@ function ClientNewProjectRequestPageContent() {
         }
       }
 
-      // Also persist to localStorage for fast local resume
       if (typeof window !== 'undefined') {
-        localStorage.setItem(
-          'latrics_project_draft',
-          JSON.stringify({
-            ...payloadPayload,
-            projectName: draftTitle,
-            draftId: targetId,
-            savedAt: new Date().toISOString(),
-          })
-        );
+        const draftData = {
+          draftId: savedId,
+          projectName: projectName.trim(),
+          ...payloadPayload,
+          updatedAt: new Date().toISOString(),
+        };
+        localStorage.setItem('latrics_project_draft', JSON.stringify(draftData));
       }
 
-      setDraftSavedMessage('Draft saved successfully to your database workspace! You can resume it anytime from the Draft/Hold tab.');
+      setDraftSavedMessage('Draft saved successfully to database. You can return anytime to continue.');
       setDraftToast(true);
-      setTimeout(() => {
-        setDraftToast(false);
-        setDraftSavedMessage(null);
-      }, 5000);
-    } catch (e: any) {
-      console.error('Failed to save draft to database', e);
-      setErrorMessage(e.message || 'Failed to save draft to server. Please check your connection.');
+      setTimeout(() => setDraftToast(false), 5000);
+    } catch (err: any) {
+      console.error('Failed to save draft:', err);
+      setErrorMessage('Failed to save draft to database. Please check your connection.');
     } finally {
       setIsSavingDraft(false);
     }
   };
 
-  // Submit Request Action
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (isPilot || isStage1Passed) return;
     setErrorMessage(null);
+    setSuccessMessage(null);
+
+    if (isReadOnly) return;
 
     if (!projectName.trim()) {
       setErrorMessage('Project Name is required.');
       return;
     }
-
     if (!locationAddress.trim()) {
-      setErrorMessage('Project Location / Site Address is required.');
+      setErrorMessage('Physical site address is required.');
       return;
     }
-
-    if (!city.trim()) {
-      setErrorMessage('City is required.');
+    if (!city.trim() || !state) {
+      setErrorMessage('City and State are required.');
       return;
     }
-
-    if (!state.trim()) {
-      setErrorMessage('State is required.');
+    if (!requestedAreaSqKm || parseFloat(requestedAreaSqKm) <= 0) {
+      setErrorMessage('Requested scanning area (sq. km) is required and must be greater than 0.');
       return;
     }
-
-    const areaNum = parseFloat(requestedAreaSqKm);
-    if (!requestedAreaSqKm || isNaN(areaNum) || areaNum <= 0) {
-      setErrorMessage('Please provide a valid Requested Area (sq. Km) Scanning (positive number).');
+    if (selectedPayloads.length === 0) {
+      setErrorMessage('Please select at least one payload/sensor.');
       return;
     }
-
+    if (!startDate || !endDate) {
+      setErrorMessage('Expected start and end dates are required.');
+      return;
+    }
+    if (new Date(startDate) > new Date(endDate)) {
+      setErrorMessage('End date must be on or after the start date.');
+      return;
+    }
+    if (existingKmlFiles.length === 0 && kmlFiles.length === 0) {
+      setErrorMessage('Please upload at least one KML, KMZ, or GeoJSON boundary file.');
+      return;
+    }
+    if (existingScopeFiles.length === 0 && scopeFiles.length === 0) {
+      setErrorMessage('Please upload at least one Scope Document file (PDF, DOC, DOCX, or Excel).');
+      return;
+    }
     if (selectedContacts.length === 0) {
-      setErrorMessage('Please select at least one project communication contact.');
+      setErrorMessage('Please select at least one project communication contact from your organization.');
       return;
     }
 
@@ -930,7 +845,6 @@ function ClientNewProjectRequestPageContent() {
       return;
     }
 
-    // Verify at least one active deliverable
     const activeDeliverables: string[] = [];
     if (optPreProcessing) {
       Object.entries(preDeliverables).forEach(([k, v]) => {
@@ -980,7 +894,12 @@ function ClientNewProjectRequestPageContent() {
         post_deliverables: optPostProcessing ? postDeliverables : {},
         pre_other_text: preOtherText,
         post_other_text: postOtherText,
-        payload_sensor: selectedPayload,
+        payload_sensor: selectedPayloads.join(', '),
+        payload_sensors: selectedPayloads,
+        airspace_zone: airspaceZone,
+        airspace_zones: [airspaceZone],
+        latrics_manage_permissions: manageFlightPermissions,
+        manage_flight_permissions: manageFlightPermissions,
         company_name: companyName,
         address: trimmedAddress,
         location_address: trimmedAddress,
@@ -999,7 +918,6 @@ function ClientNewProjectRequestPageContent() {
         start_date: startDate,
         end_date: endDate,
         tenure_days: tenureDays,
-        airspace_zones: airspaceZones,
         kml_filename: [...existingKmlFiles.map((f) => f.name), ...kmlFiles.map((f) => f.name)].join(', ') || null,
         scope_filename: [...existingScopeFiles.map((f) => f.name), ...scopeFiles.map((f) => f.name)].join(', ') || null,
         kml_files: [
@@ -1010,6 +928,7 @@ function ClientNewProjectRequestPageContent() {
             type: f.name.endsWith('.kmz') ? 'KMZ' : 'KML',
             category: 'Boundary',
             date: new Date().toISOString().split('T')[0],
+            dataUrl: fileDataUrls[f.name],
           })),
         ],
         scope_files: [
@@ -1022,115 +941,68 @@ function ClientNewProjectRequestPageContent() {
               : f.name.endsWith('.xlsx') || f.name.endsWith('.xls') || f.name.endsWith('.csv')
               ? 'Spreadsheet'
               : 'Document',
-            category: 'Scope Document',
+            category: 'Scope',
             date: new Date().toISOString().split('T')[0],
+            dataUrl: fileDataUrls[f.name],
           })),
         ],
-        attachments: [
-          ...existingKmlFiles.map((f) => ({
-            name: f.name,
-            size: f.size || '—',
-            type: 'KML',
-            category: 'Boundary',
-            date: new Date().toISOString().split('T')[0],
-          })),
-          ...kmlFiles.map((f) => ({
-            name: f.name,
-            size: formatFileSize(f.size),
-            type: f.name.endsWith('.kmz') ? 'KMZ' : 'KML',
-            category: 'Boundary',
-            date: new Date().toISOString().split('T')[0],
-          })),
-          ...existingScopeFiles.map((f) => ({
-            name: f.name,
-            size: f.size || '—',
-            type: 'Document',
-            category: 'Scope Document',
-            date: new Date().toISOString().split('T')[0],
-          })),
-          ...scopeFiles.map((f) => ({
-            name: f.name,
-            size: formatFileSize(f.size),
-            type: f.name.endsWith('.pdf')
-              ? 'PDF'
-              : f.name.endsWith('.xlsx') || f.name.endsWith('.xls') || f.name.endsWith('.csv')
-              ? 'Spreadsheet'
-              : 'Document',
-            category: 'Scope Document',
-            date: new Date().toISOString().split('T')[0],
-          })),
-        ],
-        requested_area_sqkm: areaNum,
-        target_area_sqkm: areaNum,
-        remarks: remarks || null,
+        remarks,
+        requested_area_sqkm: parseFloat(requestedAreaSqKm),
       };
 
-      const finalSurveyLocation = trimmedAddress || (trimmedCity && trimmedState ? `${trimmedCity}, ${trimmedState}` : 'Survey Location');
+      const finalSurveyLocation = `${trimmedAddress}, ${trimmedCity}, ${trimmedState}`;
+      const areaNum = parseFloat(requestedAreaSqKm);
 
-      if (currentDraftId && isDraftMode) {
-        // Transition existing draft project to SUBMITTED status and update requirements_payload
-        await projectApi.updateProject(currentDraftId, {
-          title: projectName.trim(),
-          description: remarks || `Survey mapping project: ${projectName.trim()}`,
-          status: ProjectStatus.SUBMITTED,
-          requirements_payload: payloadPayload,
-          survey_location: finalSurveyLocation,
-          survey_type: selectedPayload,
-          target_area_sqkm: areaNum,
-        });
-
-        // Clear local draft storage
-        if (typeof window !== 'undefined') {
-          localStorage.removeItem('latrics_project_draft');
-        }
-
-        setSuccessMessage('Draft submitted as active Project Request successfully! Redirecting to your projects ledger...');
-        setTimeout(() => {
-          router.push('/projects');
-        }, 1500);
-      } else if (isRevision && projectId) {
-        // Submit revision version to existing project
-        await requestApi.submitRequest(projectId, {
-          survey_location: finalSurveyLocation,
-          survey_type: selectedPayload,
-          target_area_sqkm: areaNum,
-          requirements_payload: payloadPayload,
-        });
-
-        // Also sync project title & description
+      if (isRevision && projectId) {
         await projectApi.updateProject(projectId, {
           title: projectName.trim(),
-          description: remarks || `Survey mapping project: ${projectName.trim()}`,
+          description: remarks.trim() || '',
+          survey_location: finalSurveyLocation,
+          survey_type: selectedPayloads.join(', ') || '61mp_camera',
           target_area_sqkm: areaNum,
-        }).catch(() => null);
+          requirements_payload: payloadPayload,
+        });
 
-        // Clear draft storage
+        setSuccessMessage('Project Request revision submitted successfully!');
+        setTimeout(() => {
+          router.push(`/projects/${projectId}/overview`);
+        }, 1500);
+      } else if (isDraftMode && currentDraftId) {
+        await projectApi.updateProject(currentDraftId, {
+          title: projectName.trim(),
+          description: remarks.trim() || '',
+          survey_location: finalSurveyLocation,
+          survey_type: selectedPayloads.join(', ') || '61mp_camera',
+          target_area_sqkm: areaNum,
+          requirements_payload: payloadPayload,
+          status: ProjectStatus.SUBMITTED,
+        });
+
         if (typeof window !== 'undefined') {
           localStorage.removeItem('latrics_project_draft');
         }
 
-        setSuccessMessage('Revised Project Request submitted successfully! Redirecting to project overview...');
+        setSuccessMessage('Draft submitted as formal project request! Redirecting to requests...');
         setTimeout(() => {
-          router.push(`/projects/${projectId}/overview`);
+          router.push('/requests');
         }, 1500);
       } else {
         await projectApi.createProject({
           title: projectName.trim(),
-          description: remarks || `Survey mapping project: ${projectName.trim()}`,
+          description: remarks.trim() || '',
           survey_location: finalSurveyLocation,
-          survey_type: selectedPayload,
+          survey_type: selectedPayloads.join(', ') || '61mp_camera',
           target_area_sqkm: areaNum,
           requirements_payload: payloadPayload,
         });
 
-        // Clear draft storage
         if (typeof window !== 'undefined') {
           localStorage.removeItem('latrics_project_draft');
         }
 
-        setSuccessMessage('New Project Request submitted successfully! Redirecting to your projects ledger...');
+        setSuccessMessage('New Request submitted successfully! Redirecting to requests...');
         setTimeout(() => {
-          router.push('/projects');
+          router.push('/requests');
         }, 1500);
       }
     } catch (err: any) {
@@ -1140,7 +1012,6 @@ function ClientNewProjectRequestPageContent() {
     }
   };
 
-  // Combines authenticated organization members and saved company profile team members
   const allContactOptions = useMemo(() => {
     const list: Array<{
       id: string;
@@ -1151,7 +1022,6 @@ function ClientNewProjectRequestPageContent() {
       isPrimary: boolean;
     }> = [];
 
-    // 1. Authenticated organization members
     orgMembers.forEach((m) => {
       const isPrimary = m.role === 'client_primary' || m.role === 'client';
       list.push({
@@ -1164,7 +1034,6 @@ function ClientNewProjectRequestPageContent() {
       });
     });
 
-    // 2. Primary contact from company profile if not already in list
     const cpPrimary = user?.company_profile?.primary_contact;
     if (
       cpPrimary &&
@@ -1181,7 +1050,6 @@ function ClientNewProjectRequestPageContent() {
       });
     }
 
-    // 3. Team members from company profile if not already in list
     const cpTeam = user?.company_profile?.team_members as any[];
     if (Array.isArray(cpTeam)) {
       cpTeam.forEach((tm) => {
@@ -1201,10 +1069,6 @@ function ClientNewProjectRequestPageContent() {
     return list;
   }, [orgMembers, user]);
 
-  // Available member suggestions from company profile
-  const availableMembers = allContactOptions.map((m) => m.name || m.email);
-
-  // Helper to retrieve contact details as per filled by that user in their own profile
   const getContactProfile = (contactKey: string) => {
     const trimmed = contactKey.trim().toLowerCase();
     const member = orgMembers.find(
@@ -1284,74 +1148,51 @@ function ClientNewProjectRequestPageContent() {
         paddingBottom: '3rem',
       }}
     >
-      {/* ── Top Breadcrumb Bar ── */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.825rem' }}>
-        <Link
-          href="/projects"
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: '0.2rem',
-            color: '#09090b',
-            fontWeight: 600,
-            textDecoration: 'none',
-          }}
-        >
-          <ChevronLeft size={15} /> Projects
-        </Link>
-        <span style={{ color: 'var(--text-muted)' }}>&gt;</span>
-        {isRevision && (
-          <>
+      {/* ── Page Header ── */}
+      <PageHeader
+        title={isRevision ? 'Revise Project Request' : isDraftMode ? 'Edit Draft Request' : 'New Project Request'}
+        subtitle={
+          isRevision
+            ? 'Update survey specifications, sensors, or requirements. Submitting will create an updated revision for Latrics review.'
+            : isDraftMode
+            ? 'Resume and update your saved draft request. All your previously saved details and documents are loaded.'
+            : 'Submit a new survey / mapping request. All fields marked with * are required.'
+        }
+        breadcrumbs={
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
             <Link
-              href={`/projects/${projectId}/overview`}
+              href="/projects"
               style={{
-                color: '#09090b',
-                fontWeight: 600,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.2rem',
+                color: '#71717a',
                 textDecoration: 'none',
               }}
             >
-              {projectName || 'Project'}
+              <ChevronLeft size={14} /> Projects
             </Link>
-            <span style={{ color: 'var(--text-muted)' }}>&gt;</span>
-          </>
-        )}
-        <span style={{ color: 'var(--text-secondary)' }}>
-          {isRevision ? 'Revise Request' : isDraftMode ? 'Edit Draft' : 'New Request'}
-        </span>
-      </div>
-
-      {/* ── Page Hero Header & Action Buttons ── */}
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'flex-start',
-          flexWrap: 'wrap',
-          gap: '1rem',
-          paddingBottom: '0.25rem',
-        }}
+            <span style={{ color: 'var(--text-muted)' }}>/</span>
+            {isRevision && (
+              <>
+                <Link
+                  href={`/projects/${projectId}/overview`}
+                  style={{
+                    color: '#71717a',
+                    textDecoration: 'none',
+                  }}
+                >
+                  {projectName || 'Project'}
+                </Link>
+                <span style={{ color: 'var(--text-muted)' }}>/</span>
+              </>
+            )}
+            <span style={{ color: '#09090b', fontWeight: 600 }}>
+              {isRevision ? 'Revise Request' : isDraftMode ? 'Edit Draft' : 'New Request'}
+            </span>
+          </div>
+        }
       >
-        <div>
-          <h1
-            style={{
-              fontSize: '1.45rem',
-              fontWeight: 800,
-              color: '#09090b',
-              letterSpacing: '-0.02em',
-              lineHeight: 1.2,
-            }}
-          >
-            {isRevision ? 'Revise Project Request' : isDraftMode ? 'Edit Draft Request' : 'New Project Request'}
-          </h1>
-          <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '0.25rem' }}>
-            {isRevision
-              ? 'Update survey specifications, sensors, or requirements. Submitting will create an updated revision for Latrics review.'
-              : isDraftMode
-              ? 'Resume and update your saved draft request. All your previously saved details and documents are loaded.'
-              : 'Submit a new survey / mapping request. All fields marked with * are required.'}
-          </p>
-        </div>
-
         {isReadOnly ? (
           <button
             type="button"
@@ -1361,19 +1202,20 @@ function ClientNewProjectRequestPageContent() {
               display: 'inline-flex',
               alignItems: 'center',
               gap: '0.45rem',
-              height: '38px',
+              height: '36px',
               fontSize: '0.8rem',
               fontWeight: 600,
-              padding: '0 1rem',
+              padding: '0 0.95rem',
               backgroundColor: '#ffffff',
               border: '1px solid #d4d4d8',
+              borderRadius: '6px',
               cursor: 'pointer',
             }}
           >
             ← Back to Project Overview
           </button>
         ) : (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.55rem' }}>
             <button
               type="button"
               onClick={handleSaveDraft}
@@ -1383,22 +1225,23 @@ function ClientNewProjectRequestPageContent() {
                 display: 'inline-flex',
                 alignItems: 'center',
                 gap: '0.45rem',
-                height: '38px',
+                height: '36px',
                 fontSize: '0.8rem',
                 fontWeight: 600,
-                padding: '0 1rem',
+                padding: '0 0.95rem',
                 backgroundColor: '#ffffff',
                 border: '1px solid #d4d4d8',
+                borderRadius: '6px',
                 cursor: isSavingDraft || isSubmitting ? 'not-allowed' : 'pointer',
               }}
             >
               {isSavingDraft ? (
                 <>
-                  <Loader2 size={15} className="animate-spin" /> Saving Draft...
+                  <Loader2 size={14} className="animate-spin" /> Saving Draft...
                 </>
               ) : (
                 <>
-                  <FileText size={15} /> Save Draft
+                  <FileText size={14} /> Save Draft
                 </>
               )}
             </button>
@@ -1410,10 +1253,11 @@ function ClientNewProjectRequestPageContent() {
                 display: 'inline-flex',
                 alignItems: 'center',
                 gap: '0.45rem',
-                height: '38px',
+                height: '36px',
                 fontSize: '0.8rem',
                 fontWeight: 700,
                 padding: '0 1.15rem',
+                borderRadius: '6px',
                 backgroundColor: '#09090b',
                 color: '#ffffff',
               }}
@@ -1428,7 +1272,7 @@ function ClientNewProjectRequestPageContent() {
             </button>
           </div>
         )}
-      </div>
+      </PageHeader>
 
       {/* ── Sealed or Pilot Read-Only Banner ── */}
       {isReadOnly ? (
@@ -1582,166 +1426,43 @@ function ClientNewProjectRequestPageContent() {
       )}
 
       <fieldset disabled={isReadOnly} style={{ border: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '1.25rem', pointerEvents: isReadOnly ? 'none' : 'auto' }}>
-      {/* ── 1. Project Details ── */}
-      <div
-        className="wf-card"
-        style={{
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '0.75rem',
-          backgroundColor: '#ffffff',
-          borderRadius: '8px',
-          border: '1px solid #e4e4e7',
-          padding: '1.25rem',
-        }}
-      >
-        <h2 className="wf-title" style={{ fontSize: '0.95rem', fontWeight: 700, color: '#09090b' }}>
-          1. Project Details
-        </h2>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
-          <label style={{ fontSize: '0.775rem', fontWeight: 600, color: '#09090b' }}>
-            Project Name <span style={{ color: '#09090b' }}>*</span>
-          </label>
-          <input
-            type="text"
-            required
-            placeholder="Enter project name"
-            value={projectName}
-            onChange={(e) => setProjectName(e.target.value)}
-            className="form-input"
-            style={{
-              fontSize: '0.825rem',
-              height: '38px',
-              border: '1px solid #d4d4d8',
-              borderRadius: '6px',
-              padding: '0 0.75rem',
-            }}
-          />
-        </div>
+        {/* ── 1. Project Details ── */}
+        <ProjectBasicInfoSection
+          projectName={projectName}
+          setProjectName={setProjectName}
+          locationAddress={locationAddress}
+          setLocationAddress={setLocationAddress}
+          city={city}
+          setCity={setCity}
+          state={state}
+          setState={setState}
+          requestedAreaSqKm={requestedAreaSqKm}
+          setRequestedAreaSqKm={setRequestedAreaSqKm}
+          isReadOnly={isReadOnly}
+        />
 
-        {/* Project Location (Address) */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
-          <label style={{ fontSize: '0.775rem', fontWeight: 600, color: '#09090b' }}>
-            Project Location <span style={{ color: '#09090b' }}>*</span>
-            <span style={{ fontSize: '0.725rem', fontWeight: 400, color: '#71717a', marginLeft: '0.45rem' }}>
-              (Enter the physical site address — do not use company or project name)
-            </span>
-          </label>
-          <input
-            type="text"
-            required
-            placeholder="Enter physical site address (e.g. Plot 42, Sector 18, Phase 1 Industrial Area)"
-            value={locationAddress}
-            onChange={(e) => setLocationAddress(e.target.value)}
-            className="form-input"
-            style={{
-              fontSize: '0.825rem',
-              height: '38px',
-              border: '1px solid #d4d4d8',
-              borderRadius: '6px',
-              padding: '0 0.75rem',
-            }}
-          />
-        </div>
+        {/* ── 2. Contact Information ── */}
+        <ProjectContactAndTeamSection
+          ownerName={ownerName}
+          setOwnerName={setOwnerName}
+          primaryEmail={primaryEmail}
+          setPrimaryEmail={setPrimaryEmail}
+          phoneCode={phoneCode}
+          setPhoneCode={setPhoneCode}
+          phoneNumber={phoneNumber}
+          setPhoneNumber={setPhoneNumber}
+          companyName={companyName}
+          isSubClient={isSubClient}
+          selectedContacts={selectedContacts}
+          onAddContact={handleAddContact}
+          onRemoveContact={handleRemoveContact}
+          allContactOptions={allContactOptions}
+          isLoadingMembers={isLoadingMembers}
+          getContactProfile={getContactProfile}
+          isReadOnly={isReadOnly}
+        />
 
-        {/* City and State */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '1rem' }}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
-            <label style={{ fontSize: '0.775rem', fontWeight: 600, color: '#09090b' }}>
-              City <span style={{ color: '#09090b' }}>*</span>
-            </label>
-            <input
-              type="text"
-              required
-              placeholder="Enter city (e.g. Bengaluru, Mumbai, Ahmedabad)"
-              value={city}
-              onChange={(e) => setCity(e.target.value)}
-              className="form-input"
-              style={{
-                fontSize: '0.825rem',
-                height: '38px',
-                border: '1px solid #d4d4d8',
-                borderRadius: '6px',
-                padding: '0 0.75rem',
-              }}
-            />
-          </div>
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
-            <label style={{ fontSize: '0.775rem', fontWeight: 600, color: '#09090b' }}>
-              State <span style={{ color: '#09090b' }}>*</span>
-            </label>
-            <select
-              required
-              value={state}
-              onChange={(e) => setState(e.target.value)}
-              className="form-select"
-              style={{
-                fontSize: '0.825rem',
-                height: '38px',
-                border: '1px solid #d4d4d8',
-                borderRadius: '6px',
-                padding: '0 0.75rem',
-                backgroundColor: '#ffffff',
-              }}
-            >
-              <option value="">Select state</option>
-              {INDIAN_STATES.map((st) => (
-                <option key={st} value={st}>
-                  {st}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-
-        {/* Requested Area (sq. Km) Scanning */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', marginTop: '0.25rem' }}>
-          <label style={{ fontSize: '0.775rem', fontWeight: 600, color: '#09090b', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-            <span>Requested Area (sq. Km) Scanning</span>
-            <span style={{ color: '#09090b' }}>*</span>
-            <span style={{ fontSize: '0.725rem', fontWeight: 400, color: '#71717a', marginLeft: '0.25rem' }}>
-              (How many square kilometers are requested for scanning and mapping)
-            </span>
-          </label>
-          <input
-            type="number"
-            step="0.01"
-            min="0.01"
-            required
-            placeholder="e.g. 25.5"
-            value={requestedAreaSqKm}
-            onChange={(e) => setRequestedAreaSqKm(e.target.value)}
-            className="form-input"
-            style={{
-              fontSize: '0.825rem',
-              height: '38px',
-              border: '1px solid #d4d4d8',
-              borderRadius: '6px',
-              padding: '0 0.75rem',
-              maxWidth: '320px',
-            }}
-          />
-        </div>
-      </div>
-
-      {/* ── 2. Contact Information ── */}
-      <div
-        className="wf-card"
-        style={{
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '1rem',
-          backgroundColor: '#ffffff',
-          borderRadius: '8px',
-          border: '1px solid #e4e4e7',
-          padding: '1.25rem',
-        }}
-      >
-        <h2 className="wf-title" style={{ fontSize: '0.95rem', fontWeight: 700, color: '#09090b' }}>
-          2. Contact Information
-        </h2>
-
+        {/* ── Two Column Row: 3. Payload / Sensor & 4. Deliverables ── */}
         <div
           style={{
             display: 'grid',
@@ -1749,1823 +1470,111 @@ function ClientNewProjectRequestPageContent() {
             gap: '1.25rem',
           }}
         >
-          {/* Left Sub-Card: Profile Contact Info (Always Primary Client's details) */}
-          <div
-            style={{
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '0.85rem',
-              padding: '1.15rem',
-              border: '1px solid #e4e4e7',
-              borderRadius: '6px',
-              backgroundColor: '#ffffff',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#09090b' }}>
-                Primary Contact (Auto-filled)
-              </span>
-              <span
-                style={{
-                  fontSize: '0.675rem',
-                  fontWeight: 600,
-                  color: '#09090b',
-                  backgroundColor: '#f4f4f5',
-                  padding: '2px 8px',
-                  borderRadius: '4px',
-                  border: '1px solid #d4d4d8',
-                }}
-              >
-                Primary Client
-              </span>
-            </div>
+          {/* ── 3. Payload / Sensor ── */}
+          <ProjectPayloadSensorSection
+            selectedPayloads={selectedPayloads}
+            togglePayload={togglePayload}
+            airspaceZone={airspaceZone}
+            setAirspaceZone={setAirspaceZone}
+            manageFlightPermissions={manageFlightPermissions}
+            setManageFlightPermissions={setManageFlightPermissions}
+            isReadOnly={isReadOnly}
+          />
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
-              <label style={{ fontSize: '0.725rem', fontWeight: 600, color: '#09090b' }}>
-                Owner / Contact Person <span style={{ color: '#09090b' }}>*</span>
-              </label>
-              <input
-                type="text"
-                required
-                readOnly={isSubClient}
-                value={ownerName}
-                onChange={(e) => setOwnerName(e.target.value)}
-                className="form-input"
-                style={{
-                  fontSize: '0.8rem',
-                  height: '36px',
-                  backgroundColor: isSubClient ? '#f4f4f5' : '#ffffff',
-                  color: isSubClient ? '#52525b' : '#09090b',
-                  border: '1px solid #d4d4d8',
-                  borderRadius: '4px',
-                }}
-              />
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: '1.1fr 1fr', gap: '0.75rem' }}>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
-                <label style={{ fontSize: '0.725rem', fontWeight: 600, color: '#09090b' }}>
-                  Email <span style={{ color: '#09090b' }}>*</span>
-                </label>
-                <input
-                  type="email"
-                  required
-                  readOnly={isSubClient}
-                  value={primaryEmail}
-                  onChange={(e) => setPrimaryEmail(e.target.value)}
-                  className="form-input"
-                  style={{
-                    fontSize: '0.8rem',
-                    height: '36px',
-                    backgroundColor: isSubClient ? '#f4f4f5' : '#ffffff',
-                    color: isSubClient ? '#52525b' : '#09090b',
-                    border: '1px solid #d4d4d8',
-                    borderRadius: '4px',
-                  }}
-                />
-              </div>
-
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
-                <label style={{ fontSize: '0.725rem', fontWeight: 600, color: '#09090b' }}>
-                  Phone Number <span style={{ color: '#09090b' }}>*</span>
-                </label>
-                <div style={{ display: 'flex', gap: '0.35rem' }}>
-                  <select
-                    value={phoneCode}
-                    disabled={isSubClient}
-                    onChange={(e) => setPhoneCode(e.target.value)}
-                    className="form-select"
-                    style={{
-                      width: '68px',
-                      fontSize: '0.75rem',
-                      height: '36px',
-                      backgroundColor: isSubClient ? '#f4f4f5' : '#ffffff',
-                      border: '1px solid #d4d4d8',
-                      borderRadius: '4px',
-                      padding: '0 0.3rem',
-                    }}
-                  >
-                    <option value="+91">+91</option>
-                    <option value="+1">+1</option>
-                    <option value="+44">+44</option>
-                    <option value="+971">+971</option>
-                    <option value="+61">+61</option>
-                    <option value="+65">+65</option>
-                  </select>
-                  <input
-                    type="text"
-                    required
-                    readOnly={isSubClient}
-                    value={phoneNumber}
-                    onChange={(e) => setPhoneNumber(e.target.value)}
-                    className="form-input"
-                    style={{
-                      flex: 1,
-                      fontSize: '0.8rem',
-                      height: '36px',
-                      backgroundColor: isSubClient ? '#f4f4f5' : '#ffffff',
-                      color: isSubClient ? '#52525b' : '#09090b',
-                      border: '1px solid #d4d4d8',
-                      borderRadius: '4px',
-                    }}
-                  />
-                </div>
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
-              <label style={{ fontSize: '0.725rem', fontWeight: 600, color: '#09090b' }}>
-                Company <span style={{ color: '#09090b' }}>*</span>
-              </label>
-              <input
-                type="text"
-                readOnly
-                value={companyName}
-                className="form-input"
-                style={{
-                  fontSize: '0.8rem',
-                  height: '36px',
-                  backgroundColor: '#f4f4f5',
-                  color: '#52525b',
-                  border: '1px solid #e4e4e7',
-                  borderRadius: '4px',
-                }}
-              />
-            </div>
-            {isSubClient && (
-              <span style={{ fontSize: '0.7rem', color: '#71717a', lineHeight: 1.3 }}>
-                Linked automatically to your company&apos;s primary client contact credentials.
-              </span>
-            )}
-          </div>
-
-          {/* Right Sub-Card: Project Communication Contacts */}
-          <div
-            style={{
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '0.75rem',
-              padding: '1.15rem',
-              border: '1px solid #e4e4e7',
-              borderRadius: '6px',
-              backgroundColor: '#ffffff',
-            }}
-          >
-            <div>
-              <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#09090b' }}>
-                Project Communication Contacts <span style={{ color: '#09090b' }}>*</span>
-              </span>
-              <p style={{ fontSize: '0.725rem', color: 'var(--text-secondary)', marginTop: '0.2rem', lineHeight: 1.35 }}>
-                Select one or more team members from your organization who should be included in project communications with the Latrics team.
-              </p>
-            </div>
-
-            {/* Custom Multi-Select Dropdown Container */}
-            <div ref={contactDropdownRef} style={{ position: 'relative', marginTop: '0.25rem' }}>
-              <div
-                onClick={() => setIsContactDropdownOpen(!isContactDropdownOpen)}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  height: '36px',
-                  padding: '0 0.75rem',
-                  border: '1px solid #d4d4d8',
-                  borderRadius: '4px',
-                  backgroundColor: '#ffffff',
-                  cursor: 'pointer',
-                  fontSize: '0.8rem',
-                  color: '#71717a',
-                }}
-              >
-                <span>{selectedContacts.length > 0 ? `${selectedContacts.length} contact(s) selected` : 'Select contacts...'}</span>
-                <ChevronDown size={15} color="#71717a" />
-              </div>
-
-              {/* Dropdown Menu - Lists Authenticated Members Under This Company Profile */}
-              {isContactDropdownOpen && (
-                <div
-                  style={{
-                    position: 'absolute',
-                    top: '40px',
-                    left: 0,
-                    right: 0,
-                    backgroundColor: '#ffffff',
-                    border: '1px solid #d4d4d8',
-                    borderRadius: '6px',
-                    boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
-                    zIndex: 50,
-                    padding: '0.5rem',
-                    maxHeight: '230px',
-                    overflowY: 'auto',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '0.25rem',
-                  }}
-                >
-                  <div style={{ padding: '0.25rem', display: 'flex', gap: '0.35rem' }}>
-                    <input
-                      type="text"
-                      placeholder="Search company member..."
-                      value={contactSearchInput}
-                      onChange={(e) => setContactSearchInput(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          e.preventDefault();
-                          if (contactSearchInput.trim()) {
-                            handleAddContact(contactSearchInput);
-                          }
-                        }
-                      }}
-                      className="form-input"
-                      style={{ fontSize: '0.75rem', height: '30px', flex: 1 }}
-                    />
-                    {contactSearchInput.trim() && (
-                      <button
-                        type="button"
-                        onClick={() => handleAddContact(contactSearchInput)}
-                        className="btn btn-primary"
-                        style={{ fontSize: '0.725rem', padding: '0.2rem 0.5rem', height: '30px' }}
-                      >
-                        Add
-                      </button>
-                    )}
-                  </div>
-
-                  <div style={{ height: '1px', backgroundColor: '#e4e4e7', margin: '0.25rem 0' }} />
-
-                  {isLoadingMembers ? (
-                    <div style={{ padding: '0.5rem', fontSize: '0.75rem', color: '#71717a', textAlign: 'center' }}>
-                      Loading team members...
-                    </div>
-                  ) : allContactOptions.length > 0 ? (
-                    allContactOptions
-                      .filter((contact) => {
-                        const name = contact.name || contact.email;
-                        return (
-                          name.toLowerCase().includes(contactSearchInput.toLowerCase()) ||
-                          contact.email.toLowerCase().includes(contactSearchInput.toLowerCase())
-                        );
-                      })
-                      .map((contact) => {
-                        const contactKey = contact.name || contact.email;
-                        const isSelected = selectedContacts.includes(contactKey);
-
-                        return (
-                          <div
-                            key={contact.id || contactKey}
-                            onClick={() => {
-                              if (isSelected) {
-                                handleRemoveContact(contactKey);
-                              } else {
-                                handleAddContact(contactKey);
-                              }
-                            }}
-                            style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'space-between',
-                              padding: '0.45rem 0.65rem',
-                              borderRadius: '4px',
-                              cursor: 'pointer',
-                              backgroundColor: isSelected ? '#f4f4f5' : 'transparent',
-                            }}
-                            onMouseEnter={(e) => {
-                              if (!isSelected) e.currentTarget.style.backgroundColor = '#fafafa';
-                            }}
-                            onMouseLeave={(e) => {
-                              if (!isSelected) e.currentTarget.style.backgroundColor = 'transparent';
-                            }}
-                          >
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.1rem' }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                                <span style={{ fontSize: '0.78rem', fontWeight: isSelected ? 700 : 600, color: '#09090b' }}>
-                                  {contact.name}
-                                </span>
-                                <span
-                                  style={{
-                                    fontSize: '0.65rem',
-                                    color: contact.isPrimary ? '#09090b' : '#71717a',
-                                    backgroundColor: contact.isPrimary ? '#f4f4f5' : '#f4f4f5',
-                                    border: contact.isPrimary ? '1px solid #d4d4d8' : 'none',
-                                    padding: '1px 5px',
-                                    borderRadius: '3px',
-                                    fontWeight: 500,
-                                  }}
-                                >
-                                  {contact.designation}
-                                </span>
-                              </div>
-                              <div style={{ fontSize: '0.7rem', color: '#71717a' }}>
-                                {contact.email} {contact.phone ? `• ${contact.phone}` : ''}
-                              </div>
-                            </div>
-                            {isSelected && <Check size={14} color="#09090b" />}
-                          </div>
-                        );
-                      })
-                  ) : (
-                    <div style={{ padding: '0.5rem', fontSize: '0.75rem', color: '#71717a', textAlign: 'center' }}>
-                      No team members found in company profile.
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-
-            {/* Selected Contact Pill Badges (Shown only when chosen by user) */}
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.45rem', marginTop: '0.35rem' }}>
-              {selectedContacts.map((contact) => (
-                <div
-                  key={contact}
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '0.35rem',
-                    padding: '0.3rem 0.65rem',
-                    backgroundColor: '#f4f4f5',
-                    border: '1px solid #e4e4e7',
-                    borderRadius: '16px',
-                    fontSize: '0.75rem',
-                    fontWeight: 600,
-                    color: '#09090b',
-                  }}
-                >
-                  <span>{contact}</span>
-                  <button
-                    type="button"
-                    onClick={() => handleRemoveContact(contact)}
-                    style={{
-                      background: 'none',
-                      border: 'none',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      padding: 0,
-                      color: '#71717a',
-                    }}
-                    title="Remove contact"
-                  >
-                    <X size={13} />
-                  </button>
-                </div>
-              ))}
-              {selectedContacts.length === 0 && (
-                <span style={{ fontSize: '0.725rem', color: '#a1a1aa', fontStyle: 'italic' }}>
-                  No communication contacts selected yet. Choose contacts from the dropdown above.
-                </span>
-              )}
-            </div>
-
-            {/* Selected Contact Details List (As per filled in that user's own profile) */}
-            {selectedContacts.length > 0 && (
-              <div
-                style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '0.6rem',
-                  marginTop: '0.65rem',
-                  paddingTop: '0.75rem',
-                  borderTop: '1px solid #e4e4e7',
-                }}
-              >
-                <div
-                  style={{
-                    fontSize: '0.75rem',
-                    fontWeight: 700,
-                    color: '#09090b',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '0.4rem',
-                  }}
-                >
-                  <UserCheck size={14} color="#09090b" />
-                  <span>Selected Contact Details ({selectedContacts.length})</span>
-                </div>
-
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                  {selectedContacts.map((contactKey) => {
-                    const profile = getContactProfile(contactKey);
-                    return (
-                      <div
-                        key={contactKey}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                          padding: '0.65rem 0.85rem',
-                          backgroundColor: '#fafafa',
-                          border: '1px solid #e4e4e7',
-                          borderRadius: '6px',
-                          gap: '0.75rem',
-                        }}
-                      >
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem', flex: 1 }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', flexWrap: 'wrap' }}>
-                            <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#09090b' }}>
-                              {profile.name}
-                            </span>
-                            <span
-                              style={{
-                                fontSize: '0.675rem',
-                                color: profile.isPrimary ? '#09090b' : '#52525b',
-                                backgroundColor: profile.isPrimary ? '#f4f4f5' : '#f4f4f5',
-                                border: profile.isPrimary ? '1px solid #d4d4d8' : '1px solid #e4e4e7',
-                                padding: '1px 6px',
-                                borderRadius: '4px',
-                                fontWeight: 600,
-                              }}
-                            >
-                              {profile.designation}
-                            </span>
-                          </div>
-                          <div style={{ display: 'flex', gap: '1.25rem', flexWrap: 'wrap', fontSize: '0.735rem', color: '#52525b', marginTop: '0.15rem' }}>
-                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                              <Mail size={12} color="#71717a" /> {profile.email}
-                            </span>
-                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                              <Phone size={12} color="#71717a" /> {profile.phone}
-                            </span>
-                          </div>
-                        </div>
-
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveContact(contactKey)}
-                          style={{
-                            background: 'none',
-                            border: 'none',
-                            cursor: 'pointer',
-                            padding: '4px',
-                            color: '#71717a',
-                            borderRadius: '4px',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                          }}
-                          onMouseEnter={(e) => (e.currentTarget.style.color = '#09090b')}
-                          onMouseLeave={(e) => (e.currentTarget.style.color = '#71717a')}
-                          title="Remove contact"
-                        >
-                          <X size={15} />
-                        </button>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-          </div>
+          {/* ── 4. Deliverables ── */}
+          <ProjectDeliverablesSection
+            optPreProcessing={optPreProcessing}
+            setOptPreProcessing={setOptPreProcessing}
+            optPostProcessing={optPostProcessing}
+            setOptPostProcessing={setOptPostProcessing}
+            preDeliverables={preDeliverables}
+            togglePreDeliverable={togglePreDeliverable}
+            isPreDeliverableEnabled={isPreDeliverableEnabled}
+            preOtherText={preOtherText}
+            setPreOtherText={setPreOtherText}
+            setPreDeliverables={setPreDeliverables}
+            postDeliverables={postDeliverables}
+            togglePostDeliverable={togglePostDeliverable}
+            postOtherText={postOtherText}
+            setPostOtherText={setPostOtherText}
+            setPostDeliverables={setPostDeliverables}
+            isReadOnly={isReadOnly}
+          />
         </div>
-      </div>
 
-      {/* ── Two Column Row: 3. Payload / Sensor & 4. Deliverables ── */}
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
-          gap: '1.25rem',
-        }}
-      >
-        {/* ── 3. Payload / Sensor ── */}
+        {/* ── Two Column Row: 5. Schedule & 6. KML / Boundary Upload ── */}
         <div
-          className="wf-card"
           style={{
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '0.85rem',
-            backgroundColor: '#ffffff',
-            borderRadius: '8px',
-            border: '1px solid #e4e4e7',
-            padding: '1.25rem',
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+            gap: '1.25rem',
           }}
         >
-          <div>
-            <h2 className="wf-title" style={{ fontSize: '0.95rem', fontWeight: 700, color: '#09090b' }}>
-              3. Payload / Sensor <span style={{ color: '#09090b' }}>*</span>
-            </h2>
-            <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '0.15rem' }}>
-              Select the payload / sensor for this project (single selection).
-            </p>
-          </div>
+          {/* ── 5. Schedule ── */}
+          <ProjectScheduleSection
+            startDate={startDate}
+            onStartDateChange={handleStartDateChange}
+            endDate={endDate}
+            onEndDateChange={handleEndDateChange}
+            tenureDays={tenureDays}
+            isReadOnly={isReadOnly}
+          />
 
-          {/* 3 Selectable Cards */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.65rem' }}>
-            {/* 1) 61MP Camera */}
-            <div
-              onClick={() => setSelectedPayload('61mp_camera')}
-              style={{
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                textAlign: 'center',
-                padding: '1rem 0.5rem',
-                border: selectedPayload === '61mp_camera' ? '2px solid #09090b' : '1px solid #e4e4e7',
-                borderRadius: '6px',
-                cursor: 'pointer',
-                backgroundColor: '#ffffff',
-                position: 'relative',
-                transition: 'all 0.15s ease',
-              }}
-            >
-              {/* Radio Circle Top Left */}
-              <div
-                style={{
-                  position: 'absolute',
-                  top: '8px',
-                  left: '8px',
-                  width: '16px',
-                  height: '16px',
-                  borderRadius: '50%',
-                  border: selectedPayload === '61mp_camera' ? '5px solid #09090b' : '1.5px solid #a1a1aa',
-                  backgroundColor: '#ffffff',
-                }}
-              />
-              <Camera size={26} color="#09090b" style={{ marginTop: '0.25rem', marginBottom: '0.5rem' }} />
-              <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#09090b', lineHeight: 1.2 }}>
-                61MP Camera
-              </span>
-              <span style={{ fontSize: '0.675rem', color: 'var(--text-secondary)', marginTop: '0.35rem', lineHeight: 1.25 }}>
-                High resolution RGB imagery
-              </span>
-            </div>
-
-            {/* 2) LiDAR */}
-            <div
-              onClick={() => setSelectedPayload('lidar')}
-              style={{
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                textAlign: 'center',
-                padding: '1rem 0.5rem',
-                border: selectedPayload === 'lidar' ? '2px solid #09090b' : '1px solid #e4e4e7',
-                borderRadius: '6px',
-                cursor: 'pointer',
-                backgroundColor: '#ffffff',
-                position: 'relative',
-                transition: 'all 0.15s ease',
-              }}
-            >
-              {/* Radio Circle Top Left */}
-              <div
-                style={{
-                  position: 'absolute',
-                  top: '8px',
-                  left: '8px',
-                  width: '16px',
-                  height: '16px',
-                  borderRadius: '50%',
-                  border: selectedPayload === 'lidar' ? '5px solid #09090b' : '1.5px solid #a1a1aa',
-                  backgroundColor: '#ffffff',
-                }}
-              />
-              <Layers size={26} color="#09090b" style={{ marginTop: '0.25rem', marginBottom: '0.5rem' }} />
-              <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#09090b', lineHeight: 1.2 }}>
-                LiDAR
-              </span>
-              <span style={{ fontSize: '0.675rem', color: 'var(--text-secondary)', marginTop: '0.35rem', lineHeight: 1.25 }}>
-                3D spatial data capture
-              </span>
-            </div>
-
-            {/* 3) Oblique Camera */}
-            <div
-              onClick={() => setSelectedPayload('oblique_camera')}
-              style={{
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                textAlign: 'center',
-                padding: '1rem 0.5rem',
-                border: selectedPayload === 'oblique_camera' ? '2px solid #09090b' : '1px solid #e4e4e7',
-                borderRadius: '6px',
-                cursor: 'pointer',
-                backgroundColor: '#ffffff',
-                position: 'relative',
-                transition: 'all 0.15s ease',
-              }}
-            >
-              {/* Radio Circle Top Left */}
-              <div
-                style={{
-                  position: 'absolute',
-                  top: '8px',
-                  left: '8px',
-                  width: '16px',
-                  height: '16px',
-                  borderRadius: '50%',
-                  border: selectedPayload === 'oblique_camera' ? '5px solid #09090b' : '1.5px solid #a1a1aa',
-                  backgroundColor: '#ffffff',
-                }}
-              />
-              <Aperture size={26} color="#09090b" style={{ marginTop: '0.25rem', marginBottom: '0.5rem' }} />
-              <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#09090b', lineHeight: 1.2 }}>
-                Oblique Camera
-              </span>
-              <span style={{ fontSize: '0.675rem', color: 'var(--text-secondary)', marginTop: '0.35rem', lineHeight: 1.25 }}>
-                Multi-angle imagery
-              </span>
-            </div>
-          </div>
-
-          {/* ── DGCA Airspace Zone Classification (Fitted inside Payload/Sensor blank space area) ── */}
-          <div
-            style={{
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '0.65rem',
-              marginTop: '0.75rem',
-              paddingTop: '0.85rem',
-              borderTop: '1px solid #f4f4f5',
+          {/* ── 6. KML / Boundary Upload ── */}
+          <ProjectBoundaryUploadSection
+            kmlFiles={kmlFiles}
+            existingKmlFiles={existingKmlFiles}
+            onAddKmlFiles={handleAddKmlFiles}
+            onRemoveKmlFile={handleRemoveKmlFile}
+            onRemoveExistingKmlFile={handleRemoveExistingKmlFile}
+            onClearAllKmlFiles={() => {
+              setKmlFiles([]);
+              setExistingKmlFiles([]);
             }}
-          >
-            <div>
-              <h3 style={{ fontSize: '0.825rem', fontWeight: 700, color: '#09090b', margin: 0 }}>
-                DGCA Airspace Zone Classification
-              </h3>
-              <p style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginTop: '0.15rem', margin: 0 }}>
-                Verify DGCA Digital Sky airspace classification and clearance prerequisites for the flight perimeter.
-              </p>
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.55rem' }}>
-              {[
-                { name: 'Green Zone', desc: 'Up to 400 ft AGL. No prior DGCA flight permission required.', color: '#09090b' },
-                { name: 'Yellow Zone', desc: 'Controlled airspace. Prior ATC clearance required.', color: '#52525b' },
-                { name: 'Red Zone', desc: 'Restricted / Prohibited airspace. Central MoD clearance required.', color: '#09090b' },
-              ].map((zone) => {
-                const isSelected = airspaceZones.includes(zone.name);
-                return (
-                  <div
-                    key={zone.name}
-                    onClick={() => {
-                      if (isReadOnly) return;
-                      setAirspaceZones((prev) =>
-                        prev.includes(zone.name)
-                          ? prev.filter((z) => z !== zone.name)
-                          : [...prev, zone.name]
-                      );
-                    }}
-                    style={{
-                      border: isSelected ? '1.5px solid #09090b' : '1px solid #e4e4e7',
-                      backgroundColor: isSelected ? '#fafafa' : '#ffffff',
-                      borderRadius: '6px',
-                      padding: '0.7rem 0.6rem',
-                      cursor: isReadOnly ? 'default' : 'pointer',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: '0.35rem',
-                      transition: 'all 0.15s ease',
-                    }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                        <span
-                          style={{
-                            width: '8px',
-                            height: '8px',
-                            borderRadius: '50%',
-                            backgroundColor: zone.color,
-                            display: 'inline-block',
-                            flexShrink: 0,
-                          }}
-                        />
-                        <span style={{ fontSize: '0.785rem', fontWeight: 700, color: '#09090b' }}>
-                          {zone.name}
-                        </span>
-                      </div>
-                      <div
-                        style={{
-                          width: '16px',
-                          height: '16px',
-                          borderRadius: '3px',
-                          border: isSelected ? '1.5px solid #09090b' : '1px solid #d4d4d8',
-                          backgroundColor: isSelected ? '#09090b' : '#ffffff',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          flexShrink: 0,
-                        }}
-                      >
-                        {isSelected && <Check size={11} color="#ffffff" strokeWidth={3} />}
-                      </div>
-                    </div>
-                    <span style={{ fontSize: '0.675rem', color: '#71717a', lineHeight: 1.3 }}>
-                      {zone.desc}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
+            isReadOnly={isReadOnly}
+          />
         </div>
 
-        {/* ── 4. Deliverables ── */}
+        {/* ── Two Column Row: 7. Scope Document & 8. Remarks / Instructions ── */}
         <div
-          className="wf-card"
           style={{
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '0.75rem',
-            backgroundColor: '#ffffff',
-            borderRadius: '8px',
-            border: '1px solid #e4e4e7',
-            padding: '1.25rem',
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+            gap: '1.25rem',
           }}
         >
-          <div>
-            <h2 className="wf-title" style={{ fontSize: '0.95rem', fontWeight: 700, color: '#09090b' }}>
-              4. Deliverables <span style={{ color: '#09090b' }}>*</span>
-            </h2>
-            <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '0.15rem' }}>
-              Select deliverables based on the selected payload and processing type.
-            </p>
-          </div>
-
-          {/* Processing Mode Switcher (Multi-select Checkbox Cards) */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.65rem' }}>
-            {/* Pre Processing Card */}
-            <div
-              onClick={() => setOptPreProcessing(!optPreProcessing)}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '0.65rem',
-                padding: '0.65rem 0.75rem',
-                border: optPreProcessing ? '2px solid #09090b' : '1px solid #e4e4e7',
-                borderRadius: '6px',
-                cursor: 'pointer',
-                backgroundColor: '#ffffff',
-                transition: 'all 0.15s ease',
-              }}
-            >
-              <div
-                style={{
-                  width: '16px',
-                  height: '16px',
-                  borderRadius: '3px',
-                  border: optPreProcessing ? '1px solid #09090b' : '1.5px solid #a1a1aa',
-                  backgroundColor: optPreProcessing ? '#09090b' : '#ffffff',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  flexShrink: 0,
-                }}
-              >
-                {optPreProcessing && <Check size={12} color="#ffffff" strokeWidth={3} />}
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column' }}>
-                <span style={{ fontSize: '0.775rem', fontWeight: 700, color: '#09090b' }}>
-                  Pre Processing
-                </span>
-                <span style={{ fontSize: '0.65rem', color: 'var(--text-secondary)' }}>
-                  Raw data and basic outputs
-                </span>
-              </div>
-            </div>
-
-            {/* Post Processing Card */}
-            <div
-              onClick={() => setOptPostProcessing(!optPostProcessing)}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '0.65rem',
-                padding: '0.65rem 0.75rem',
-                border: optPostProcessing ? '2px solid #09090b' : '1px solid #e4e4e7',
-                borderRadius: '6px',
-                cursor: 'pointer',
-                backgroundColor: '#ffffff',
-                transition: 'all 0.15s ease',
-              }}
-            >
-              <div
-                style={{
-                  width: '16px',
-                  height: '16px',
-                  borderRadius: '3px',
-                  border: optPostProcessing ? '1px solid #09090b' : '1.5px solid #a1a1aa',
-                  backgroundColor: optPostProcessing ? '#09090b' : '#ffffff',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  flexShrink: 0,
-                }}
-              >
-                {optPostProcessing && <Check size={12} color="#ffffff" strokeWidth={3} />}
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column' }}>
-                <span style={{ fontSize: '0.775rem', fontWeight: 700, color: '#09090b' }}>
-                  Post Processing
-                </span>
-                <span style={{ fontSize: '0.65rem', color: 'var(--text-secondary)' }}>
-                  Value added products and analysis
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {/* Info Banner Note */}
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.45rem',
-              padding: '0.45rem 0.65rem',
-              backgroundColor: '#fafafa',
-              border: '1px solid #e4e4e7',
-              borderRadius: '4px',
-              fontSize: '0.7rem',
-              color: '#52525b',
+          {/* ── 7. Scope Document ── */}
+          <ProjectScopeDocumentSection
+            scopeFiles={scopeFiles}
+            existingScopeFiles={existingScopeFiles}
+            onAddScopeFiles={handleAddScopeFiles}
+            onRemoveScopeFile={handleRemoveScopeFile}
+            onRemoveExistingScopeFile={handleRemoveExistingScopeFile}
+            onClearAllScopeFiles={() => {
+              setScopeFiles([]);
+              setExistingScopeFiles([]);
             }}
-          >
-            <Info size={13} style={{ flexShrink: 0 }} />
-            <span>You can select Pre Processing, Post Processing, or both. Deliverables are filtered based on selected payload.</span>
-          </div>
+            isReadOnly={isReadOnly}
+          />
 
-          {!optPreProcessing && !optPostProcessing && (
-            <div
-              style={{
-                padding: '1.25rem',
-                textAlign: 'center',
-                backgroundColor: '#fafafa',
-                border: '1px dashed #d4d4d8',
-                borderRadius: '6px',
-                color: '#71717a',
-                fontSize: '0.75rem',
-              }}
-            >
-              Please select at least one processing type above (Pre Processing and/or Post Processing) to configure deliverables.
-            </div>
-          )}
-
-          {/* ── 1. Pre Processing Deliverables (Shown when Pre Processing is checked) ── */}
-          {optPreProcessing && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginTop: '0.25rem' }}>
-              {(optPreProcessing && optPostProcessing) && (
-                <span style={{ fontSize: '0.775rem', fontWeight: 700, color: '#09090b' }}>
-                  Pre-Processing Deliverables
-                </span>
-              )}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
-                {PRE_PROCESSING_DELIVERABLES.map((item) => {
-                  const isEnabled = isPreDeliverableEnabled(item.id);
-                  const isChecked = isEnabled && !!preDeliverables[item.id];
-
-                  return (
-                    <div
-                      key={item.id}
-                      onClick={() => {
-                        if (isEnabled) togglePreDeliverable(item.id);
-                      }}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '0.65rem',
-                        padding: '0.65rem 0.75rem',
-                        border: isChecked
-                          ? '1px solid #09090b'
-                          : isEnabled
-                          ? '1px solid #e4e4e7'
-                          : '1px solid #f4f4f5',
-                        borderRadius: '4px',
-                        backgroundColor: isEnabled ? '#ffffff' : '#fafafa',
-                        cursor: isEnabled ? 'pointer' : 'not-allowed',
-                        opacity: isEnabled ? 1 : 0.45,
-                        transition: 'all 0.15s ease',
-                        userSelect: 'none',
-                      }}
-                    >
-                      <div
-                        style={{
-                          width: '16px',
-                          height: '16px',
-                          borderRadius: '3px',
-                          border: isChecked
-                            ? '1px solid #09090b'
-                            : isEnabled
-                            ? '1.5px solid #a1a1aa'
-                            : '1.5px solid #d4d4d8',
-                          backgroundColor: isChecked ? '#09090b' : '#ffffff',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          flexShrink: 0,
-                        }}
-                      >
-                        {isChecked && <Check size={12} color="#ffffff" strokeWidth={3} />}
-                      </div>
-                      <span
-                        style={{
-                          fontSize: '0.775rem',
-                          fontWeight: isChecked ? 700 : isEnabled ? 500 : 400,
-                          color: isEnabled ? '#09090b' : '#a1a1aa',
-                        }}
-                      >
-                        {item.label}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-
-              {/* Other Option in Pre Processing */}
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.65rem',
-                  padding: '0.5rem 0.75rem',
-                  border: preDeliverables.other ? '1px solid #09090b' : '1px solid #e4e4e7',
-                  borderRadius: '4px',
-                  backgroundColor: '#ffffff',
-                }}
-              >
-                <div
-                  onClick={() => togglePreDeliverable('other')}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '0.5rem',
-                    cursor: 'pointer',
-                    userSelect: 'none',
-                  }}
-                >
-                  <div
-                    style={{
-                      width: '16px',
-                      height: '16px',
-                      borderRadius: '3px',
-                      border: preDeliverables.other ? '1px solid #09090b' : '1.5px solid #a1a1aa',
-                      backgroundColor: preDeliverables.other ? '#09090b' : '#ffffff',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      flexShrink: 0,
-                    }}
-                  >
-                    {preDeliverables.other && <Check size={12} color="#ffffff" strokeWidth={3} />}
-                  </div>
-                  <span style={{ fontSize: '0.75rem', fontWeight: preDeliverables.other ? 700 : 500, color: '#09090b', whiteSpace: 'nowrap' }}>
-                    Other
-                  </span>
-                </div>
-
-                <input
-                  type="text"
-                  placeholder="Specify custom pre-processing output..."
-                  value={preOtherText}
-                  onChange={(e) => {
-                    setPreOtherText(e.target.value);
-                    if (!preDeliverables.other) {
-                      setPreDeliverables((prev) => ({ ...prev, other: true }));
-                    }
-                  }}
-                  className="form-input"
-                  style={{
-                    flex: 1,
-                    fontSize: '0.75rem',
-                    height: '28px',
-                    padding: '0 0.5rem',
-                    backgroundColor: preDeliverables.other ? '#ffffff' : '#fafafa',
-                  }}
-                />
-              </div>
-            </div>
-          )}
-
-          {/* ── 2. Post Processing Deliverables (Shown when Post Processing is checked) ── */}
-          {optPostProcessing && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginTop: optPreProcessing ? '0.75rem' : '0.25rem' }}>
-              {(optPreProcessing && optPostProcessing) && (
-                <span style={{ fontSize: '0.775rem', fontWeight: 700, color: '#09090b' }}>
-                  Post-Processing Deliverables
-                </span>
-              )}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '0.5rem' }}>
-                {POST_PROCESSING_DELIVERABLES.map((item) => {
-                  const isChecked = !!postDeliverables[item.id];
-
-                  return (
-                    <div
-                      key={item.id}
-                      onClick={() => togglePostDeliverable(item.id)}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '0.55rem',
-                        padding: '0.55rem 0.65rem',
-                        border: isChecked ? '1px solid #09090b' : '1px solid #e4e4e7',
-                        borderRadius: '4px',
-                        backgroundColor: '#ffffff',
-                        cursor: 'pointer',
-                        transition: 'all 0.15s ease',
-                        userSelect: 'none',
-                      }}
-                    >
-                      <div
-                        style={{
-                          width: '16px',
-                          height: '16px',
-                          borderRadius: '3px',
-                          border: isChecked ? '1px solid #09090b' : '1.5px solid #a1a1aa',
-                          backgroundColor: isChecked ? '#09090b' : '#ffffff',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          flexShrink: 0,
-                        }}
-                      >
-                        {isChecked && <Check size={12} color="#ffffff" strokeWidth={3} />}
-                      </div>
-                      <span
-                        style={{
-                          fontSize: '0.75rem',
-                          fontWeight: isChecked ? 700 : 500,
-                          color: '#09090b',
-                        }}
-                      >
-                        {item.label}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-
-              {/* Other Option in Post Processing */}
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.65rem',
-                  padding: '0.5rem 0.75rem',
-                  border: postDeliverables.other ? '1px solid #09090b' : '1px solid #e4e4e7',
-                  borderRadius: '4px',
-                  backgroundColor: '#ffffff',
-                }}
-              >
-                <div
-                  onClick={() => togglePostDeliverable('other')}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '0.5rem',
-                    cursor: 'pointer',
-                    userSelect: 'none',
-                  }}
-                >
-                  <div
-                    style={{
-                      width: '16px',
-                      height: '16px',
-                      borderRadius: '3px',
-                      border: postDeliverables.other ? '1px solid #09090b' : '1.5px solid #a1a1aa',
-                      backgroundColor: postDeliverables.other ? '#09090b' : '#ffffff',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      flexShrink: 0,
-                    }}
-                  >
-                    {postDeliverables.other && <Check size={12} color="#ffffff" strokeWidth={3} />}
-                  </div>
-                  <span style={{ fontSize: '0.75rem', fontWeight: postDeliverables.other ? 700 : 500, color: '#09090b', whiteSpace: 'nowrap' }}>
-                    Other
-                  </span>
-                </div>
-
-                <input
-                  type="text"
-                  placeholder="Specify custom deliverable..."
-                  value={postOtherText}
-                  onChange={(e) => {
-                    setPostOtherText(e.target.value);
-                    if (!postDeliverables.other) {
-                      setPostDeliverables((prev) => ({ ...prev, other: true }));
-                    }
-                  }}
-                  className="form-input"
-                  style={{
-                    flex: 1,
-                    fontSize: '0.75rem',
-                    height: '28px',
-                    padding: '0 0.5rem',
-                    backgroundColor: postDeliverables.other ? '#ffffff' : '#fafafa',
-                  }}
-                />
-              </div>
-            </div>
-          )}
+          {/* ── 8. Remarks / Instructions ── */}
+          <ProjectRemarksSection
+            remarks={remarks}
+            setRemarks={setRemarks}
+            isReadOnly={isReadOnly}
+          />
         </div>
-      </div>
-
-      {/* ── Two Column Row: 5. Schedule & 6. KML / Boundary Upload ── */}
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
-          gap: '1.25rem',
-        }}
-      >
-        {/* ── 5. Schedule ── */}
-        <div
-          className="wf-card"
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '0.85rem',
-            backgroundColor: '#ffffff',
-            borderRadius: '8px',
-            border: '1px solid #e4e4e7',
-            padding: '1.25rem',
-          }}
-        >
-          <h2 className="wf-title" style={{ fontSize: '0.95rem', fontWeight: 700, color: '#09090b' }}>
-            5. Schedule
-          </h2>
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
-              <label style={{ fontSize: '0.725rem', fontWeight: 600, color: '#09090b' }}>
-                Expected Start Date <span style={{ color: '#09090b' }}>*</span>
-              </label>
-              <input
-                type="date"
-                required
-                value={startDate}
-                onChange={(e) => handleStartDateChange(e.target.value)}
-                className="form-input"
-                style={{
-                  fontSize: '0.8rem',
-                  height: '36px',
-                  border: '1px solid #d4d4d8',
-                  borderRadius: '4px',
-                }}
-              />
-            </div>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
-              <label style={{ fontSize: '0.725rem', fontWeight: 600, color: '#09090b' }}>
-                Expected End Date <span style={{ color: '#09090b' }}>*</span>
-              </label>
-              <input
-                type="date"
-                required
-                value={endDate}
-                onChange={(e) => handleEndDateChange(e.target.value)}
-                className="form-input"
-                style={{
-                  fontSize: '0.8rem',
-                  height: '36px',
-                  border: '1px solid #d4d4d8',
-                  borderRadius: '4px',
-                }}
-              />
-            </div>
-          </div>
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
-            <label style={{ fontSize: '0.725rem', fontWeight: 600, color: 'var(--text-secondary)' }}>
-              Tenure
-            </label>
-            <input
-              type="text"
-              readOnly
-              value={`${tenureDays} Days`}
-              className="form-input"
-              style={{
-                fontSize: '0.8rem',
-                height: '36px',
-                backgroundColor: '#f4f4f5',
-                color: '#52525b',
-                fontWeight: 600,
-                border: '1px solid #e4e4e7',
-                borderRadius: '4px',
-              }}
-            />
-          </div>
-        </div>
-
-        {/* ── 6. KML / Boundary Upload (Multiple Files) ── */}
-        <div
-          className="wf-card"
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '0.85rem',
-            backgroundColor: '#ffffff',
-            borderRadius: '8px',
-            border: '1px solid #e4e4e7',
-            padding: '1.25rem',
-          }}
-        >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '0.5rem' }}>
-            <div>
-              <h2 className="wf-title" style={{ fontSize: '0.95rem', fontWeight: 700, color: '#09090b', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <span>6. KML / Boundary Upload</span>
-                <span style={{ color: '#09090b' }}>*</span>
-                {(existingKmlFiles.length + kmlFiles.length) > 0 && (
-                  <span
-                    style={{
-                      fontSize: '0.7rem',
-                      fontWeight: 600,
-                      backgroundColor: '#f4f4f5',
-                      color: '#09090b',
-                      padding: '0.1rem 0.45rem',
-                      borderRadius: '12px',
-                      border: '1px solid #d4d4d8',
-                    }}
-                  >
-                    {existingKmlFiles.length + kmlFiles.length} {existingKmlFiles.length + kmlFiles.length === 1 ? 'file' : 'files'}
-                  </span>
-                )}
-              </h2>
-              <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '0.15rem' }}>
-                Upload multiple KML, KMZ, or GeoJSON boundary files of your area of interest.
-              </p>
-            </div>
-
-            {!isReadOnly && (existingKmlFiles.length + kmlFiles.length) > 0 && (
-              <div style={{ display: 'flex', gap: '0.4rem' }}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setKmlFiles([]);
-                    setExistingKmlFiles([]);
-                  }}
-                  className="btn btn-secondary"
-                  style={{ fontSize: '0.7rem', padding: '0.25rem 0.55rem', height: '28px', color: '#09090b' }}
-                  title="Clear All Files"
-                >
-                  Clear All
-                </button>
-                <button
-                  type="button"
-                  onClick={() => kmlInputRef.current?.click()}
-                  className="btn btn-secondary"
-                  style={{ fontSize: '0.7rem', padding: '0.25rem 0.65rem', height: '28px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.3rem' }}
-                >
-                  <Plus size={13} />
-                  <span>Add More</span>
-                </button>
-              </div>
-            )}
-          </div>
-
-          {!isReadOnly && (
-            <div
-              onDragOver={(e) => {
-              e.preventDefault();
-              setIsDraggingKml(true);
-            }}
-            onDragLeave={() => setIsDraggingKml(false)}
-            onDrop={(e) => {
-              e.preventDefault();
-              setIsDraggingKml(false);
-              if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-                handleAddKmlFiles(e.dataTransfer.files);
-              }
-            }}
-            style={{
-              border: isDraggingKml ? '2px dashed #09090b' : '1.5px dashed #d4d4d8',
-              borderRadius: '6px',
-              padding: (existingKmlFiles.length + kmlFiles.length) > 0 ? '1rem 1.15rem' : '1.35rem 1.15rem',
-              backgroundColor: isDraggingKml ? '#f4f4f5' : '#fafafa',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              gap: '1rem',
-              transition: 'all 0.15s ease',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem', minWidth: 0 }}>
-              <UploadCloud size={26} color="#71717a" style={{ flexShrink: 0 }} />
-              <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-                <span
-                  style={{
-                    fontSize: '0.8rem',
-                    fontWeight: 600,
-                    color: '#09090b',
-                    whiteSpace: 'nowrap',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                  }}
-                >
-                  {(existingKmlFiles.length + kmlFiles.length) > 0
-                    ? `${existingKmlFiles.length + kmlFiles.length} boundary file(s) attached`
-                    : 'Drag and drop multiple files here, or browse'}
-                </span>
-                <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.1rem' }}>
-                  Supports multiple KML, KMZ files up to 50MB each
-                </span>
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', flexShrink: 0 }}>
-              <button
-                type="button"
-                onClick={() => kmlInputRef.current?.click()}
-                className="btn btn-secondary"
-                style={{
-                  fontSize: '0.75rem',
-                  padding: '0.35rem 0.85rem',
-                  height: '32px',
-                  fontWeight: 600,
-                  backgroundColor: '#ffffff',
-                  border: '1px solid #d4d4d8',
-                }}
-              >
-                Browse Files
-              </button>
-              <input
-                ref={kmlInputRef}
-                type="file"
-                multiple
-                accept=".kml,.kmz"
-                style={{ display: 'none' }}
-                onChange={(e) => {
-                  if (e.target.files && e.target.files.length > 0) {
-                    handleAddKmlFiles(e.target.files);
-                    e.target.value = '';
-                  }
-                }}
-              />
-            </div>
-          </div>
-          )}
-
-          {/* Attached KML Files List */}
-          {(existingKmlFiles.length + kmlFiles.length) > 0 && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.45rem', marginTop: '0.2rem' }}>
-              {existingKmlFiles.map((file, idx) => (
-                <div
-                  key={`existing-kml-${idx}`}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    padding: '0.5rem 0.75rem',
-                    backgroundColor: '#fafafa',
-                    border: '1px solid #e4e4e7',
-                    borderRadius: '5px',
-                    fontSize: '0.775rem',
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.55rem', minWidth: 0 }}>
-                    <Paperclip size={14} color="#52525b" style={{ flexShrink: 0 }} />
-                    <span style={{ fontWeight: 600, color: '#09090b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {file.name}
-                    </span>
-                    <span style={{ fontSize: '0.7rem', color: '#52525b' }}>
-                      {file.size || 'Existing File'}
-                    </span>
-                  </div>
-                  {!isReadOnly && (
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveExistingKmlFile(idx)}
-                      style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px', color: '#71717a' }}
-                      title="Remove file"
-                    >
-                      <X size={14} />
-                    </button>
-                  )}
-                </div>
-              ))}
-
-              {kmlFiles.map((file, idx) => (
-                <div
-                  key={`new-kml-${idx}`}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    padding: '0.5rem 0.75rem',
-                    backgroundColor: '#f4f4f5',
-                    border: '1px solid #e4e4e7',
-                    borderRadius: '5px',
-                    fontSize: '0.775rem',
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.55rem', minWidth: 0 }}>
-                    <Paperclip size={14} color="#52525b" style={{ flexShrink: 0 }} />
-                    <span style={{ fontWeight: 600, color: '#09090b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {file.name}
-                    </span>
-                    <span style={{ fontSize: '0.7rem', color: '#71717a' }}>
-                      {formatFileSize(file.size)} • Ready to upload
-                    </span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => handleRemoveKmlFile(idx)}
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px', color: '#71717a' }}
-                    title="Remove file"
-                  >
-                    <X size={14} />
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* ── Two Column Row: 7. Scope Document & 8. Remarks / Instructions ── */}
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
-          gap: '1.25rem',
-        }}
-      >
-        {/* ── 7. Scope Document (Multiple Files) ── */}
-        <div
-          className="wf-card"
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '0.85rem',
-            backgroundColor: '#ffffff',
-            borderRadius: '8px',
-            border: '1px solid #e4e4e7',
-            padding: '1.25rem',
-          }}
-        >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '0.5rem' }}>
-            <div>
-              <h2 className="wf-title" style={{ fontSize: '0.95rem', fontWeight: 700, color: '#09090b', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <span>7. Scope Document</span>
-                <span style={{ color: '#09090b' }}>*</span>
-                {(existingScopeFiles.length + scopeFiles.length) > 0 && (
-                  <span
-                    style={{
-                      fontSize: '0.7rem',
-                      fontWeight: 600,
-                      backgroundColor: '#f4f4f5',
-                      color: '#09090b',
-                      padding: '0.1rem 0.45rem',
-                      borderRadius: '12px',
-                      border: '1px solid #d4d4d8',
-                    }}
-                  >
-                    {existingScopeFiles.length + scopeFiles.length} {existingScopeFiles.length + scopeFiles.length === 1 ? 'doc' : 'docs'}
-                  </span>
-                )}
-              </h2>
-              <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '0.15rem' }}>
-                Upload scope of work, survey specifications, or reference docs.
-              </p>
-            </div>
-
-            {!isReadOnly && (existingScopeFiles.length + scopeFiles.length) > 0 && (
-              <div style={{ display: 'flex', gap: '0.4rem' }}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setScopeFiles([]);
-                    setExistingScopeFiles([]);
-                  }}
-                  className="btn btn-secondary"
-                  style={{ fontSize: '0.7rem', padding: '0.25rem 0.55rem', height: '28px', color: '#09090b' }}
-                  title="Clear All Documents"
-                >
-                  Clear All
-                </button>
-                <button
-                  type="button"
-                  onClick={() => scopeInputRef.current?.click()}
-                  className="btn btn-secondary"
-                  style={{ fontSize: '0.7rem', padding: '0.25rem 0.65rem', height: '28px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.3rem' }}
-                >
-                  <Plus size={13} />
-                  <span>Add More</span>
-                </button>
-              </div>
-            )}
-          </div>
-
-          {!isReadOnly && (
-          <div
-            onDragOver={(e) => {
-              e.preventDefault();
-              setIsDraggingScope(true);
-            }}
-            onDragLeave={() => setIsDraggingScope(false)}
-            onDrop={(e) => {
-              e.preventDefault();
-              setIsDraggingScope(false);
-              if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-                handleAddScopeFiles(e.dataTransfer.files);
-              }
-            }}
-            style={{
-              border: isDraggingScope ? '2px dashed #09090b' : '1.5px dashed #d4d4d8',
-              borderRadius: '6px',
-              padding: (existingScopeFiles.length + scopeFiles.length) > 0 ? '1rem 1.15rem' : '1.35rem 1.15rem',
-              backgroundColor: isDraggingScope ? '#f4f4f5' : '#fafafa',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              gap: '1rem',
-              transition: 'all 0.15s ease',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem', minWidth: 0 }}>
-              <UploadCloud size={26} color="#71717a" style={{ flexShrink: 0 }} />
-              <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-                <span
-                  style={{
-                    fontSize: '0.8rem',
-                    fontWeight: 600,
-                    color: '#09090b',
-                    whiteSpace: 'nowrap',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                  }}
-                >
-                  {(existingScopeFiles.length + scopeFiles.length) > 0
-                    ? `${existingScopeFiles.length + scopeFiles.length} document(s) attached`
-                    : 'Drag and drop multiple documents here, or browse'}
-                </span>
-                <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.1rem' }}>
-                  Supports PDF, DOC, DOCX, XLS, XLSX up to 50MB each
-                </span>
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', flexShrink: 0 }}>
-              <button
-                type="button"
-                onClick={() => scopeInputRef.current?.click()}
-                className="btn btn-secondary"
-                style={{
-                  fontSize: '0.75rem',
-                  padding: '0.35rem 0.85rem',
-                  height: '32px',
-                  fontWeight: 600,
-                  backgroundColor: '#ffffff',
-                  border: '1px solid #d4d4d8',
-                }}
-              >
-                Browse Files
-              </button>
-              <input
-                ref={scopeInputRef}
-                type="file"
-                multiple
-                accept=".pdf,.doc,.docx,.xls,.xlsx"
-                style={{ display: 'none' }}
-                onChange={(e) => {
-                  if (e.target.files && e.target.files.length > 0) {
-                    handleAddScopeFiles(e.target.files);
-                    e.target.value = '';
-                  }
-                }}
-              />
-            </div>
-          </div>
-          )}
-
-          {/* Attached Scope Documents List */}
-          {(existingScopeFiles.length + scopeFiles.length) > 0 && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.45rem', marginTop: '0.2rem' }}>
-              {existingScopeFiles.map((file, idx) => (
-                <div
-                  key={`existing-scope-${idx}`}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    padding: '0.5rem 0.75rem',
-                    backgroundColor: '#fafafa',
-                    border: '1px solid #e4e4e7',
-                    borderRadius: '5px',
-                    fontSize: '0.775rem',
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.55rem', minWidth: 0 }}>
-                    <FileText size={14} color="#52525b" style={{ flexShrink: 0 }} />
-                    <span style={{ fontWeight: 600, color: '#09090b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {file.name}
-                    </span>
-                    <span style={{ fontSize: '0.7rem', color: '#52525b' }}>
-                      {file.size || 'Existing Document'}
-                    </span>
-                  </div>
-                  {!isReadOnly && (
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveExistingScopeFile(idx)}
-                      style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px', color: '#71717a' }}
-                      title="Remove document"
-                    >
-                      <X size={14} />
-                    </button>
-                  )}
-                </div>
-              ))}
-
-              {scopeFiles.map((file, idx) => (
-                <div
-                  key={`new-scope-${idx}`}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    padding: '0.5rem 0.75rem',
-                    backgroundColor: '#f4f4f5',
-                    border: '1px solid #e4e4e7',
-                    borderRadius: '5px',
-                    fontSize: '0.775rem',
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.55rem', minWidth: 0 }}>
-                    <FileText size={14} color="#52525b" style={{ flexShrink: 0 }} />
-                    <span style={{ fontWeight: 600, color: '#09090b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {file.name}
-                    </span>
-                    <span style={{ fontSize: '0.7rem', color: '#71717a' }}>
-                      {formatFileSize(file.size)} • Ready to upload
-                    </span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => handleRemoveScopeFile(idx)}
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px', color: '#71717a' }}
-                    title="Remove document"
-                  >
-                    <X size={14} />
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* ── 8. Remarks / Instructions (Optional) ── */}
-        <div
-          className="wf-card"
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '0.85rem',
-            backgroundColor: '#ffffff',
-            borderRadius: '8px',
-            border: '1px solid #e4e4e7',
-            padding: '1.25rem',
-          }}
-        >
-          <div>
-            <h2 className="wf-title" style={{ fontSize: '0.95rem', fontWeight: 700, color: '#09090b' }}>
-              8. Remarks / Instructions
-            </h2>
-            <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '0.15rem' }}>
-              Provide any specific instructions or additional information (Optional).
-            </p>
-          </div>
-
-          <div style={{ position: 'relative' }}>
-            <textarea
-              rows={4}
-              maxLength={1000}
-              placeholder="Enter your message..."
-              value={remarks}
-              onChange={(e) => setRemarks(e.target.value)}
-              className="form-textarea"
-              style={{
-                fontSize: '0.8rem',
-                resize: 'vertical',
-                width: '100%',
-                padding: '0.75rem',
-                paddingBottom: '1.75rem',
-                border: '1px solid #d4d4d8',
-                borderRadius: '6px',
-                fontFamily: 'inherit',
-                outline: 'none',
-              }}
-            />
-            <span
-              style={{
-                position: 'absolute',
-                bottom: '10px',
-                right: '12px',
-                fontSize: '0.7rem',
-                color: 'var(--text-muted)',
-                fontWeight: 500,
-                pointerEvents: 'none',
-              }}
-            >
-              {remarks.length}/1000
-            </span>
-          </div>
-        </div>
-      </div>
       </fieldset>
 
       {/* ── Bottom Action & Confirmation Bar ── */}
-      <div
-        className="wf-card"
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          flexWrap: 'wrap',
-          gap: '1rem',
-          padding: '1rem 1.25rem',
-          backgroundColor: '#ffffff',
-          borderRadius: '8px',
-          border: '1px solid #e4e4e7',
-          marginTop: '0.25rem',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.775rem', color: '#09090b' }}>
-          <Info size={16} color="#09090b" style={{ flexShrink: 0 }} />
-          <span>
-            {isReadOnly
-              ? 'This survey request has been submitted and sealed. Specifications are permanently read-only.'
-              : 'Please review all details before submitting. You can save as draft and submit later.'}
-          </span>
-        </div>
-
-        {isReadOnly ? (
-          <button
-            type="button"
-            onClick={() => router.push(projectId ? `/projects/${projectId}/overview` : '/projects')}
-            className="btn btn-secondary"
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '0.45rem',
-              height: '38px',
-              fontSize: '0.8rem',
-              fontWeight: 600,
-              padding: '0 1rem',
-              backgroundColor: '#ffffff',
-              border: '1px solid #d4d4d8',
-              cursor: 'pointer',
-            }}
-          >
-            ← Back to Project Overview
-          </button>
-        ) : (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
-            <button
-              type="button"
-              onClick={handleSaveDraft}
-              disabled={isSavingDraft || isSubmitting}
-              className="btn btn-secondary"
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '0.45rem',
-                height: '38px',
-                fontSize: '0.8rem',
-                fontWeight: 600,
-                padding: '0 1rem',
-                backgroundColor: '#ffffff',
-                border: '1px solid #d4d4d8',
-                cursor: isSavingDraft || isSubmitting ? 'not-allowed' : 'pointer',
-              }}
-            >
-              {isSavingDraft ? (
-                <>
-                  <Loader2 size={15} className="animate-spin" /> Saving Draft...
-                </>
-              ) : (
-                <>
-                  <FileText size={15} /> Save Draft
-                </>
-              )}
-            </button>
-            <button
-              type="submit"
-              disabled={isSubmitting || isSavingDraft}
-              className="btn btn-primary"
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '0.45rem',
-                height: '38px',
-                fontSize: '0.8rem',
-                fontWeight: 700,
-                padding: '0 1.15rem',
-                backgroundColor: '#09090b',
-                color: '#ffffff',
-              }}
-            >
-              {isSubmitting ? (
-                'Submitting...'
-              ) : (
-                <>
-                  <Send size={14} /> {isRevision ? 'Submit Request Revision' : 'Submit Request'}
-                </>
-              )}
-            </button>
-          </div>
-        )}
-      </div>
+      <ProjectFormBottomBar
+        isReadOnly={isReadOnly}
+        isSavingDraft={isSavingDraft}
+        isSubmitting={isSubmitting}
+        isRevision={isRevision}
+        onSaveDraft={handleSaveDraft}
+        onBack={() => router.push(projectId ? `/projects/${projectId}/overview` : '/projects')}
+      />
     </form>
   );
 }

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import Link from 'next/link';
 import {
   Layers,
@@ -19,6 +19,7 @@ import { useAuth } from '@/lib/auth';
 import { projectApi } from '@/modules/projects/api';
 import { Project } from '@/modules/projects/types';
 import { PageHeader } from '@/components/PageHeader';
+import { formatDateDDMMYYYY } from '@/lib/date';
 
 // Mini Sparkline SVG helper
 function Sparkline({ points = '0,18 10,14 20,16 30,10 40,12 50,6 60,8' }: { points?: string }) {
@@ -44,29 +45,26 @@ export function PilotDashboardView() {
 
   const pilotName = user?.full_name?.split(' ')[0] || 'Pilot';
 
-  useEffect(() => {
-    async function loadData() {
-      setIsLoading(true);
-      try {
-        const list = await projectApi.listProjects().catch(() => []);
-        setProjects(list || []);
-      } catch (err) {
-        console.error('Failed to load pilot projects from backend:', err);
-      } finally {
-        setIsLoading(false);
-      }
+  const loadData = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const list = await projectApi.listProjects().catch(() => []);
+      setProjects(list || []);
+    } catch (err) {
+      console.error('Failed to load pilot projects from backend:', err);
+    } finally {
+      setIsLoading(false);
     }
-    loadData();
   }, []);
 
-  // Format today's date (e.g. "Tuesday, 16 Sept 2026")
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  // Format today's date (e.g. "Tuesday, 12-10-2026")
   const today = new Date();
-  const formattedDate = today.toLocaleDateString('en-GB', {
-    weekday: 'long',
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-  });
+  const weekday = today.toLocaleDateString('en-US', { weekday: 'long' });
+  const formattedDate = `${weekday}, ${formatDateDDMMYYYY(today)}`;
 
   // Calculate real backend stats
   const projectsAssignedCount = projects.length;
@@ -115,6 +113,9 @@ export function PilotDashboardView() {
       <PageHeader
         title={`Good morning, ${pilotName}`}
         subtitle="Here's an overview of your missions and activities."
+        onRefresh={loadData}
+        isRefreshing={isLoading}
+        refreshTooltip="Refresh missions"
       >
         <div style={{ fontSize: '0.825rem', color: '#71717a', fontWeight: 500 }}>
           {formattedDate}

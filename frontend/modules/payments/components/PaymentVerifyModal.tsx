@@ -94,6 +94,37 @@ export function PaymentVerifyModal({
   const hasSlip = Boolean(payment.slip_url);
   const isImageSlip = payment.slip_url?.startsWith('data:image/') || payment.slip_url?.match(/\.(jpeg|jpg|png|webp)($|\?)/i);
 
+  const openSlipInNewTab = (url: string) => {
+    if (!url) return;
+    if (url.startsWith('data:')) {
+      try {
+        const arr = url.split(',');
+        const mime = arr[0].match(/:(.*?);/)?.[1] || 'image/png';
+        const bstr = atob(arr[1]);
+        let n = bstr.length;
+        const u8arr = new Uint8Array(n);
+        while (n--) {
+          u8arr[n] = bstr.charCodeAt(n);
+        }
+        const blob = new Blob([u8arr], { type: mime });
+        const blobUrl = URL.createObjectURL(blob);
+        const win = window.open(blobUrl, '_blank');
+        if (!win) {
+          window.location.href = blobUrl;
+        }
+      } catch {
+        const win = window.open();
+        if (win) {
+          win.document.write(
+            `<title>Payment Slip</title><body style="margin:0;background:#09090b;display:flex;align-items:center;justify-content:center;min-height:100vh;"><img src="${url}" style="max-width:100%;max-height:100vh;object-fit:contain;"/></body>`
+          );
+        }
+      }
+    } else {
+      window.open(url, '_blank', 'noopener,noreferrer');
+    }
+  };
+
   return (
     <Portal>
       <div
@@ -234,7 +265,7 @@ export function PaymentVerifyModal({
                   {isImageSlip && (
                     <button
                       type="button"
-                      onClick={() => setSlipZoomOpen(true)}
+                      onClick={() => openSlipInNewTab(payment.slip_url!)}
                       style={{
                         display: 'flex',
                         alignItems: 'center',
@@ -248,16 +279,18 @@ export function PaymentVerifyModal({
                         backgroundColor: '#fafafa',
                         cursor: 'pointer',
                       }}
+                      title="Open full transaction slip in a new tab"
                     >
-                      <Eye size={12} />
-                      <span>Zoom View</span>
+                      <ExternalLink size={12} />
+                      <span>Open in New Tab</span>
                     </button>
                   )}
                 </div>
 
                 {isImageSlip ? (
                   <div
-                    onClick={() => setSlipZoomOpen(true)}
+                    onClick={() => openSlipInNewTab(payment.slip_url!)}
+                    title="Click to open image in a new tab"
                     style={{
                       maxHeight: '140px',
                       overflow: 'hidden',

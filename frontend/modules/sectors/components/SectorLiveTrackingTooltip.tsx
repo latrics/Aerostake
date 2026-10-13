@@ -108,7 +108,7 @@ export const SectorLiveTrackingTooltip: React.FC<SectorLiveTrackingTooltipProps>
           />
         </div>
         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.675rem', color: 'var(--text-secondary)', marginTop: '0.2rem' }}>
-          <span>Covered: {areaCompleted.toFixed(1)} km²</span>
+          <span>Covered: {areaCompleted} km²</span>
           <span>Target: {totalArea} km²</span>
         </div>
       </div>
@@ -116,7 +116,7 @@ export const SectorLiveTrackingTooltip: React.FC<SectorLiveTrackingTooltipProps>
       {/* Live Operational Stats Grid */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.45rem', backgroundColor: '#fafafa', padding: '0.5rem', borderRadius: '6px', border: '1px solid #f4f4f5' }}>
         <div style={{ display: 'flex', flexDirection: 'column' }}>
-          <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>Sorties / Landings</span>
+          <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>Flights / Landings</span>
           <span style={{ fontSize: '0.775rem', fontWeight: 700, color: '#09090b' }}>
             {todayLandings > 0 ? `${todayLandings} today` : 'No flights today'}
             <span style={{ fontSize: '0.675rem', color: 'var(--text-muted)', fontWeight: 500 }}> ({totalLandings}/{plannedSorties})</span>
@@ -142,6 +142,12 @@ export const SectorLiveTrackingTooltip: React.FC<SectorLiveTrackingTooltipProps>
 
       {/* Assigned Pilot & Hardware */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem', fontSize: '0.7rem', color: 'var(--text-secondary)' }}>
+        {(planning.scanning_date || planning.planned_start_date) && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+            <Calendar size={12} color="#71717a" />
+            <span>Scan Date: <strong style={{ color: '#09090b' }}>{planning.scanning_date || planning.planned_start_date}</strong></span>
+          </div>
+        )}
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
           <User size={12} color="#71717a" />
           <span>Pilot: <strong style={{ color: '#09090b' }}>{assignedPilotName}</strong></span>

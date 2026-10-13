@@ -31,4 +31,10 @@ export const clientsApi = {
       rating,
     });
   },
+
+  async updateAgreementDate(clientId: string, agreementStartDate: string): Promise<{ status: string; agreement_start_date: string }> {
+    return await apiClient.patch<{ status: string; agreement_start_date: string }>(`/clients/${clientId}/agreement-date`, {
+      agreement_start_date: agreementStartDate,
+    });
+  },
 };

@@ -77,18 +77,21 @@ export default function AllocationsPage() {
   const unassignedCount = sectors.filter((s) => s.status === SectorStatus.PENDING).length;
 
   return (
-    <div>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
       {/* ── Page Header ── */}
       <PageHeader
         title="Hardware & Pilot Dispatch Center"
         subtitle="Allocate licensed drone pilots and UAV hardware to approved flight sectors."
+        onRefresh={loadAllData}
+        isRefreshing={loading}
+        refreshTooltip="Refresh dispatch data"
       >
         <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
           <select
             className="input-field"
             value={selectedProjectId}
             onChange={(e) => setSelectedProjectId(e.target.value)}
-            style={{ fontSize: '0.875rem' }}
+            style={{ fontSize: '0.8rem', height: '36px', borderRadius: '6px', border: '1px solid #e4e4e7', padding: '0 0.75rem' }}
           >
             <option value="all">All Projects ({projects.length})</option>
             {projects.map((p) => (

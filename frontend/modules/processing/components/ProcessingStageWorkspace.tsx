@@ -27,10 +27,12 @@ import {
 import { Project } from '@/modules/projects/types';
 import { projectApi } from '@/modules/projects/api';
 import { StageChatBox, StageChatMessage } from '@/modules/projects/components/StageChatBox';
+import { formatDateDDMMYYYY, formatDateTimeDDMMYYYY } from '@/lib/date';
 
 export interface ProcessingStageWorkspaceProps {
   project: Project | null;
   onRefresh: () => void | Promise<void>;
+  onAdvanceStage?: (stageId: number) => void;
   userRole?: string;
   userName?: string;
   stageMessages: StageChatMessage[];
@@ -146,6 +148,7 @@ const POST_PROCESSING_CATALOG: DeliverableMeta[] = [
 export const ProcessingStageWorkspace: React.FC<ProcessingStageWorkspaceProps> = ({
   project,
   onRefresh,
+  onAdvanceStage,
   userRole,
   userName = 'User',
   stageMessages,
@@ -164,6 +167,14 @@ export const ProcessingStageWorkspace: React.FC<ProcessingStageWorkspaceProps> =
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+
+  // Correction Requests State
+  const [showCorrectionModal, setShowCorrectionModal] = useState(false);
+  const [correctionRemark, setCorrectionRemark] = useState('');
+  const [isSubmittingCorrection, setIsSubmittingCorrection] = useState(false);
+  const [showResolveModalId, setShowResolveModalId] = useState<string | null>(null);
+  const [resolutionNote, setResolutionNote] = useState('');
+  const [isResolvingCorrection, setIsResolvingCorrection] = useState(false);
 
   // Extract raw payload
   const reqPayload = useMemo(() => {
@@ -275,14 +286,19 @@ export const ProcessingStageWorkspace: React.FC<ProcessingStageWorkspaceProps> =
   const totalLinksProvidedCount = preLinksProvidedCount + postLinksProvidedCount;
   const allLinksProvided = totalLinksProvidedCount >= totalChecklistedCount && totalChecklistedCount > 0;
 
-  // Handle saving a single link by Ops
+  // Handle saving a single link (by Ops or Client)
   const handleSaveLink = async (category: 'pre' | 'post', item: DeliverableMeta) => {
-    if (!project || !isOps) return;
+    if (!project) return;
     const inputKey = `${category}_${item.id}`;
-    const newLink = (editingLinks[inputKey] ?? (category === 'pre' ? preProcessingLinks[item.id]?.link : postProcessingLinks[item.id]?.link) ?? '').trim();
+    const newLink = (
+      editingLinks[inputKey] ??
+      (category === 'pre' ? preProcessingLinks[item.id]?.link : postProcessingLinks[item.id]?.link) ??
+      (processingData.links as any)?.[inputKey] ??
+      ''
+    ).trim();
 
     if (!newLink) {
-      setErrorMessage(`Please provide a valid cloud storage or folder URL for ${item.label}`);
+      setErrorMessage(`Please provide a valid link for ${item.label}`);
       return;
     }
 
@@ -290,10 +306,17 @@ export const ProcessingStageWorkspace: React.FC<ProcessingStageWorkspaceProps> =
     setErrorMessage(null);
     setSuccessMessage(null);
 
+    // Optimistically update local state so button converts to Open immediately
+    setEditingLinks((prev) => ({
+      ...prev,
+      [inputKey]: newLink,
+    }));
+
     try {
       const currentProc = { ...processingData };
       const currentPre = { ...preProcessingLinks };
       const currentPost = { ...postProcessingLinks };
+      const currentLinks = { ...((currentProc.links as Record<string, string>) || {}) };
 
       const updatedRecord = {
         id: item.id,
@@ -311,8 +334,10 @@ export const ProcessingStageWorkspace: React.FC<ProcessingStageWorkspaceProps> =
         currentPost[item.id] = updatedRecord;
       }
 
+      currentLinks[inputKey] = newLink;
       currentProc.pre_processing = currentPre;
       currentProc.post_processing = currentPost;
+      currentProc.links = currentLinks;
 
       // If client already signed off previously, reset signoff since a link was modified
       if (currentProc.client_signoff?.acknowledged) {
@@ -333,7 +358,7 @@ export const ProcessingStageWorkspace: React.FC<ProcessingStageWorkspaceProps> =
         requirements_payload: updatedPayload,
       });
 
-      setSuccessMessage(`Submitted deliverable folder link for ${item.label}! Client can now access the folder.`);
+      // Silent background refresh without reloading or moving the page
       await onRefresh();
     } catch (err: any) {
       setErrorMessage(err.message || `Failed to submit deliverable link for ${item.label}`);
@@ -342,11 +367,122 @@ export const ProcessingStageWorkspace: React.FC<ProcessingStageWorkspaceProps> =
     }
   };
 
-  // Handle Client acknowledging receipt of all deliverables
+  const correctionsList = useMemo<any[]>(() => {
+    return Array.isArray(processingData.corrections) ? processingData.corrections : [];
+  }, [processingData]);
+
+  const hasOpenCorrections = useMemo(() => {
+    return correctionsList.some((c) => c.status === 'open');
+  }, [correctionsList]);
+
+  // Handle Client Requesting Corrections (missing or incorrect output)
+  const handleSubmitCorrection = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!project || !isClient) return;
+    if (!correctionRemark.trim()) {
+      setErrorMessage('Please describe what is missing or incorrect in the deliverables.');
+      return;
+    }
+
+    setIsSubmittingCorrection(true);
+    setErrorMessage(null);
+    setSuccessMessage(null);
+
+    try {
+      const nowIso = new Date().toISOString();
+      const newCorrection = {
+        id: `corr_${Date.now()}`,
+        remarks: correctionRemark.trim(),
+        requested_by: userName,
+        requested_at: nowIso,
+        status: 'open',
+      };
+
+      const updatedProc = {
+        ...processingData,
+        client_acknowledged: false,
+        ready_for_formal_acceptance: false,
+        client_signoff: {
+          ...(processingData.client_signoff || {}),
+          acknowledged: false,
+          ready_for_formal_acceptance: false,
+        },
+        corrections: [...correctionsList, newCorrection],
+      };
+
+      await projectApi.updateProject(project.id, {
+        requirements_payload: {
+          ...reqPayload,
+          processing_deliverables: updatedProc,
+        },
+      });
+
+      setShowCorrectionModal(false);
+      setCorrectionRemark('');
+      setSuccessMessage('Correction request submitted! LATRICS Operations has been notified to resolve the issue.');
+      await onRefresh();
+    } catch (err: any) {
+      setErrorMessage(err.message || 'Failed to submit correction request.');
+    } finally {
+      setIsSubmittingCorrection(false);
+    }
+  };
+
+  // Handle Ops resolving a correction request
+  const handleResolveCorrection = async (corrId: string) => {
+    if (!project || !isOps) return;
+
+    setIsResolvingCorrection(true);
+    setErrorMessage(null);
+    setSuccessMessage(null);
+
+    try {
+      const nowIso = new Date().toISOString();
+      const updatedList = correctionsList.map((c) => {
+        if (c.id === corrId) {
+          return {
+            ...c,
+            status: 'resolved',
+            resolved_by: userName,
+            resolved_at: nowIso,
+            resolution_note: resolutionNote.trim() || 'Deliverable corrected and re-uploaded.',
+          };
+        }
+        return c;
+      });
+
+      const updatedProc = {
+        ...processingData,
+        corrections: updatedList,
+      };
+
+      await projectApi.updateProject(project.id, {
+        requirements_payload: {
+          ...reqPayload,
+          processing_deliverables: updatedProc,
+        },
+      });
+
+      setShowResolveModalId(null);
+      setResolutionNote('');
+      setSuccessMessage('Correction marked as resolved! Client can now re-verify the outputs.');
+      await onRefresh();
+    } catch (err: any) {
+      setErrorMessage(err.message || 'Failed to resolve correction.');
+    } finally {
+      setIsResolvingCorrection(false);
+    }
+  };
+
+  // Handle Client confirming deliverables ready for formal acceptance
   const handleClientAcknowledge = async () => {
     if (!project || !isClient) return;
     if (!allLinksProvided) {
       setErrorMessage('Cannot acknowledge: LATRICS Operations has not finished providing all deliverable links yet.');
+      return;
+    }
+    if (hasOpenCorrections) {
+      setErrorMessage('Cannot confirm: An open correction request is pending resolution by Operations.');
       return;
     }
 
@@ -360,11 +496,13 @@ export const ProcessingStageWorkspace: React.FC<ProcessingStageWorkspaceProps> =
 
       currentProc.client_signoff = {
         acknowledged: true,
+        ready_for_formal_acceptance: true,
         acknowledged_at: nowIso,
         acknowledged_by: userName,
         notes: clientNotes.trim() || 'All deliverables downloaded and verified.',
       };
       currentProc.client_acknowledged = true;
+      currentProc.ready_for_formal_acceptance = true;
       currentProc.client_acknowledged_at = nowIso;
       currentProc.client_acknowledged_by = userName;
 
@@ -377,7 +515,7 @@ export const ProcessingStageWorkspace: React.FC<ProcessingStageWorkspaceProps> =
         requirements_payload: updatedPayload,
       });
 
-      setSuccessMessage('You have successfully acknowledged receipt of the survey deliverables. Operations is cleared to proceed to Stage 6 (Delivered).');
+      setSuccessMessage('You have confirmed that deliverables are ready for formal acceptance! Operations is cleared to proceed to Stage 6 (Delivered).');
       await onRefresh();
     } catch (err: any) {
       setErrorMessage(err.message || 'Failed to submit client deliverables acknowledgment.');
@@ -386,11 +524,15 @@ export const ProcessingStageWorkspace: React.FC<ProcessingStageWorkspaceProps> =
     }
   };
 
-  // Handle Ops proceeding to Stage 6 (Delivered / COMPLETED)
+  // Handle Ops proceeding to Stage 6 (Delivered)
   const handleProceedToDelivered = async () => {
     if (!project || !isOps) return;
     if (!isClientAcknowledged) {
-      setErrorMessage('Cannot advance to Stage 6 (Delivered): Client must first verify and acknowledge receipt of the deliverables.');
+      setErrorMessage('Cannot advance to Stage 6 (Delivered): Client must first confirm that deliverables are ready for formal acceptance.');
+      return;
+    }
+    if (hasOpenCorrections) {
+      setErrorMessage('Cannot advance to Stage 6 (Delivered): Open correction requests must be resolved before advancing.');
       return;
     }
 
@@ -399,13 +541,22 @@ export const ProcessingStageWorkspace: React.FC<ProcessingStageWorkspaceProps> =
     setSuccessMessage(null);
 
     try {
+      const currentProc = {
+        ...processingData,
+        cleared_for_delivered_at: new Date().toISOString(),
+      };
+
       await projectApi.updateProject(project.id, {
-        status: 'completed' as any,
+        requirements_payload: {
+          ...reqPayload,
+          processing_deliverables: currentProc,
+        },
       });
 
       setShowConfirmModal(false);
-      setSuccessMessage(`Project '${project.title}' has successfully advanced to Stage 6: Delivered (Completed)!`);
+      setSuccessMessage(`Deliverables confirmed ready for formal acceptance. Advancing to Stage 6: Delivered!`);
       await onRefresh();
+      onAdvanceStage?.(6);
     } catch (err: any) {
       setErrorMessage(err.message || 'Failed to advance project to Stage 6 Delivered.');
     } finally {
@@ -424,193 +575,204 @@ export const ProcessingStageWorkspace: React.FC<ProcessingStageWorkspaceProps> =
   const isProjectCompleted = project?.status === 'completed';
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-      {/* ── Top Status & Clearance Banner ── */}
+    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 2fr) minmax(0, 1fr)', gap: '1.25rem', alignItems: 'stretch' }}>
+      {/* ── Left Column: Stage 5 Details Card (matching Stages 1, 2, 3, 6 uniform styling) ── */}
       <div
         className="wf-card"
         style={{
-          padding: '1.25rem 1.5rem',
-          backgroundColor: '#ffffff',
-          border: '1px solid var(--border-color)',
           display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          flexWrap: 'wrap',
-          gap: '1rem',
+          flexDirection: 'column',
+          minHeight: '620px',
+          backgroundColor: '#ffffff',
+          borderRadius: '8px',
+          border: '1px solid var(--border-color)',
+          padding: 0,
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+        {/* Uniform Card Header with dash divider */}
+        <div
+          className="wf-card-header"
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            gap: '0.5rem',
+            padding: '0.85rem 1.25rem',
+            margin: 0,
+            borderBottom: '1px solid var(--border-color)',
+            flexShrink: 0,
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', flexWrap: 'wrap' }}>
+            <h2 className="wf-title" style={{ margin: 0 }}>
+              Stage 5: Data Processing &amp; Deliverables
+            </h2>
+
+            <span
+              style={{
+                fontSize: '0.7rem',
+                fontWeight: 700,
+                padding: '0.15rem 0.5rem',
+                borderRadius: '4px',
+                backgroundColor: '#f4f4f5',
+                color: '#18181b',
+                border: '1px solid #d4d4d8',
+              }}
+            >
+              {isProjectCompleted
+                ? 'Closed & Archived'
+                : isClientAcknowledged
+                ? 'Client Acknowledged'
+                : allLinksProvided
+                ? 'Awaiting Sign-Off'
+                : 'In Progress'}
+            </span>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', flexWrap: 'wrap' }}>
+            {!isProjectCompleted && isOps && (
+              <button
+                onClick={() => setShowConfirmModal(true)}
+                disabled={!isClientAcknowledged || isAdvancingToDelivered}
+                className={isClientAcknowledged ? 'btn btn-primary' : 'btn btn-secondary'}
+                style={{
+                  fontSize: '0.75rem',
+                  height: '32px',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.35rem',
+                  fontWeight: 600,
+                  padding: '0 0.85rem',
+                  borderRadius: '4px',
+                  cursor: isClientAcknowledged ? 'pointer' : 'not-allowed',
+                  backgroundColor: isClientAcknowledged ? '#09090b' : '#f4f4f5',
+                  color: isClientAcknowledged ? '#ffffff' : '#71717a',
+                  border: isClientAcknowledged ? '1px solid #09090b' : '1px solid #d4d4d8',
+                }}
+                title={
+                  !isClientAcknowledged
+                    ? 'Locked: Client must acknowledge receipt of deliverables before project can advance to Delivered (Stage 6).'
+                    : 'Cleared: Advance project to Stage 6 Delivered (Completed)'
+                }
+              >
+                <CheckCircle2 size={13} />
+                <span>Proceed to Next Stage (Delivered)</span>
+                <ArrowRight size={13} />
+              </button>
+            )}
+
+            {isProjectCompleted && (
+              <span
+                style={{
+                  fontSize: '0.75rem',
+                  fontWeight: 600,
+                  color: '#059669',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.3rem',
+                }}
+              >
+                <CheckCircle2 size={13} /> Completed &amp; Sealed
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Scrollable Body Content */}
+        <div
+          style={{
+            flex: 1,
+            overflowY: 'auto',
+            padding: '1.25rem',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '1rem',
+          }}
+        >
+          {/* Global Alerts */}
+          {errorMessage && (
+            <div
+              style={{
+                padding: '0.75rem 1rem',
+                backgroundColor: '#fef2f2',
+                border: '1px solid #fecaca',
+                borderRadius: '6px',
+                color: '#991b1b',
+                fontSize: '0.775rem',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: '0.5rem',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <AlertCircle size={15} style={{ flexShrink: 0 }} />
+                <span>{errorMessage}</span>
+              </div>
+              <button onClick={() => setErrorMessage(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#991b1b', fontWeight: 700 }}>
+                ✕
+              </button>
+            </div>
+          )}
+
+          {successMessage && (
+            <div
+              style={{
+                padding: '0.75rem 1rem',
+                backgroundColor: '#ecfdf5',
+                border: '1px solid #a7f3d0',
+                borderRadius: '6px',
+                color: '#065f46',
+                fontSize: '0.775rem',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: '0.5rem',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <CheckCircle2 size={15} style={{ flexShrink: 0 }} />
+                <span>{successMessage}</span>
+              </div>
+              <button onClick={() => setSuccessMessage(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#065f46', fontWeight: 700 }}>
+                ✕
+              </button>
+            </div>
+          )}
+
+          {/* Deliverable Link Lifecycle Subtle Banner */}
           <div
             style={{
-              width: '44px',
-              height: '44px',
-              borderRadius: '8px',
-              backgroundColor: isProjectCompleted ? '#ecfdf5' : isClientAcknowledged ? '#f0fdf4' : '#09090b',
-              color: isProjectCompleted ? '#059669' : isClientAcknowledged ? '#16a34a' : '#ffffff',
+              padding: '0.65rem 0.85rem',
+              backgroundColor: '#fafafa',
+              border: '1px solid #e4e4e7',
+              borderRadius: '6px',
               display: 'flex',
               alignItems: 'center',
-              justifyContent: 'center',
+              justifyContent: 'space-between',
+              fontSize: '0.725rem',
+              color: '#52525b',
+              gap: '0.75rem',
+              flexWrap: 'wrap',
               flexShrink: 0,
             }}
           >
-            {isProjectCompleted ? <CheckCircle2 size={24} /> : <FileCheck2 size={24} />}
-          </div>
-
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', flexWrap: 'wrap' }}>
-              <h3 style={{ fontSize: '1.15rem', fontWeight: 800, margin: 0, color: '#09090b' }}>
-                Stage 5: Data Processing &amp; Deliverables Clearance
-              </h3>
-
-              <span
-                style={{
-                  fontSize: '0.7rem',
-                  fontWeight: 700,
-                  padding: '0.15rem 0.55rem',
-                  borderRadius: '4px',
-                  backgroundColor: isProjectCompleted ? '#ecfdf5' : isClientAcknowledged ? '#ecfdf5' : allLinksProvided ? '#fffbeb' : '#f4f4f5',
-                  color: isProjectCompleted ? '#047857' : isClientAcknowledged ? '#16a34a' : allLinksProvided ? '#b45309' : '#09090b',
-                  border: isProjectCompleted ? '1px solid #a7f3d0' : isClientAcknowledged ? '1px solid #bbf7d0' : allLinksProvided ? '1px solid #fde68a' : '1px solid #e4e4e7',
-                }}
-              >
-                {isProjectCompleted
-                  ? 'Stage 6 Delivered & Sealed'
-                  : isClientAcknowledged
-                  ? 'Client Acknowledged · Clearance Unlocked'
-                  : allLinksProvided
-                  ? 'Awaiting Client Receipt Acknowledgment'
-                  : `Links Ingest: ${totalLinksProvidedCount}/${totalChecklistedCount} Uploaded`}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+              <Folder size={14} color="#09090b" style={{ flexShrink: 0 }} />
+              <span>
+                <strong style={{ color: '#09090b' }}>Deliverable Folder Lifecycle:</strong> Latrics uploads and submits cloud storage folder links. Clients can directly click the link to access and download the files from that folder.
               </span>
             </div>
-
-            <p style={{ margin: '0.25rem 0 0 0', fontSize: '0.775rem', color: 'var(--text-secondary)' }}>
-              Photogrammetry reconstruction, point cloud classification, and deliverables handover verification for <strong>{project?.title}</strong>.
-            </p>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', fontSize: '0.7rem' }}>
+              <span style={{ color: '#16a34a', fontWeight: 700 }}>● Submitted &amp; Live</span>
+              <span style={{ color: '#71717a', fontWeight: 600 }}>○ Pending Latrics Upload</span>
+            </div>
           </div>
-        </div>
-
-        {/* Top Right Action: Proceed to Next Stage (Delivered) */}
-        {!isProjectCompleted && isOps && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-            <button
-              onClick={() => setShowConfirmModal(true)}
-              disabled={!isClientAcknowledged || isAdvancingToDelivered}
-              title={
-                !isClientAcknowledged
-                  ? 'Locked: Client must acknowledge receipt of deliverables before project can advance to Delivered (Stage 6).'
-                  : 'Cleared: Advance project to Stage 6 Delivered (Completed)'
-              }
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '0.45rem',
-                fontSize: '0.8rem',
-                fontWeight: 700,
-                padding: '0.55rem 1.15rem',
-                borderRadius: '6px',
-                cursor: isClientAcknowledged ? 'pointer' : 'not-allowed',
-                backgroundColor: isClientAcknowledged ? '#09090b' : '#f4f4f5',
-                color: isClientAcknowledged ? '#ffffff' : '#a1a1aa',
-                border: isClientAcknowledged ? 'none' : '1px solid #e4e4e7',
-                boxShadow: isClientAcknowledged ? '0 2px 6px rgba(0, 0, 0, 0.2)' : 'none',
-                transition: 'all 0.15s ease',
-              }}
-            >
-              {isClientAcknowledged ? <CheckCircle2 size={15} color="#4ade80" /> : <Lock size={15} />}
-              <span>Proceed to Next Stage (Delivered)</span>
-              <ArrowRight size={14} />
-            </button>
-          </div>
-        )}
-      </div>
-
-      {/* Global Alerts */}
-      {errorMessage && (
-        <div
-          style={{
-            padding: '0.85rem 1.15rem',
-            backgroundColor: '#fef2f2',
-            border: '1px solid #fecaca',
-            borderRadius: '8px',
-            color: '#991b1b',
-            fontSize: '0.825rem',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: '0.5rem',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <AlertCircle size={16} style={{ flexShrink: 0 }} />
-            <span>{errorMessage}</span>
-          </div>
-          <button onClick={() => setErrorMessage(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#991b1b', fontWeight: 700 }}>
-            ✕
-          </button>
-        </div>
-      )}
-
-      {successMessage && (
-        <div
-          style={{
-            padding: '0.85rem 1.15rem',
-            backgroundColor: '#ecfdf5',
-            border: '1px solid #a7f3d0',
-            borderRadius: '8px',
-            color: '#065f46',
-            fontSize: '0.825rem',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: '0.5rem',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <CheckCircle2 size={16} style={{ flexShrink: 0 }} />
-            <span>{successMessage}</span>
-          </div>
-          <button onClick={() => setSuccessMessage(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#065f46', fontWeight: 700 }}>
-            ✕
-          </button>
-        </div>
-      )}
-
-      {/* Deliverable Link Lifecycle Banner */}
-      <div
-        style={{
-          padding: '0.75rem 1rem',
-          backgroundColor: '#fafafa',
-          border: '1px solid #e4e4e7',
-          borderRadius: '6px',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          fontSize: '0.75rem',
-          color: '#52525b',
-          gap: '1rem',
-          flexWrap: 'wrap',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-          <Folder size={15} color="#09090b" style={{ flexShrink: 0 }} />
-          <span>
-            <strong style={{ color: '#09090b' }}>Deliverable Folder Lifecycle:</strong> Latrics uploads and submits cloud storage folder links. Clients can directly click the link to access and download the files from that folder.
-          </span>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', fontSize: '0.7rem' }}>
-          <span style={{ color: '#16a34a', fontWeight: 700 }}>● Submitted &amp; Live</span>
-          <span style={{ color: '#71717a', fontWeight: 600 }}>○ Pending Latrics Upload</span>
-        </div>
-      </div>
-
-      {/* ── Main Workspace Grid Layout (2fr Left Content : 1fr Right Chat) ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '1.25rem', alignItems: 'flex-start' }}>
-        {/* ── Left Column: Section 1 (Pre-Processing) & Section 2 (Post-Processing) ── */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
           {/* ══════════════════════════════════════════════════════════════
               SECTION 1: PRE-PROCESSING DELIVERABLES
              ══════════════════════════════════════════════════════════════ */}
-          <div className="wf-card" style={{ padding: 0, overflow: 'hidden' }}>
+          <div className="wf-card" style={{ padding: 0, overflow: 'hidden', flexShrink: 0 }}>
             {/* Section Header */}
             <div
               style={{
@@ -675,16 +837,17 @@ export const ProcessingStageWorkspace: React.FC<ProcessingStageWorkspaceProps> =
                   {clientChecklistedPre.map((item, idx) => {
                     const inputKey = `pre_${item.id}`;
                     const savedRecord = preProcessingLinks[item.id];
-                    const savedLink = savedRecord?.link || '';
+                    const savedLink = (savedRecord?.link || (processingData.links as any)?.[inputKey] || '').trim();
                     const currentVal = editingLinks[inputKey] !== undefined ? editingLinks[inputKey] : savedLink;
                     const hasLink = Boolean(savedLink);
+                    const isSubmitted = Boolean(hasLink && currentVal.trim() === savedLink);
                     const isSaving = savingKey === inputKey;
 
                     return (
                       <tr key={item.id} className="hover:bg-slate-50 transition">
                         {/* Column 1: Deliverable Name (Main Context Only) */}
-                        <td style={{ verticalAlign: 'middle', padding: '0.75rem 1rem' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <td style={{ verticalAlign: 'top', padding: '0.85rem 1rem' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', minHeight: '34px' }}>
                             <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#71717a' }}>
                               #{idx + 1}
                             </span>
@@ -696,36 +859,39 @@ export const ProcessingStageWorkspace: React.FC<ProcessingStageWorkspaceProps> =
 
                         {/* Column 2: Link Input / Access Area */}
                         <td style={{ verticalAlign: 'top', padding: '0.85rem 1rem' }}>
-                          {isOps && !isProjectCompleted ? (
-                            /* Ops Editable Link View */
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.45rem' }}>
-                              <div style={{ display: 'flex', gap: '0.4rem' }}>
-                                <input
-                                  type="url"
-                                  placeholder="https://drive.google.com/... or S3 / Cloud folder link"
-                                  value={currentVal}
-                                  onChange={(e) =>
-                                    setEditingLinks((prev) => ({
-                                      ...prev,
-                                      [inputKey]: e.target.value,
-                                    }))
-                                  }
-                                  className="form-input"
-                                  style={{
-                                    fontSize: '0.775rem',
-                                    height: '32px',
-                                    width: '100%',
-                                    borderRadius: '5px',
-                                    fontFamily: 'monospace',
-                                  }}
-                                />
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                            <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
+                              <input
+                                type="url"
+                                placeholder="https://drive.google.com/... or cloud folder link"
+                                value={currentVal}
+                                onChange={(e) =>
+                                  setEditingLinks((prev) => ({
+                                    ...prev,
+                                    [inputKey]: e.target.value,
+                                  }))
+                                }
+                                className="form-input"
+                                style={{
+                                  fontSize: '0.775rem',
+                                  height: '34px',
+                                  padding: '0.35rem 0.65rem',
+                                  width: '100%',
+                                  borderRadius: '5px',
+                                  fontFamily: 'monospace',
+                                  border: '1px solid #d4d4d8',
+                                  backgroundColor: '#ffffff',
+                                  color: '#09090b',
+                                }}
+                              />
+
+                              {isSubmitted ? (
                                 <button
                                   type="button"
-                                  onClick={() => handleSaveLink('pre', item)}
-                                  disabled={isSaving}
+                                  onClick={() => window.open(savedLink, '_blank', 'noopener,noreferrer')}
                                   style={{
-                                    height: '32px',
-                                    padding: '0 0.85rem',
+                                    height: '34px',
+                                    padding: '0 0.95rem',
                                     backgroundColor: '#09090b',
                                     color: '#ffffff',
                                     border: 'none',
@@ -737,115 +903,69 @@ export const ProcessingStageWorkspace: React.FC<ProcessingStageWorkspaceProps> =
                                     alignItems: 'center',
                                     gap: '0.35rem',
                                     flexShrink: 0,
+                                    transition: 'background-color 0.15s ease',
                                   }}
-                                  title="Submit deliverable folder link for client access"
+                                  title="Open deliverable link in new tab"
+                                >
+                                  <ExternalLink size={13} />
+                                  <span>Open</span>
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => handleSaveLink('pre', item)}
+                                  disabled={isSaving || !currentVal.trim()}
+                                  style={{
+                                    height: '34px',
+                                    padding: '0 0.95rem',
+                                    backgroundColor: !currentVal.trim() ? '#a1a1aa' : '#09090b',
+                                    color: '#ffffff',
+                                    border: 'none',
+                                    borderRadius: '5px',
+                                    fontSize: '0.75rem',
+                                    fontWeight: 700,
+                                    cursor: isSaving || !currentVal.trim() ? 'not-allowed' : 'pointer',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '0.35rem',
+                                    flexShrink: 0,
+                                    transition: 'background-color 0.15s ease',
+                                  }}
+                                  title="Submit deliverable link"
                                 >
                                   {isSaving ? <RefreshCw size={13} className="animate-spin" /> : <Send size={13} />}
                                   <span>Submit</span>
                                 </button>
+                              )}
+                            </div>
+
+                            {/* Sub-bar: Copy link action & Live status indicator when saved */}
+                            {hasLink && (
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.7rem' }}>
+                                <button
+                                  type="button"
+                                  onClick={() => copyToClipboard(savedLink, inputKey)}
+                                  style={{
+                                    background: 'none',
+                                    border: 'none',
+                                    color: '#71717a',
+                                    cursor: 'pointer',
+                                    padding: 0,
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '0.25rem',
+                                    fontSize: '0.7rem',
+                                  }}
+                                >
+                                  {copiedKey === inputKey ? <Check size={11} color="#16a34a" /> : <Copy size={11} />}
+                                  <span>{copiedKey === inputKey ? 'Copied' : 'Copy Link'}</span>
+                                </button>
+                                <span style={{ color: '#16a34a', fontSize: '0.675rem', fontWeight: 600, marginLeft: 'auto' }}>
+                                  ✓ Live for Client
+                                </span>
                               </div>
-
-                              {/* Active link preview if already submitted */}
-                              {hasLink && (
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.725rem' }}>
-                                  <a
-                                    href={savedLink}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    style={{
-                                      display: 'inline-flex',
-                                      alignItems: 'center',
-                                      gap: '0.3rem',
-                                      color: '#09090b',
-                                      fontWeight: 700,
-                                      textDecoration: 'none',
-                                    }}
-                                  >
-                                    <ExternalLink size={12} />
-                                    <span>Access Deliverables Folder ↗</span>
-                                  </a>
-                                  <span style={{ color: '#d4d4d8' }}>•</span>
-                                  <button
-                                    type="button"
-                                    onClick={() => copyToClipboard(savedLink, inputKey)}
-                                    style={{
-                                      background: 'none',
-                                      border: 'none',
-                                      color: '#71717a',
-                                      cursor: 'pointer',
-                                      padding: 0,
-                                      display: 'inline-flex',
-                                      alignItems: 'center',
-                                      gap: '0.25rem',
-                                      fontSize: '0.7rem',
-                                    }}
-                                  >
-                                    {copiedKey === inputKey ? <Check size={11} color="#16a34a" /> : <Copy size={11} />}
-                                    <span>{copiedKey === inputKey ? 'Copied' : 'Copy Link'}</span>
-                                  </button>
-                                  <span style={{ color: '#16a34a', fontSize: '0.675rem', fontWeight: 600, marginLeft: 'auto' }}>
-                                    ✓ Live for Client
-                                  </span>
-                                </div>
-                              )}
-                            </div>
-                          ) : (
-                            /* Client View / Read-only View */
-                            <div>
-                              {hasLink ? (
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-                                  <a
-                                    href={savedLink}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    style={{
-                                      display: 'inline-flex',
-                                      alignItems: 'center',
-                                      gap: '0.35rem',
-                                      padding: '0.35rem 0.85rem',
-                                      backgroundColor: '#09090b',
-                                      color: '#ffffff',
-                                      borderRadius: '5px',
-                                      fontSize: '0.75rem',
-                                      fontWeight: 700,
-                                      textDecoration: 'none',
-                                      boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
-                                    }}
-                                  >
-                                    <Folder size={13} />
-                                    <span>Open Deliverables Folder ↗</span>
-                                  </a>
-
-                                  <button
-                                    type="button"
-                                    onClick={() => copyToClipboard(savedLink, inputKey)}
-                                    title="Copy folder link"
-                                    style={{
-                                      height: '28px',
-                                      padding: '0 0.5rem',
-                                      backgroundColor: '#ffffff',
-                                      border: '1px solid #e4e4e7',
-                                      borderRadius: '4px',
-                                      fontSize: '0.7rem',
-                                      color: '#52525b',
-                                      cursor: 'pointer',
-                                      display: 'inline-flex',
-                                      alignItems: 'center',
-                                      gap: '0.25rem',
-                                    }}
-                                  >
-                                    {copiedKey === inputKey ? <Check size={12} color="#16a34a" /> : <Copy size={12} />}
-                                    <span>{copiedKey === inputKey ? 'Copied' : 'Copy'}</span>
-                                  </button>
-                                </div>
-                              ) : (
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: '#71717a', fontSize: '0.75rem', fontStyle: 'italic' }}>
-                                  <Clock size={13} />
-                                  <span>Pending Latrics Upload — folder link will appear here once submitted</span>
-                                </div>
-                              )}
-                            </div>
-                          )}
+                            )}
+                          </div>
                         </td>
 
                         {/* Column 3: Status Badge */}
@@ -879,7 +999,7 @@ export const ProcessingStageWorkspace: React.FC<ProcessingStageWorkspaceProps> =
           {/* ══════════════════════════════════════════════════════════════
               SECTION 2: POST-PROCESSING DELIVERABLES
              ══════════════════════════════════════════════════════════════ */}
-          <div className="wf-card" style={{ padding: 0, overflow: 'hidden' }}>
+          <div className="wf-card" style={{ padding: 0, overflow: 'hidden', flexShrink: 0 }}>
             {/* Section Header */}
             <div
               style={{
@@ -944,16 +1064,17 @@ export const ProcessingStageWorkspace: React.FC<ProcessingStageWorkspaceProps> =
                   {clientChecklistedPost.map((item, idx) => {
                     const inputKey = `post_${item.id}`;
                     const savedRecord = postProcessingLinks[item.id];
-                    const savedLink = savedRecord?.link || '';
+                    const savedLink = (savedRecord?.link || (processingData.links as any)?.[inputKey] || '').trim();
                     const currentVal = editingLinks[inputKey] !== undefined ? editingLinks[inputKey] : savedLink;
                     const hasLink = Boolean(savedLink);
+                    const isSubmitted = Boolean(hasLink && currentVal.trim() === savedLink);
                     const isSaving = savingKey === inputKey;
 
                     return (
                       <tr key={item.id} className="hover:bg-slate-50 transition">
                         {/* Column 1: Deliverable Name (Main Context Only) */}
-                        <td style={{ verticalAlign: 'middle', padding: '0.75rem 1rem' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <td style={{ verticalAlign: 'top', padding: '0.85rem 1rem' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', minHeight: '34px' }}>
                             <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#71717a' }}>
                               #{idx + 1}
                             </span>
@@ -965,36 +1086,39 @@ export const ProcessingStageWorkspace: React.FC<ProcessingStageWorkspaceProps> =
 
                         {/* Column 2: Link Input / Access Area */}
                         <td style={{ verticalAlign: 'top', padding: '0.85rem 1rem' }}>
-                          {isOps && !isProjectCompleted ? (
-                            /* Ops Editable Link View */
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.45rem' }}>
-                              <div style={{ display: 'flex', gap: '0.4rem' }}>
-                                <input
-                                  type="url"
-                                  placeholder="https://drive.google.com/... or S3 / Cloud folder link"
-                                  value={currentVal}
-                                  onChange={(e) =>
-                                    setEditingLinks((prev) => ({
-                                      ...prev,
-                                      [inputKey]: e.target.value,
-                                    }))
-                                  }
-                                  className="form-input"
-                                  style={{
-                                    fontSize: '0.775rem',
-                                    height: '32px',
-                                    width: '100%',
-                                    borderRadius: '5px',
-                                    fontFamily: 'monospace',
-                                  }}
-                                />
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                            <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
+                              <input
+                                type="url"
+                                placeholder="https://drive.google.com/... or cloud folder link"
+                                value={currentVal}
+                                onChange={(e) =>
+                                  setEditingLinks((prev) => ({
+                                    ...prev,
+                                    [inputKey]: e.target.value,
+                                  }))
+                                }
+                                className="form-input"
+                                style={{
+                                  fontSize: '0.775rem',
+                                  height: '34px',
+                                  padding: '0.35rem 0.65rem',
+                                  width: '100%',
+                                  borderRadius: '5px',
+                                  fontFamily: 'monospace',
+                                  border: '1px solid #d4d4d8',
+                                  backgroundColor: '#ffffff',
+                                  color: '#09090b',
+                                }}
+                              />
+
+                              {isSubmitted ? (
                                 <button
                                   type="button"
-                                  onClick={() => handleSaveLink('post', item)}
-                                  disabled={isSaving}
+                                  onClick={() => window.open(savedLink, '_blank', 'noopener,noreferrer')}
                                   style={{
-                                    height: '32px',
-                                    padding: '0 0.85rem',
+                                    height: '34px',
+                                    padding: '0 0.95rem',
                                     backgroundColor: '#09090b',
                                     color: '#ffffff',
                                     border: 'none',
@@ -1006,115 +1130,69 @@ export const ProcessingStageWorkspace: React.FC<ProcessingStageWorkspaceProps> =
                                     alignItems: 'center',
                                     gap: '0.35rem',
                                     flexShrink: 0,
+                                    transition: 'background-color 0.15s ease',
                                   }}
-                                  title="Submit deliverable folder link for client access"
+                                  title="Open deliverable link in new tab"
+                                >
+                                  <ExternalLink size={13} />
+                                  <span>Open</span>
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => handleSaveLink('post', item)}
+                                  disabled={isSaving || !currentVal.trim()}
+                                  style={{
+                                    height: '34px',
+                                    padding: '0 0.95rem',
+                                    backgroundColor: !currentVal.trim() ? '#a1a1aa' : '#09090b',
+                                    color: '#ffffff',
+                                    border: 'none',
+                                    borderRadius: '5px',
+                                    fontSize: '0.75rem',
+                                    fontWeight: 700,
+                                    cursor: isSaving || !currentVal.trim() ? 'not-allowed' : 'pointer',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '0.35rem',
+                                    flexShrink: 0,
+                                    transition: 'background-color 0.15s ease',
+                                  }}
+                                  title="Submit deliverable link"
                                 >
                                   {isSaving ? <RefreshCw size={13} className="animate-spin" /> : <Send size={13} />}
                                   <span>Submit</span>
                                 </button>
+                              )}
+                            </div>
+
+                            {/* Sub-bar: Copy link action & Live status indicator when saved */}
+                            {hasLink && (
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.7rem' }}>
+                                <button
+                                  type="button"
+                                  onClick={() => copyToClipboard(savedLink, inputKey)}
+                                  style={{
+                                    background: 'none',
+                                    border: 'none',
+                                    color: '#71717a',
+                                    cursor: 'pointer',
+                                    padding: 0,
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '0.25rem',
+                                    fontSize: '0.7rem',
+                                  }}
+                                >
+                                  {copiedKey === inputKey ? <Check size={11} color="#16a34a" /> : <Copy size={11} />}
+                                  <span>{copiedKey === inputKey ? 'Copied' : 'Copy Link'}</span>
+                                </button>
+                                <span style={{ color: '#16a34a', fontSize: '0.675rem', fontWeight: 600, marginLeft: 'auto' }}>
+                                  ✓ Live for Client
+                                </span>
                               </div>
-
-                              {/* Active link preview if already submitted */}
-                              {hasLink && (
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.725rem' }}>
-                                  <a
-                                    href={savedLink}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    style={{
-                                      display: 'inline-flex',
-                                      alignItems: 'center',
-                                      gap: '0.3rem',
-                                      color: '#09090b',
-                                      fontWeight: 700,
-                                      textDecoration: 'none',
-                                    }}
-                                  >
-                                    <ExternalLink size={12} />
-                                    <span>Access Deliverables Folder ↗</span>
-                                  </a>
-                                  <span style={{ color: '#d4d4d8' }}>•</span>
-                                  <button
-                                    type="button"
-                                    onClick={() => copyToClipboard(savedLink, inputKey)}
-                                    style={{
-                                      background: 'none',
-                                      border: 'none',
-                                      color: '#71717a',
-                                      cursor: 'pointer',
-                                      padding: 0,
-                                      display: 'inline-flex',
-                                      alignItems: 'center',
-                                      gap: '0.25rem',
-                                      fontSize: '0.7rem',
-                                    }}
-                                  >
-                                    {copiedKey === inputKey ? <Check size={11} color="#16a34a" /> : <Copy size={11} />}
-                                    <span>{copiedKey === inputKey ? 'Copied' : 'Copy Link'}</span>
-                                  </button>
-                                  <span style={{ color: '#16a34a', fontSize: '0.675rem', fontWeight: 600, marginLeft: 'auto' }}>
-                                    ✓ Live for Client
-                                  </span>
-                                </div>
-                              )}
-                            </div>
-                          ) : (
-                            /* Client View / Read-only View */
-                            <div>
-                              {hasLink ? (
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-                                  <a
-                                    href={savedLink}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    style={{
-                                      display: 'inline-flex',
-                                      alignItems: 'center',
-                                      gap: '0.35rem',
-                                      padding: '0.35rem 0.85rem',
-                                      backgroundColor: '#09090b',
-                                      color: '#ffffff',
-                                      borderRadius: '5px',
-                                      fontSize: '0.75rem',
-                                      fontWeight: 700,
-                                      textDecoration: 'none',
-                                      boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
-                                    }}
-                                  >
-                                    <Folder size={13} />
-                                    <span>Open Deliverables Folder ↗</span>
-                                  </a>
-
-                                  <button
-                                    type="button"
-                                    onClick={() => copyToClipboard(savedLink, inputKey)}
-                                    title="Copy folder link"
-                                    style={{
-                                      height: '28px',
-                                      padding: '0 0.5rem',
-                                      backgroundColor: '#ffffff',
-                                      border: '1px solid #e4e4e7',
-                                      borderRadius: '4px',
-                                      fontSize: '0.7rem',
-                                      color: '#52525b',
-                                      cursor: 'pointer',
-                                      display: 'inline-flex',
-                                      alignItems: 'center',
-                                      gap: '0.25rem',
-                                    }}
-                                  >
-                                    {copiedKey === inputKey ? <Check size={12} color="#16a34a" /> : <Copy size={12} />}
-                                    <span>{copiedKey === inputKey ? 'Copied' : 'Copy'}</span>
-                                  </button>
-                                </div>
-                              ) : (
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: '#71717a', fontSize: '0.75rem', fontStyle: 'italic' }}>
-                                  <Clock size={13} />
-                                  <span>Pending Latrics Upload — folder link will appear here once submitted</span>
-                                </div>
-                              )}
-                            </div>
-                          )}
+                            )}
+                          </div>
                         </td>
 
                         {/* Column 3: Status Badge */}
@@ -1157,6 +1235,7 @@ export const ProcessingStageWorkspace: React.FC<ProcessingStageWorkspaceProps> =
               display: 'flex',
               flexDirection: 'column',
               gap: '1rem',
+              flexShrink: 0,
             }}
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '0.75rem' }}>
@@ -1202,21 +1281,77 @@ export const ProcessingStageWorkspace: React.FC<ProcessingStageWorkspaceProps> =
               </span>
             </div>
 
+            {/* Correction Requests Section */}
+            {correctionsList.length > 0 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '0.75rem' }}>
+                <span style={{ fontSize: '0.725rem', fontWeight: 700, color: '#09090b', textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+                  Deliverable Review Feedback &amp; Corrections:
+                </span>
+                {correctionsList.map((c) => (
+                  <div
+                    key={c.id}
+                    style={{
+                      padding: '0.65rem 0.85rem',
+                      borderRadius: '6px',
+                      backgroundColor: c.status === 'open' ? '#fffbeb' : '#f0fdf4',
+                      border: c.status === 'open' ? '1px solid #fde68a' : '1px solid #bbf7d0',
+                      fontSize: '0.75rem',
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                        {c.status === 'open' ? <AlertCircle size={14} color="#d97706" /> : <CheckCircle2 size={14} color="#16a34a" />}
+                        <strong style={{ color: c.status === 'open' ? '#92400e' : '#166534' }}>
+                          {c.status === 'open' ? 'Correction Requested by Client' : 'Resolved by Operations'}
+                        </strong>
+                      </div>
+                      <span style={{ fontSize: '0.675rem', color: '#64748b' }}>
+                        {c.requested_at ? formatDateTimeDDMMYYYY(c.requested_at) : ''}
+                      </span>
+                    </div>
+                    <p style={{ margin: '0.35rem 0 0 1.25rem', color: '#1f2937' }}>"{c.remarks}"</p>
+                    {c.status === 'resolved' && c.resolution_note && (
+                      <div style={{ margin: '0.3rem 0 0 1.25rem', fontSize: '0.7rem', color: '#15803d', fontStyle: 'italic' }}>
+                        Resolution: {c.resolution_note} ({c.resolved_by})
+                      </div>
+                    )}
+                    {c.status === 'open' && isOps && (
+                      <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '0.4rem' }}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowResolveModalId(c.id);
+                            setResolutionNote('');
+                          }}
+                          style={{
+                            fontSize: '0.7rem',
+                            fontWeight: 700,
+                            backgroundColor: '#09090b',
+                            color: '#ffffff',
+                            border: 'none',
+                            padding: '0.3rem 0.75rem',
+                            borderRadius: '4px',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          Resolve &amp; Re-upload Deliverables
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
             {/* Acknowledged Status Details */}
             {isClientAcknowledged ? (
               <div style={{ padding: '0.85rem 1rem', backgroundColor: '#ffffff', borderRadius: '6px', border: '1px solid #dcfce7', fontSize: '0.775rem', color: '#166534' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontWeight: 700 }}>
                   <CheckCircle2 size={15} color="#16a34a" />
                   <span>
-                    Verified &amp; Acknowledged by {clientSignoff.acknowledged_by || 'Client Representative'} on{' '}
+                    Verified &amp; Confirmed Ready for Formal Acceptance by {clientSignoff.acknowledged_by || 'Client Representative'} on{' '}
                     {clientSignoff.acknowledged_at
-                      ? new Date(clientSignoff.acknowledged_at).toLocaleDateString('en-IN', {
-                          day: '2-digit',
-                          month: 'short',
-                          year: 'numeric',
-                          hour: '2-digit',
-                          minute: '2-digit',
-                        })
+                      ? formatDateTimeDDMMYYYY(clientSignoff.acknowledged_at)
                       : 'Record Date'}
                   </span>
                 </div>
@@ -1232,7 +1367,7 @@ export const ProcessingStageWorkspace: React.FC<ProcessingStageWorkspaceProps> =
                 {isClient ? (
                   <>
                     <div style={{ fontSize: '0.775rem', color: 'var(--text-secondary)' }}>
-                      Please review all download links in <strong>Section 1 (Pre-Processing)</strong> and <strong>Section 2 (Post-Processing)</strong>. Once you have downloaded and validated your survey deliverables, confirm your acknowledgment below.
+                      Please review all download links in <strong>Section 1 (Pre-Processing)</strong> and <strong>Section 2 (Post-Processing)</strong>. If everything required has been provided, confirm readiness for formal acceptance. If anything is missing or incorrect, request corrections below.
                     </div>
 
                     <div>
@@ -1249,33 +1384,63 @@ export const ProcessingStageWorkspace: React.FC<ProcessingStageWorkspaceProps> =
                       />
                     </div>
 
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginTop: '0.25rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem', marginTop: '0.25rem' }}>
                       <button
                         type="button"
                         onClick={handleClientAcknowledge}
-                        disabled={!allLinksProvided || isAcknowledging}
+                        disabled={!allLinksProvided || isAcknowledging || hasOpenCorrections}
                         style={{
                           display: 'inline-flex',
                           alignItems: 'center',
                           gap: '0.4rem',
-                          backgroundColor: allLinksProvided ? '#16a34a' : '#e4e4e7',
-                          color: allLinksProvided ? '#ffffff' : '#71717a',
+                          backgroundColor: (allLinksProvided && !hasOpenCorrections) ? '#16a34a' : '#e4e4e7',
+                          color: (allLinksProvided && !hasOpenCorrections) ? '#ffffff' : '#71717a',
                           border: 'none',
                           padding: '0.55rem 1.25rem',
                           borderRadius: '6px',
                           fontWeight: 700,
                           fontSize: '0.8rem',
-                          cursor: allLinksProvided ? 'pointer' : 'not-allowed',
-                          boxShadow: allLinksProvided ? '0 2px 4px rgba(22, 163, 74, 0.25)' : 'none',
+                          cursor: (allLinksProvided && !hasOpenCorrections) ? 'pointer' : 'not-allowed',
+                          boxShadow: (allLinksProvided && !hasOpenCorrections) ? '0 2px 4px rgba(22, 163, 74, 0.25)' : 'none',
                         }}
                       >
                         {isAcknowledging ? <RefreshCw size={14} className="animate-spin" /> : <CheckCircle2 size={15} />}
-                        <span>Confirm Receipt &amp; Acknowledge All Deliverables ✓</span>
+                        <span>Confirm Deliverables Ready for Formal Acceptance ✓</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowCorrectionModal(true);
+                          setCorrectionRemark('');
+                        }}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '0.35rem',
+                          backgroundColor: '#ffffff',
+                          color: '#b45309',
+                          border: '1px solid #fcd34d',
+                          padding: '0.55rem 1rem',
+                          borderRadius: '6px',
+                          fontWeight: 600,
+                          fontSize: '0.8rem',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        <AlertCircle size={14} />
+                        <span>Request Corrections</span>
                       </button>
 
                       {!allLinksProvided && (
                         <span style={{ fontSize: '0.725rem', color: '#b45309' }}>
                           (Awaiting Operations team to provide all {totalChecklistedCount} links first)
+                        </span>
+                      )}
+
+                      {hasOpenCorrections && (
+                        <span style={{ fontSize: '0.725rem', color: '#dc2626', fontWeight: 600 }}>
+                          (Pending open correction resolution before readiness can be confirmed)
                         </span>
                       )}
                     </div>
@@ -1286,8 +1451,10 @@ export const ProcessingStageWorkspace: React.FC<ProcessingStageWorkspaceProps> =
                     <Clock size={14} color="#d97706" />
                     <span>
                       {allLinksProvided
-                        ? 'All links are provided! Awaiting client confirmation of deliverables receipt.'
-                        : `Operations must provide links for all deliverables (${totalLinksProvidedCount}/${totalChecklistedCount} currently ready) before client can acknowledge.`}
+                        ? hasOpenCorrections
+                          ? 'Client has requested corrections. Resolve open issues to proceed.'
+                          : 'All links are provided! Awaiting client confirmation of deliverables readiness.'
+                        : `Operations must provide links for all deliverables (${totalLinksProvidedCount}/${totalChecklistedCount} currently ready) before client can confirm.`}
                     </span>
                   </div>
                 )}
@@ -1295,24 +1462,245 @@ export const ProcessingStageWorkspace: React.FC<ProcessingStageWorkspaceProps> =
             )}
           </div>
         </div>
-
-        {/* ── Right Column: Stage 5 Integrated Chat & Photogrammetry Specs ── */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-
-
-          {/* Integrated Stage 5 ChatBox */}
-          <StageChatBox
-            projectId={project?.id || ''}
-            stageId={5}
-            stageName="Processing"
-            stageStatus={isProjectCompleted ? 'completed' : 'active'}
-            messages={stageMessages}
-            onSendMessage={onSendMessage}
-            currentUserName={userName}
-            currentUserRole={userRole || 'client'}
-          />
-        </div>
       </div>
+
+      {/* ── Right Column: Stage 5 Integrated Chat & Photogrammetry Specs ── */}
+      <StageChatBox
+        projectId={project?.id || ''}
+        stageId={5}
+        stageName="Processing"
+        stageStatus={isProjectCompleted ? 'completed' : 'active'}
+        messages={stageMessages}
+        onSendMessage={onSendMessage}
+        currentUserName={userName}
+        currentUserRole={userRole || 'client'}
+      />
+
+      {/* ── Client Request Corrections Modal ── */}
+      {showCorrectionModal && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 1100,
+            backgroundColor: 'rgba(0, 0, 0, 0.6)',
+            backdropFilter: 'blur(3px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '1rem',
+          }}
+        >
+          <div
+            style={{
+              backgroundColor: '#ffffff',
+              borderRadius: '10px',
+              maxWidth: '500px',
+              width: '100%',
+              padding: '1.5rem',
+              boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.2)',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1rem' }}>
+              <div
+                style={{
+                  width: '36px',
+                  height: '36px',
+                  borderRadius: '50%',
+                  backgroundColor: '#fef3c7',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <AlertCircle size={18} color="#d97706" />
+              </div>
+              <div>
+                <h3 style={{ fontSize: '1rem', fontWeight: 800, color: '#09090b', margin: 0 }}>
+                  Request Deliverables Corrections
+                </h3>
+                <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', margin: '0.15rem 0 0 0' }}>
+                  Notify the LATRICS processing team of missing or incorrect outputs.
+                </p>
+              </div>
+            </div>
+
+            <form onSubmit={handleSubmitCorrection}>
+              <div style={{ marginBottom: '1rem' }}>
+                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#09090b', marginBottom: '0.35rem' }}>
+                  Describe the Issue or Missing Deliverables *
+                </label>
+                <textarea
+                  rows={4}
+                  value={correctionRemark}
+                  onChange={(e) => setCorrectionRemark(e.target.value)}
+                  placeholder="e.g. The orthomosaic resolution in Sector 2 is blurry / CAD boundary contours are missing for the South parcel..."
+                  required
+                  style={{
+                    width: '100%',
+                    padding: '0.65rem',
+                    fontSize: '0.8rem',
+                    borderRadius: '6px',
+                    border: '1px solid #d4d4d8',
+                    outline: 'none',
+                    lineHeight: 1.5,
+                  }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
+                <button
+                  type="button"
+                  onClick={() => setShowCorrectionModal(false)}
+                  disabled={isSubmittingCorrection}
+                  style={{
+                    height: '34px',
+                    padding: '0 0.85rem',
+                    fontSize: '0.75rem',
+                    fontWeight: 600,
+                    borderRadius: '5px',
+                    border: '1px solid #d4d4d8',
+                    backgroundColor: '#ffffff',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Cancel
+                </button>
+
+                <button
+                  type="submit"
+                  disabled={isSubmittingCorrection || !correctionRemark.trim()}
+                  style={{
+                    height: '34px',
+                    padding: '0 1rem',
+                    fontSize: '0.75rem',
+                    fontWeight: 700,
+                    backgroundColor: '#d97706',
+                    color: '#ffffff',
+                    border: 'none',
+                    borderRadius: '5px',
+                    cursor: 'pointer',
+                  }}
+                >
+                  {isSubmittingCorrection ? 'Submitting...' : 'Submit Correction Request'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── Ops Resolve Correction Modal ── */}
+      {showResolveModalId && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 1100,
+            backgroundColor: 'rgba(0, 0, 0, 0.6)',
+            backdropFilter: 'blur(3px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '1rem',
+          }}
+        >
+          <div
+            style={{
+              backgroundColor: '#ffffff',
+              borderRadius: '10px',
+              maxWidth: '500px',
+              width: '100%',
+              padding: '1.5rem',
+              boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.2)',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1rem' }}>
+              <div
+                style={{
+                  width: '36px',
+                  height: '36px',
+                  borderRadius: '50%',
+                  backgroundColor: '#dcfce7',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <CheckCircle2 size={18} color="#16a34a" />
+              </div>
+              <div>
+                <h3 style={{ fontSize: '1rem', fontWeight: 800, color: '#09090b', margin: 0 }}>
+                  Resolve Deliverables Correction
+                </h3>
+                <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', margin: '0.15rem 0 0 0' }}>
+                  Confirm resolution and deliverable re-upload for client review.
+                </p>
+              </div>
+            </div>
+
+            <div style={{ marginBottom: '1rem' }}>
+              <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#09090b', marginBottom: '0.35rem' }}>
+                Resolution Notes (e.g. Re-processed orthomosaic and updated Google Drive link)
+              </label>
+              <textarea
+                rows={3}
+                value={resolutionNote}
+                onChange={(e) => setResolutionNote(e.target.value)}
+                placeholder="Describe resolution taken..."
+                style={{
+                  width: '100%',
+                  padding: '0.65rem',
+                  fontSize: '0.8rem',
+                  borderRadius: '6px',
+                  border: '1px solid #d4d4d8',
+                  outline: 'none',
+                  lineHeight: 1.5,
+                }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
+              <button
+                type="button"
+                onClick={() => setShowResolveModalId(null)}
+                disabled={isResolvingCorrection}
+                style={{
+                  height: '34px',
+                  padding: '0 0.85rem',
+                  fontSize: '0.75rem',
+                  fontWeight: 600,
+                  borderRadius: '5px',
+                  border: '1px solid #d4d4d8',
+                  backgroundColor: '#ffffff',
+                  cursor: 'pointer',
+                }}
+              >
+                Cancel
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleResolveCorrection(showResolveModalId)}
+                disabled={isResolvingCorrection}
+                style={{
+                  height: '34px',
+                  padding: '0 1rem',
+                  fontSize: '0.75rem',
+                  fontWeight: 700,
+                  backgroundColor: '#09090b',
+                  color: '#ffffff',
+                  border: 'none',
+                  borderRadius: '5px',
+                  cursor: 'pointer',
+                }}
+              >
+                {isResolvingCorrection ? 'Saving...' : 'Confirm Resolution'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Ops Advance to Stage 6 (Delivered) Confirmation Modal ── */}
       {showConfirmModal && (

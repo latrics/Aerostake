@@ -74,7 +74,10 @@ async def test_timeline_logging_service():
     test_project_id = uuid.uuid4()
     test_user_id = uuid.uuid4()
 
-    with patch("app.modules.timeline.service.timeline_repository", MockTimelineRepository()):
+    mock_u_repo = AsyncMock()
+    mock_u_repo.get_by_id = AsyncMock(return_value=None)
+    with patch("app.modules.timeline.service.timeline_repository", MockTimelineRepository()), \
+         patch("app.modules.timeline.service.user_repository", mock_u_repo):
         # 1. Log event
         logged_event = await timeline_service.log_event(
             db=mock_db,

@@ -58,7 +58,7 @@ export default function SectorUpdatesPage() {
   };
 
   return (
-    <div>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', paddingBottom: '3rem' }}>
       {/* ── Page Header ── */}
       <PageHeader
         title="Real-Time Flight Telemetry & Sector Updates"

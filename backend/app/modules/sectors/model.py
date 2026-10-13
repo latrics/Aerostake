@@ -33,10 +33,10 @@ class Sector(Base):
         nullable=False,
         index=True
     )
-    plan_id: Mapped[uuid.UUID] = mapped_column(
+    plan_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("operational_plans.id", ondelete="CASCADE"),
-        nullable=False,
+        nullable=True,
         index=True
     )
     sector_code: Mapped[str] = mapped_column(

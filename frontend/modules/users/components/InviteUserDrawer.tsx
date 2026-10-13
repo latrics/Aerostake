@@ -24,6 +24,7 @@ export function InviteUserDrawer({ isOpen, onClose, onSuccess }: InviteUserDrawe
   const [role, setRole] = useState('');
   const [selectedOrgId, setSelectedOrgId] = useState('');
   const [newCompanyName, setNewCompanyName] = useState('');
+  const [agreementStartDate, setAgreementStartDate] = useState('');
   const [message, setMessage] = useState('');
 
   const [organizations, setOrganizations] = useState<OrganizationInfo[]>([]);
@@ -58,6 +59,7 @@ export function InviteUserDrawer({ isOpen, onClose, onSuccess }: InviteUserDrawe
       setRole('');
       setSelectedOrgId('');
       setNewCompanyName('');
+      setAgreementStartDate('');
       setMessage('');
       setErrorMsg(null);
       setCreatedInvite(null);
@@ -112,6 +114,9 @@ export function InviteUserDrawer({ isOpen, onClose, onSuccess }: InviteUserDrawe
           payload.company_name = newCompanyName.trim();
         } else if (selectedOrgId) {
           payload.organization_id = selectedOrgId;
+        }
+        if (agreementStartDate.trim()) {
+          payload.agreement_start_date = agreementStartDate.trim();
         }
       }
 
@@ -953,6 +958,34 @@ export function InviteUserDrawer({ isOpen, onClose, onSuccess }: InviteUserDrawe
                     }}
                   />
                 </div>
+              </div>
+            )}
+
+            {/* Aerostake Agreement Start Date (Only for clients) */}
+            {isClient && (
+              <div>
+                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#09090b', marginBottom: '0.4rem' }}>
+                  Aerostake Agreement Start Date (Optional)
+                </label>
+                <input
+                  type="date"
+                  value={agreementStartDate}
+                  onChange={(e) => setAgreementStartDate(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '0.65rem 0.85rem',
+                    border: '1px solid #d4d4d8',
+                    borderRadius: '6px',
+                    fontSize: '0.875rem',
+                    backgroundColor: '#ffffff',
+                    color: '#09090b',
+                    outline: 'none',
+                    boxSizing: 'border-box',
+                  }}
+                />
+                <span style={{ fontSize: '0.725rem', color: '#71717a', marginTop: '0.25rem', display: 'block' }}>
+                  Initializes the company's 3-year agreement (1,095 days) &amp; 1,000 landings validity contract.
+                </span>
               </div>
             )}
 

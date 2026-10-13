@@ -3,6 +3,7 @@ export interface InvitationCreatePayload {
   role: string;
   company_name?: string;
   organization_id?: string;
+  agreement_start_date?: string;
 }
 
 export interface InvitationOut {

@@ -262,12 +262,12 @@ async def update_user_status(
 @users_router.delete(
     "/{user_id}",
     status_code=status.HTTP_200_OK,
-    summary="Delete user account (Admin only)",
+    summary="Delete user account (Admin and Operations)",
 )
 async def delete_user(
     user_id: str,
     soft: bool = False,
-    current_user: User = Depends(require_role(RoleEnum.ADMIN)),
+    current_user: User = Depends(require_role(RoleEnum.ADMIN, RoleEnum.OPERATIONS)),
     db: AsyncSession = Depends(get_db),
 ):
     """Permanently delete or soft-deactivate user account."""

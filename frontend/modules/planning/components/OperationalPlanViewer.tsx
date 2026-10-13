@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { OperationalPlan, PlanStatus } from '../types';
 import { PlanRevisionModal } from './PlanRevisionModal';
 import { PlanRevisionRequest } from '../types';
+import { formatDateDDMMYYYY } from '@/lib/date';
 
 interface OperationalPlanViewerProps {
   plan: OperationalPlan | null;
@@ -81,7 +82,7 @@ export const OperationalPlanViewer: React.FC<OperationalPlanViewerProps> = ({
             )}
           </div>
           <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
-            Published by Latrics Operations {plan.published_at ? `on ${new Date(plan.published_at).toLocaleDateString()}` : ''}
+            Published by Latrics Operations {plan.published_at ? `on ${formatDateDDMMYYYY(plan.published_at)}` : ''}
           </p>
         </div>
 

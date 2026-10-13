@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import Link from 'next/link';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { requestApi } from '@/modules/requests/api';
 import { projectApi } from '@/modules/projects/api';
 import { planningApi } from '@/modules/planning/api';
@@ -11,7 +11,37 @@ import { Project } from '@/modules/projects/types';
 import { OperationalPlan } from '@/modules/planning/types';
 import { useAuth } from '@/lib/auth';
 import { isLatricsRole } from '@/lib/role';
-import { ArrowRight, Clock } from 'lucide-react';
+import { formatDateDDMMYYYY, formatDateTimeDDMMYYYY } from '@/lib/date';
+import {
+  ArrowRight,
+  Clock,
+  Eye,
+  Download,
+  CheckCircle2,
+  Camera,
+  Layers,
+  Box,
+  Map,
+  Mountain,
+  Cpu,
+  Navigation,
+  FileSpreadsheet,
+  Boxes,
+  Activity,
+  FileText,
+  Sparkles,
+  Check,
+  Home,
+  ChevronRight,
+  MapPin,
+  Compass,
+  Calendar,
+  Users,
+  Plane,
+  Settings,
+  Flag,
+} from 'lucide-react';
+import { downloadDocument } from '@/lib/document-utils';
 import {
   markRequestAsSeen,
   markPlanningVersionAsSeen,
@@ -27,6 +57,7 @@ interface ContactItem {
 export default function RequestOverviewPage() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const requestId = (params?.id as string) || '';
   const { user } = useAuth();
   const isOps = Boolean(user && isLatricsRole(user.role));
@@ -42,7 +73,21 @@ export default function RequestOverviewPage() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   // Active Section Tab: 'request' (Request Overview) or 'planning' (Planning Overview)
-  const [activeTab, setActiveTab] = useState<'request' | 'planning'>('request');
+  const tabFromQuery = searchParams?.get('tab');
+  const [activeTab, setActiveTab] = useState<'request' | 'planning'>(
+    tabFromQuery === 'planning' ? 'planning' : 'request'
+  );
+
+  useEffect(() => {
+    const tabParam = searchParams?.get('tab');
+    if (tabParam === 'planning') {
+      setActiveTab('planning');
+    } else if (tabParam === 'request') {
+      setActiveTab('request');
+    }
+  }, [searchParams]);
+
+  // Fetch live request and associated project info
 
   // Fetch live request and associated project info
   const loadRequestDetails = useCallback(async () => {
@@ -122,7 +167,9 @@ export default function RequestOverviewPage() {
   }, [loadRequestDetails]);
 
   // Extract accurately from client's submitted request and project payload
-  const reqPayload = (requestData?.requirements_payload || projectData?.requirements_payload || {}) as Record<string, any>;
+  const reqPayload = useMemo(() => {
+    return (requestData?.requirements_payload || projectData?.requirements_payload || {}) as Record<string, any>;
+  }, [requestData?.requirements_payload, projectData?.requirements_payload]);
 
   const displayVersionNumber = requestData?.version ?? 1;
   const displayVersionString = `${displayVersionNumber}`;
@@ -217,44 +264,23 @@ export default function RequestOverviewPage() {
   }, [reqPayload, requestData?.survey_type, projectData?.survey_type]);
 
   const displayArea = useMemo(() => {
+    const calculatedArea =
+      (planningVersions?.[0]?.form_data?.kmlCalculatedArea ? Number(planningVersions[0].form_data.kmlCalculatedArea) : null);
     const area =
-      requestData?.target_area_sqkm ||
+      calculatedArea ||
       projectData?.target_area_sqkm ||
+      requestData?.target_area_sqkm ||
       reqPayload.requested_area_sqkm ||
       reqPayload.target_area_sqkm;
     return area ? `${area} sq. Km` : '—';
-  }, [requestData?.target_area_sqkm, projectData?.target_area_sqkm, reqPayload.requested_area_sqkm, reqPayload.target_area_sqkm]);
+  }, [planningVersions, requestData?.target_area_sqkm, projectData?.target_area_sqkm, reqPayload.requested_area_sqkm, reqPayload.target_area_sqkm]);
 
   const formatDateString = (dateVal?: string | null) => {
-    if (!dateVal) return '—';
-    try {
-      const d = new Date(dateVal);
-      if (isNaN(d.getTime())) return dateVal;
-      return d.toLocaleDateString('en-GB', {
-        day: '2-digit',
-        month: 'short',
-        year: 'numeric',
-      });
-    } catch {
-      return dateVal;
-    }
+    return formatDateDDMMYYYY(dateVal);
   };
 
   const formatDateTimeString = (dateVal?: string | null) => {
-    if (!dateVal) return '—';
-    try {
-      const d = new Date(dateVal);
-      if (isNaN(d.getTime())) return dateVal;
-      return d.toLocaleDateString('en-GB', {
-        day: '2-digit',
-        month: 'short',
-        year: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-      });
-    } catch {
-      return dateVal;
-    }
+    return formatDateTimeDDMMYYYY(dateVal);
   };
 
   const displayStartDate = reqPayload.start_date ? formatDateString(reqPayload.start_date) : '—';
@@ -328,7 +354,7 @@ export default function RequestOverviewPage() {
 
   // Attachments List - Strictly deduplicated so each file appears only once with authentic metadata
   const attachments = useMemo(() => {
-    const list: Array<{ id: number; name: string; type: string; size: string; date: string }> = [];
+    const list: Array<{ id: number; name: string; type: string; size: string; date: string; dataUrl?: string }> = [];
     const seenNames = new Set<string>();
 
     const normalize = (n: string) => n.trim().toLowerCase();
@@ -365,6 +391,7 @@ export default function RequestOverviewPage() {
           type,
           size,
           date,
+          dataUrl: typeof att === 'object' ? att?.dataUrl : undefined,
         });
       });
     }
@@ -384,6 +411,7 @@ export default function RequestOverviewPage() {
         type: file.type || (name.endsWith('.kml') ? 'KML' : 'PDF'),
         size: file.size || '—',
         date: file.date ? formatDateString(file.date) : formatDateString(requestData?.created_at || projectData?.created_at),
+        dataUrl: typeof file === 'object' ? file?.dataUrl : undefined,
       });
     });
 
@@ -423,55 +451,7 @@ export default function RequestOverviewPage() {
     return list;
   }, [reqPayload, requestData?.created_at, projectData?.created_at]);
 
-  // Dynamic Pipeline Stage Completion
-  const pipelineStages = useMemo(() => {
-    const s = displayStatus.toLowerCase();
-    const isSubmitted = s === 'submitted' || s === 'draft';
-    const isPlanning = s === 'planning';
-    const isApproved = s === 'approved';
-    const isInProgress = s === 'active' || s === 'in_progress';
-    const isCompleted = s === 'completed';
 
-    return [
-      {
-        step: 1,
-        title: 'Request',
-        date: displayReceivedOn !== '—' ? displayReceivedOn : '',
-        active: isSubmitted,
-        completed: true,
-      },
-      {
-        step: 2,
-        title: 'Planning',
-        active: isPlanning,
-        completed: isPlanning || isApproved || isInProgress || isCompleted,
-      },
-      {
-        step: 3,
-        title: 'Mobilising',
-        active: isApproved,
-        completed: isInProgress || isCompleted,
-      },
-      {
-        step: 4,
-        title: 'Capturing',
-        active: isInProgress,
-        completed: isCompleted,
-      },
-      {
-        step: 5,
-        title: 'Processing',
-        active: false,
-        completed: isCompleted,
-      },
-      {
-        step: 6,
-        title: 'Delivered',
-        active: isCompleted,
-        completed: isCompleted,
-      },
-    ];
-  }, [displayStatus, displayReceivedOn]);
 
   // Client Requirement Specifications
   const rawSensor = (
@@ -643,7 +623,7 @@ export default function RequestOverviewPage() {
     }
 
     return false;
-  }, [isOps, planningDraft, planningVersions, projectData?.id, requestData?.project_id, requestData?.id, requestId]);
+  }, [isOps, planningDraft, planningVersions, projectData?.id, requestData, requestId]);
 
   const planningDetails = useMemo(() => {
     const backendFormData = planningVersions && planningVersions.length > 0 ? planningVersions[0].form_data || {} : {};
@@ -689,7 +669,7 @@ export default function RequestOverviewPage() {
       gsd: formData.estimatedGsdCm ? `${formData.estimatedGsdCm} cm/px` : '—',
       overlapRatio: formData.frontOverlapPercent && formData.sideOverlapPercent ? `${formData.frontOverlapPercent}% / ${formData.sideOverlapPercent}%` : (formData.frontOverlapPercent ? `${formData.frontOverlapPercent}%` : '—'),
       totalFlightDuration: formData.flightDurationMinutes ? `${formData.flightDurationMinutes} mins` : '—',
-      landings: formData.numberOfLandings ? `${formData.numberOfLandings} Sorties` : '—',
+      landings: formData.numberOfLandings ? `${formData.numberOfLandings} Flights` : '—',
       batterySets: formData.batterySetsRequired ? `${formData.batterySetsRequired} Sets` : '—',
       surveyDays: formData.expectedSurveyDays ? `${formData.expectedSurveyDays} Days` : '—',
       targetWindow: formData.expectedStartDate || formData.expectedEndDate ? `${formData.expectedStartDate || '—'} → ${formData.expectedEndDate || '—'}` : (displayStartDate !== '—' && displayEndDate !== '—' ? `${displayStartDate} → ${displayEndDate}` : '—'),
@@ -701,6 +681,141 @@ export default function RequestOverviewPage() {
       decisionRemarks: formData.decisionRemarks || 'No operational decision remarks recorded.',
     };
   }, [planningVersions, reqPayload, displayArea, displayStartDate, displayEndDate]);
+
+  const getStepStatus = useCallback((step: number): 'completed' | 'active' | 'pending' => {
+    const s = displayStatus.toLowerCase();
+    if (s === 'completed') return 'completed';
+    if (s === 'active' || s === 'in_progress') {
+      return step <= 3 ? 'completed' : step === 4 ? 'active' : 'pending';
+    }
+    if (s === 'approved') {
+      return step <= 2 ? 'completed' : step === 3 ? 'active' : 'pending';
+    }
+    if (s === 'planning' || s === 'under_review') {
+      return step === 1 ? 'completed' : step === 2 ? 'active' : 'pending';
+    }
+    if (s === 'submitted' || s === 'draft') {
+      return step === 1 ? 'active' : 'pending';
+    }
+    return step === 1 ? 'active' : 'pending';
+  }, [displayStatus]);
+
+  const currentActiveStageNumber = useMemo(() => {
+    for (let s = 1; s <= 6; s++) {
+      if (getStepStatus(s) === 'active') return s;
+    }
+    return 6;
+  }, [getStepStatus]);
+
+  const currentActiveStageName = useMemo(() => {
+    const names = ['Request', 'Planning', 'Mobilising', 'Capturing', 'Processing', 'Delivered'];
+    return names[currentActiveStageNumber - 1] || 'Planning';
+  }, [currentActiveStageNumber]);
+
+  const statusStyle = useMemo(() => {
+    const s = displayStatus.toLowerCase();
+    if (s === 'active' || s === 'in_progress') {
+      return {
+        label: 'Active Flight',
+        bg: '#f4f4f5',
+        color: '#18181b',
+        dotColor: '#18181b',
+        border: 'none',
+      };
+    }
+    if (s === 'approved') {
+      return {
+        label: 'Approved',
+        bg: '#ecfdf5',
+        color: '#065f46',
+        dotColor: '#10b981',
+        border: '1px solid #a7f3d0',
+      };
+    }
+    if (s === 'planning' || s === 'under_review') {
+      return {
+        label: 'In Planning',
+        bg: '#fefce8',
+        color: '#854d0e',
+        dotColor: '#eab308',
+        border: '1px solid #fef08a',
+      };
+    }
+    if (s === 'completed') {
+      return {
+        label: 'Completed',
+        bg: '#f4f4f5',
+        color: '#18181b',
+        dotColor: '#18181b',
+        border: 'none',
+      };
+    }
+    if (s === 'submitted') {
+      return {
+        label: 'Request Submitted',
+        bg: '#eff6ff',
+        color: '#1d4ed8',
+        dotColor: '#3b82f6',
+        border: 'none',
+      };
+    }
+    return {
+      label: displayStatus ? displayStatus.charAt(0).toUpperCase() + displayStatus.slice(1) : 'Draft',
+      bg: '#f4f4f5',
+      color: '#52525b',
+      dotColor: '#71717a',
+      border: 'none',
+    };
+  }, [displayStatus]);
+
+  const requestMetaItems = useMemo(() => {
+    const items: Array<{ id: string; icon: React.ReactNode; label: string }> = [];
+
+    // 1. Location (only if available and not a placeholder)
+    if (displayLocation && displayLocation !== '—') {
+      items.push({
+        id: 'location',
+        icon: <MapPin size={15} color="#6b7280" />,
+        label: displayLocation,
+      });
+    }
+
+    // 2. Target Area (only if available)
+    if (displayArea && displayArea !== '—') {
+      items.push({
+        id: 'area',
+        icon: <Compass size={15} color="#6b7280" />,
+        label: displayArea,
+      });
+    }
+
+    // 3. Sensor / Payload (only if available)
+    if (displayPayload && displayPayload !== '—') {
+      items.push({
+        id: 'sensor',
+        icon: <Camera size={15} color="#6b7280" />,
+        label: displayPayload,
+      });
+    }
+
+    // 4. Received Date (only if available from backend)
+    const rawDate = requestData?.created_at || projectData?.created_at;
+    if (rawDate) {
+      try {
+        const d = new Date(rawDate);
+        if (!isNaN(d.getTime())) {
+          const formatted = formatDateDDMMYYYY(d);
+          items.push({
+            id: 'created',
+            icon: <Calendar size={15} color="#6b7280" />,
+            label: `Received ${formatted}`,
+          });
+        }
+      } catch {}
+    }
+
+    return items;
+  }, [displayLocation, displayArea, displayPayload, requestData?.created_at, projectData?.created_at]);
 
   const handleDownloadPdf = () => {
     window.print();
@@ -720,93 +835,311 @@ export default function RequestOverviewPage() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', paddingBottom: '3rem' }}>
-      {/* ── 1. Top Breadcrumb & Actions Bar ── */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-        {/* Breadcrumb path */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', fontSize: '0.8rem', color: '#71717a' }}>
-          <Link href="/requests" style={{ color: '#52525b', textDecoration: 'none', fontWeight: 500 }}>
-            Requests
-          </Link>
-          <span style={{ color: '#a1a1aa' }}>/</span>
-          <span style={{ color: '#52525b', fontWeight: 500 }}>{displayClientCompany}</span>
-          <span style={{ color: '#a1a1aa' }}>/</span>
-          <span style={{ color: '#09090b', fontWeight: 700 }}>
-            {displayVersionString} – {displayProjectTitle}
-          </span>
-        </div>
+      {/* ── UNIFIED EXECUTIVE REQUEST HERO & LIFECYCLE STAGES PIPELINE ── */}
+      <div
+        className="wf-card"
+        style={{
+          padding: '1.5rem 1.75rem',
+          display: 'flex',
+          flexDirection: 'column',
+          backgroundColor: '#ffffff',
+          borderRadius: '16px',
+          border: '1px solid #e5e7eb',
+          boxShadow: '0 1px 3px rgba(0, 0, 0, 0.04)',
+        }}
+      >
+        {/* Top Partition: Breadcrumbs, Request Identity, Dynamic Badges & Action Buttons */}
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'flex-start',
+            flexWrap: 'wrap',
+            gap: '1rem',
+          }}
+        >
+          {/* Left Column: Breadcrumb + Request Title + Status Pill + Metadata */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', minWidth: 0, flex: '1 1 340px' }}>
+            {/* Breadcrumb Navigation Trail */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', fontSize: '0.8rem', color: '#6b7280' }}>
+              <Link
+                href="/requests"
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  color: '#9ca3af',
+                  textDecoration: 'none',
+                  transition: 'color 0.15s ease',
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.color = '#111827')}
+                onMouseLeave={(e) => (e.currentTarget.style.color = '#9ca3af')}
+              >
+                <Home size={15} />
+              </Link>
+              <ChevronRight size={13} color="#9ca3af" />
+              <Link
+                href="/requests"
+                style={{
+                  color: '#6b7280',
+                  fontWeight: 500,
+                  textDecoration: 'none',
+                  transition: 'color 0.15s ease',
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.color = '#111827')}
+                onMouseLeave={(e) => (e.currentTarget.style.color = '#6b7280')}
+              >
+                Requests
+              </Link>
+              {displayClientCompany && (
+                <>
+                  <ChevronRight size={13} color="#9ca3af" />
+                  <span style={{ color: '#6b7280', fontWeight: 500 }}>{displayClientCompany}</span>
+                </>
+              )}
+              <ChevronRight size={13} color="#9ca3af" />
+              <span style={{ color: '#111827', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {displayProjectTitle ? `${displayProjectTitle}` : `Request ${displayVersionString}`}
+              </span>
+              <span
+                style={{
+                  fontSize: '0.68rem',
+                  fontWeight: 600,
+                  padding: '0.15rem 0.5rem',
+                  borderRadius: '6px',
+                  backgroundColor: '#f3f4f6',
+                  color: '#6b7280',
+                  fontFamily: 'monospace',
+                  letterSpacing: '0.03em',
+                  marginLeft: '0.2rem',
+                }}
+              >
+                REQ-V{displayVersionString}
+              </span>
+            </div>
 
-        {/* Page Title & Action Buttons Header */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1rem' }}>
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
-              <h1 style={{ fontSize: '1.65rem', fontWeight: 800, color: '#09090b', letterSpacing: '-0.02em', margin: 0 }}>
-                Request {displayVersionString}
+            {/* Title & Status Badge Row */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem', flexWrap: 'wrap' }}>
+              <h1 style={{ fontSize: '1.75rem', fontWeight: 800, color: '#111827', margin: 0, lineHeight: 1.15, letterSpacing: '-0.02em' }}>
+                {displayProjectTitle ? `${displayProjectTitle} (Request ${displayVersionString})` : `Request ${displayVersionString}`}
               </h1>
               <span
                 style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.35rem',
                   fontSize: '0.75rem',
-                  fontWeight: 700,
-                  padding: '0.2rem 0.65rem',
-                  borderRadius: '4px',
-                  border: '1px solid #d4d4d8',
-                  backgroundColor: '#f4f4f5',
-                  color: '#09090b',
-                  textTransform: 'capitalize',
+                  fontWeight: 600,
+                  padding: '0.25rem 0.75rem',
+                  borderRadius: '9999px',
+                  backgroundColor: statusStyle.bg,
+                  color: statusStyle.color,
+                  border: statusStyle.border,
+                  letterSpacing: '0.01em',
                 }}
               >
-                {displayStatus}
+                <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: statusStyle.dotColor }} />
+                {statusStyle.label}
               </span>
             </div>
-            <p style={{ fontSize: '0.825rem', color: '#52525b', marginTop: '0.35rem' }}>
-              Submitted by <strong style={{ color: '#09090b' }}>{displayClientCompany}</strong> on {displayReceivedOn}
-            </p>
-          </div>
 
-          {/* Action Buttons Group */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', flexWrap: 'wrap' }}>
-            <Link
-              href="/requests"
-              className="btn btn-secondary"
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                height: '38px',
-                padding: '0 1rem',
-                fontSize: '0.8rem',
-                fontWeight: 600,
-                backgroundColor: '#ffffff',
-                border: '1px solid #d4d4d8',
-                borderRadius: '6px',
-                color: '#09090b',
-                textDecoration: 'none',
-              }}
-            >
-              Back to Requests
-            </Link>
-
-            <button
-              onClick={handleDownloadPdf}
-              className="btn btn-secondary"
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                height: '38px',
-                padding: '0 1rem',
-                fontSize: '0.8rem',
-                fontWeight: 600,
-                backgroundColor: '#ffffff',
-                border: '1px solid #d4d4d8',
-                borderRadius: '6px',
-                color: '#09090b',
-                cursor: 'pointer',
-              }}
-            >
-              Download PDF
-            </button>
+            {/* Dynamic Metadata Row (Only displaying data present in backend) */}
+            {requestMetaItems.length > 0 && (
+              <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '0.2rem', marginTop: '0.15rem' }}>
+                {requestMetaItems.map((item, idx) => (
+                  <React.Fragment key={item.id}>
+                    {idx > 0 && <span style={{ color: '#d1d5db', margin: '0 0.5rem' }}>|</span>}
+                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.8rem', color: '#4b5563', fontWeight: 500 }}>
+                      {item.icon}
+                      <span>{item.label}</span>
+                    </div>
+                  </React.Fragment>
+                ))}
+              </div>
+            )}
           </div>
         </div>
+
+        {/* Structural Divider */}
+        <div style={{ height: '1px', backgroundColor: '#f3f4f6', margin: '1.25rem 0 1rem 0' }} />
+
+        {/* Bottom Partition: Stages Stepper */}
+        <div style={{ display: 'flex', flexDirection: 'column' }}>
+          {/* Stepper Header Strip */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '1.5rem' }}>
+            <span style={{ fontSize: '0.85rem', fontWeight: 600, color: '#6b7280' }}>
+              Request Stage
+            </span>
+            <span style={{ fontSize: '0.8rem', color: '#6b7280' }}>
+              Stage {currentActiveStageNumber} of 6
+              <span style={{ color: '#d1d5db', margin: '0 0.5rem' }}>•</span>
+              <strong style={{ color: '#111827', fontWeight: 700 }}>{currentActiveStageName}</strong>
+            </span>
+          </div>
+
+          {/* 6-Stage Stepper Track with Connected Line Connectors */}
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'flex-start',
+              position: 'relative',
+              width: '100%',
+              padding: '0 0.5rem',
+            }}
+          >
+            {[
+              { id: 1, name: 'Request' },
+              { id: 2, name: 'Planning' },
+              { id: 3, name: 'Mobilising' },
+              { id: 4, name: 'Capturing' },
+              { id: 5, name: 'Processing' },
+              { id: 6, name: 'Delivered' },
+            ].map((st, idx, arr) => {
+              const isLast = idx === arr.length - 1;
+              const status = getStepStatus(st.id);
+              const isCompleted = status === 'completed';
+              const isActive = status === 'active';
+
+              const StageIcon =
+                st.id === 1
+                  ? FileText
+                  : st.id === 2
+                  ? FileText
+                  : st.id === 3
+                  ? Users
+                  : st.id === 4
+                  ? Plane
+                  : st.id === 5
+                  ? Settings
+                  : Flag;
+
+              const nextStatus = !isLast ? getStepStatus(arr[idx + 1].id) : null;
+              let connectorStyle: React.CSSProperties = {
+                borderTop: '2px dashed #d1d5db',
+              };
+              if (isCompleted && nextStatus === 'completed') {
+                connectorStyle = { borderTop: '2.5px solid #16a34a' };
+              } else if (isCompleted && nextStatus === 'active') {
+                connectorStyle = { borderTop: '2.5px solid #18181b' };
+              }
+
+              return (
+                <div
+                  key={st.id}
+                  onClick={() => {
+                    if (st.id === 2) setActiveTab('planning');
+                    else if (st.id === 1) setActiveTab('request');
+                  }}
+                  style={{
+                    flex: 1,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    textAlign: 'center',
+                    position: 'relative',
+                    cursor: st.id <= 2 ? 'pointer' : 'default',
+                  }}
+                >
+                  {/* Connecting Line to next stage */}
+                  {!isLast && (
+                    <div
+                      style={{
+                        position: 'absolute',
+                        top: '24px',
+                        left: '50%',
+                        width: '100%',
+                        height: '0px',
+                        zIndex: 1,
+                        transform: 'translateY(-50%)',
+                        ...connectorStyle,
+                      }}
+                    />
+                  )}
+
+                  {/* Node Circle */}
+                  <div
+                    style={{
+                      position: 'relative',
+                      zIndex: 2,
+                      width: '48px',
+                      height: '48px',
+                      borderRadius: '50%',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      transition: 'all 0.2s ease',
+                      backgroundColor: isCompleted
+                        ? '#e8f8f0'
+                        : isActive
+                        ? '#18181b'
+                        : '#f3f4f6',
+                      boxShadow: isActive
+                        ? '0 0 0 6px #f4f4f5'
+                        : 'none',
+                    }}
+                  >
+                    <StageIcon
+                      size={20}
+                      color={isCompleted ? '#16a34a' : isActive ? '#ffffff' : '#6b7280'}
+                      strokeWidth={isActive ? 2.2 : 2}
+                    />
+
+                    {/* Green Checkmark Badge for Completed Stages */}
+                    {isCompleted && (
+                      <div
+                        style={{
+                          position: 'absolute',
+                          top: '-2px',
+                          right: '-2px',
+                          width: '16px',
+                          height: '16px',
+                          borderRadius: '50%',
+                          backgroundColor: '#16a34a',
+                          border: '2px solid #ffffff',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}
+                      >
+                        <Check size={9} strokeWidth={3.5} color="#ffffff" />
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Stage Details Below Circle */}
+                  <div style={{ marginTop: '0.75rem', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                    <span style={{ fontSize: '0.75rem', fontWeight: 600, color: '#9ca3af', lineHeight: 1 }}>
+                      0{st.id}
+                    </span>
+                    <span
+                      style={{
+                        fontSize: '0.875rem',
+                        fontWeight: 700,
+                        color: '#111827',
+                        marginTop: '0.25rem',
+                        lineHeight: 1.2,
+                      }}
+                    >
+                      {st.name}
+                    </span>
+                    <span
+                      style={{
+                        fontSize: '0.75rem',
+                        fontWeight: 500,
+                        color: isCompleted ? '#6b7280' : isActive ? '#6b7280' : '#9ca3af',
+                        marginTop: '0.15rem',
+                        lineHeight: 1.2,
+                      }}
+                    >
+                      {isCompleted ? 'Completed' : isActive ? 'In Progress' : 'Upcoming'}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
 
         {/* ── Two Primary Sections: Request Overview & Planning Overview ── */}
         <div style={{ display: 'flex', gap: '2rem', borderBottom: '1px solid #e4e4e7', marginTop: '0.5rem' }}>
@@ -849,22 +1182,8 @@ export default function RequestOverviewPage() {
             }}
           >
             <span>Planning Overview</span>
-            <span
-              style={{
-                fontSize: '0.675rem',
-                fontWeight: 700,
-                padding: '0.125rem 0.5rem',
-                borderRadius: '4px',
-                backgroundColor: isPlanningFilled ? '#09090b' : (isOps && hasDraftInProgress ? '#09090b' : '#f4f4f5'),
-                color: isPlanningFilled ? '#ffffff' : (isOps && hasDraftInProgress ? '#ffffff' : '#52525b'),
-                border: isPlanningFilled ? '1px solid #09090b' : (isOps && hasDraftInProgress ? '1px solid #09090b' : '1px solid #d4d4d8'),
-              }}
-            >
-              {isPlanningFilled ? 'Plan Formulated' : (isOps && hasDraftInProgress ? 'Planning in Progress' : 'Yet to be planned')}
-            </span>
           </button>
         </div>
-      </div>
 
       {/* ========================================================================= */}
       {/* ── SECTION 1: REQUEST OVERVIEW (PREVIEW STYLE REQUEST FORM - NO CREATE PLAN) ── */}
@@ -945,8 +1264,15 @@ export default function RequestOverviewPage() {
                   </div>
 
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
-                    <span style={{ color: '#52525b', minWidth: '135px' }}>Requested Area</span>
-                    <strong style={{ color: '#09090b' }}>{displayArea}</strong>
+                    <span style={{ color: '#52525b', minWidth: '135px' }}>Total Area</span>
+                    <strong style={{ color: '#09090b', display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}>
+                      <span>{displayArea}</span>
+                      {planningVersions?.[0]?.form_data?.kmlCalculatedArea && (
+                        <span style={{ fontSize: '0.65rem', color: '#16a34a', fontWeight: 600, backgroundColor: '#f0fdf4', padding: '1px 5px', borderRadius: '3px', border: '1px solid #bbf7d0' }}>
+                          Calculated by Latrics
+                        </span>
+                      )}
+                    </strong>
                   </div>
 
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
@@ -1072,89 +1398,7 @@ export default function RequestOverviewPage() {
             </div>
           </div>
 
-          {/* Request Pipeline Stepper Card */}
-          <div className="wf-card" style={{ padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '1.5rem', backgroundColor: '#ffffff', border: '1px solid #e4e4e7', borderRadius: '8px' }}>
-            <div>
-              <h3 style={{ fontSize: '0.95rem', fontWeight: 800, color: '#09090b', margin: 0 }}>Request Lifecycle Pipeline</h3>
-              <p style={{ fontSize: '0.775rem', color: '#52525b', marginTop: '0.15rem' }}>
-                Current workflow stage of this survey mission.
-              </p>
-            </div>
 
-            {/* Stepper Flow Container */}
-            <div style={{ position: 'relative', width: '100%', padding: '0.5rem 1rem 1rem' }}>
-              <div
-                style={{
-                  position: 'absolute',
-                  top: '25px',
-                  left: '5%',
-                  right: '5%',
-                  height: '2px',
-                  backgroundColor: '#d4d4d8',
-                  zIndex: 1,
-                }}
-              />
-
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(6, 1fr)',
-                  position: 'relative',
-                  zIndex: 2,
-                }}
-              >
-                {pipelineStages.map((stage) => {
-                  const isFilled = stage.completed || stage.active;
-                  return (
-                    <div
-                      key={stage.step}
-                      style={{
-                        display: 'flex',
-                        flexDirection: 'column',
-                        alignItems: 'center',
-                        textAlign: 'center',
-                        gap: '0.45rem',
-                      }}
-                    >
-                      <div
-                        style={{
-                          width: '34px',
-                          height: '34px',
-                          borderRadius: '50%',
-                          backgroundColor: isFilled ? '#09090b' : '#ffffff',
-                          color: isFilled ? '#ffffff' : '#09090b',
-                          border: isFilled ? '2px solid #09090b' : '2px solid #a1a1aa',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          fontWeight: 800,
-                          fontSize: '0.85rem',
-                          boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
-                        }}
-                      >
-                        {stage.step}
-                      </div>
-
-                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.15rem' }}>
-                        <span
-                          style={{
-                            fontSize: '0.8rem',
-                            fontWeight: isFilled ? 800 : 500,
-                            color: isFilled ? '#09090b' : '#71717a',
-                          }}
-                        >
-                          {stage.title}
-                        </span>
-                        {stage.date && (
-                          <span style={{ fontSize: '0.7rem', color: '#71717a' }}>{stage.date}</span>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
 
           {/* Survey Requirements Card (3 Columns: Payload, Processing, Deliverables) */}
           <div className="wf-card" style={{ padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '1.25rem', backgroundColor: '#ffffff', border: '1px solid #e4e4e7', borderRadius: '8px' }}>
@@ -1435,135 +1679,184 @@ export default function RequestOverviewPage() {
               </div>
 
               {/* Column 3: Requested Deliverables */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.2rem' }}>
-                  <span style={{ fontSize: '0.825rem', fontWeight: 800, color: '#09090b' }}>Requested Deliverables</span>
-                  <span style={{ fontSize: '0.7rem', color: '#71717a' }}>Read-Only Specifications</span>
-                </div>
+              {(() => {
+                const allPreCatalog = [
+                  { id: 'geo_tagged_image', label: 'Geo Tagged Images', format: 'RAW / JPG', icon: Camera, desc: 'Positioned drone captures with RTK metadata' },
+                  { id: 'event_files', label: 'Event Logs', format: 'CSV / TXT', icon: FileSpreadsheet, desc: 'Sensor shutter timing & trigger timestamps' },
+                  { id: 'point_cloud', label: 'LiDAR Point Cloud', format: 'LAS / LAZ', icon: Cpu, desc: 'Raw sensor LiDAR point cloud data' },
+                  { id: 'trajectory_files', label: 'Flight Trajectory', format: 'POS / SBET', icon: Navigation, desc: 'Kinematic trajectory solution data' },
+                ];
 
-                {/* Pre-Processing Deliverables List */}
-                {optPreProcessing && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-                    <span style={{ fontSize: '0.725rem', fontWeight: 700, color: '#09090b' }}>
-                      Pre-Processing Deliverables
-                    </span>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.4rem 0.65rem' }}>
-                      {[
-                        { id: 'geo_tagged_image', label: 'Geo Tagged Image' },
-                        { id: 'event_files', label: 'Event Files' },
-                        { id: 'point_cloud', label: 'Point Cloud' },
-                        { id: 'trajectory_files', label: 'Trajectory Files' },
-                      ].map((item) => {
-                        const checked = isPreDelivSelected(item.id);
-                        return (
-                          <div
-                            key={item.id}
-                            style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: '0.45rem',
-                              padding: '0.4rem 0.55rem',
-                              backgroundColor: checked ? '#ffffff' : '#fafafa',
-                              border: checked ? '1px solid #09090b' : '1px solid #e4e4e7',
-                              borderRadius: '4px',
-                              fontSize: '0.75rem',
-                              fontWeight: checked ? 700 : 400,
-                              color: checked ? '#09090b' : '#71717a',
-                              opacity: checked ? 1 : 0.6,
-                            }}
-                          >
-                            <span style={{ fontSize: '0.75rem', fontWeight: 700 }}>
-                              {checked ? '[✓]' : '[ ]'}
-                            </span>
-                            <span>{item.label}</span>
-                          </div>
-                        );
-                      })}
+                const allPostCatalog = [
+                  { id: 'orthomosaic', label: 'Orthomosaic Map', format: 'GeoTIFF', icon: Layers, desc: 'High-res geometrically corrected aerial mosaic' },
+                  { id: 'topographic_map', label: 'Topographic Map', format: 'DWG / PDF', icon: Map, desc: 'Contour lines, elevations & spot features' },
+                  { id: 'dem', label: 'Digital Elevation Model', format: 'GeoTIFF / DEM', icon: Mountain, desc: 'Bare-earth surface terrain elevation model' },
+                  { id: 'dsm', label: 'Digital Surface Model', format: 'GeoTIFF', icon: Mountain, desc: 'Surface elevations including vegetation & built assets' },
+                  { id: 'point_cloud', label: 'RGB Point Cloud', format: 'LAS / PLY', icon: Boxes, desc: 'Colorized densified 3D point cloud classification' },
+                  { id: '3d_model', label: '3D Mesh Model', format: 'OBJ / FBX', icon: Box, desc: 'Textured photogrammetric 3D reality mesh' },
+                  { id: 'cad', label: 'CAD Vector Plan', format: 'DWG / DXF', icon: Cpu, desc: '2D/3D digitized planimetric linework' },
+                  { id: 'volumetric_analysis', label: 'Volumetric Report', format: 'PDF / XLS', icon: Activity, desc: 'Stockpile cut/fill volumetric computation' },
+                  { id: 'contour', label: 'Elevation Contours', format: 'SHP / DXF', icon: Activity, desc: 'Topographic index & intermediate vector contours' },
+                ];
+
+                const selectedPreList = allPreCatalog.filter((item) => isPreDelivSelected(item.id));
+                const selectedPostList = allPostCatalog.filter((item) => isPostDelivSelected(item.id));
+                const totalCount = selectedPreList.length + selectedPostList.length + (preOtherCustomText ? 1 : 0) + (postOtherCustomText ? 1 : 0);
+
+                return (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid #f4f4f5', paddingBottom: '0.45rem' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <span style={{ fontSize: '0.825rem', fontWeight: 800, color: '#09090b' }}>Requested Deliverables</span>
+                        <span style={{ fontSize: '0.65rem', fontWeight: 700, padding: '0.12rem 0.5rem', backgroundColor: '#09090b', color: '#ffffff', borderRadius: '12px' }}>
+                          {totalCount} Selected
+                        </span>
+                      </div>
+                      <span style={{ fontSize: '0.7rem', color: '#71717a' }}>Output Specifications</span>
                     </div>
-                    {preOtherCustomText && (
-                      <div
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '0.45rem',
-                          padding: '0.35rem 0.6rem',
-                          backgroundColor: '#f4f4f5',
-                          border: '1px solid #d4d4d8',
-                          borderRadius: '4px',
-                          fontSize: '0.725rem',
-                        }}
-                      >
-                        <strong style={{ color: '#09090b' }}>Pre-Processing Custom:</strong>
-                        <span style={{ color: '#27272a' }}>{preOtherCustomText}</span>
+
+                    {/* Pre-Processing Section */}
+                    {optPreProcessing && (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.45rem' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                          <span style={{ fontSize: '0.725rem', fontWeight: 700, color: '#09090b', textTransform: 'uppercase', letterSpacing: '0.02em' }}>
+                            Pre-Processing Deliverables
+                          </span>
+                          <span style={{ fontSize: '0.675rem', color: '#71717a' }}>{selectedPreList.length} items</span>
+                        </div>
+
+                        {selectedPreList.length === 0 && !preOtherCustomText ? (
+                          <div style={{ padding: '0.5rem 0.65rem', backgroundColor: '#fafafa', border: '1px dashed #d4d4d8', borderRadius: '6px', fontSize: '0.725rem', color: '#71717a' }}>
+                            No pre-processing deliverables selected
+                          </div>
+                        ) : (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                            {selectedPreList.map((item) => {
+                              const IconComp = item.icon;
+                              return (
+                                <div
+                                  key={item.id}
+                                  style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'space-between',
+                                    gap: '0.6rem',
+                                    padding: '0.45rem 0.65rem',
+                                    backgroundColor: '#ffffff',
+                                    border: '1px solid #18181b',
+                                    borderRadius: '6px',
+                                    boxShadow: '0 1px 2px rgba(0,0,0,0.03)',
+                                  }}
+                                >
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', minWidth: 0 }}>
+                                    <div style={{ width: '24px', height: '24px', borderRadius: '4px', backgroundColor: '#f4f4f5', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#09090b', flexShrink: 0 }}>
+                                      <IconComp size={13} />
+                                    </div>
+                                    <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+                                      <span style={{ fontSize: '0.775rem', fontWeight: 700, color: '#09090b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                        {item.label}
+                                      </span>
+                                      <span style={{ fontSize: '0.65rem', color: '#71717a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                        {item.desc}
+                                      </span>
+                                    </div>
+                                  </div>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexShrink: 0 }}>
+                                    <span style={{ fontSize: '0.65rem', fontWeight: 700, padding: '0.12rem 0.4rem', backgroundColor: '#f4f4f5', color: '#09090b', borderRadius: '4px', border: '1px solid #e4e4e7' }}>
+                                      {item.format}
+                                    </span>
+                                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.2rem', fontSize: '0.65rem', fontWeight: 700, color: '#16a34a' }}>
+                                      <CheckCircle2 size={12} />
+                                      Opted
+                                    </span>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                            {preOtherCustomText && (
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', padding: '0.45rem 0.65rem', backgroundColor: '#f4f4f5', border: '1px solid #d4d4d8', borderRadius: '6px', fontSize: '0.725rem' }}>
+                                <Sparkles size={13} color="#09090b" style={{ flexShrink: 0 }} />
+                                <strong style={{ color: '#09090b' }}>Custom:</strong>
+                                <span style={{ color: '#27272a' }}>{preOtherCustomText}</span>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Post-Processing Section */}
+                    {optPostProcessing && (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.45rem', marginTop: optPreProcessing ? '0.25rem' : 0 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                          <span style={{ fontSize: '0.725rem', fontWeight: 700, color: '#09090b', textTransform: 'uppercase', letterSpacing: '0.02em' }}>
+                            Post-Processing Deliverables
+                          </span>
+                          <span style={{ fontSize: '0.675rem', color: '#71717a' }}>{selectedPostList.length} items</span>
+                        </div>
+
+                        {selectedPostList.length === 0 && !postOtherCustomText ? (
+                          <div style={{ padding: '0.5rem 0.65rem', backgroundColor: '#fafafa', border: '1px dashed #d4d4d8', borderRadius: '6px', fontSize: '0.725rem', color: '#71717a' }}>
+                            No post-processing deliverables selected
+                          </div>
+                        ) : (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                            {selectedPostList.map((item) => {
+                              const IconComp = item.icon;
+                              return (
+                                <div
+                                  key={item.id}
+                                  style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'space-between',
+                                    gap: '0.6rem',
+                                    padding: '0.45rem 0.65rem',
+                                    backgroundColor: '#ffffff',
+                                    border: '1px solid #18181b',
+                                    borderRadius: '6px',
+                                    boxShadow: '0 1px 2px rgba(0,0,0,0.03)',
+                                  }}
+                                >
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', minWidth: 0 }}>
+                                    <div style={{ width: '24px', height: '24px', borderRadius: '4px', backgroundColor: '#f4f4f5', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#09090b', flexShrink: 0 }}>
+                                      <IconComp size={13} />
+                                    </div>
+                                    <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+                                      <span style={{ fontSize: '0.775rem', fontWeight: 700, color: '#09090b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                        {item.label}
+                                      </span>
+                                      <span style={{ fontSize: '0.65rem', color: '#71717a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                        {item.desc}
+                                      </span>
+                                    </div>
+                                  </div>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexShrink: 0 }}>
+                                    <span style={{ fontSize: '0.65rem', fontWeight: 700, padding: '0.12rem 0.4rem', backgroundColor: '#f4f4f5', color: '#09090b', borderRadius: '4px', border: '1px solid #e4e4e7' }}>
+                                      {item.format}
+                                    </span>
+                                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.2rem', fontSize: '0.65rem', fontWeight: 700, color: '#16a34a' }}>
+                                      <CheckCircle2 size={12} />
+                                      Opted
+                                    </span>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                            {postOtherCustomText && (
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', padding: '0.45rem 0.65rem', backgroundColor: '#f4f4f5', border: '1px solid #d4d4d8', borderRadius: '6px', fontSize: '0.725rem' }}>
+                                <Sparkles size={13} color="#09090b" style={{ flexShrink: 0 }} />
+                                <strong style={{ color: '#09090b' }}>Custom:</strong>
+                                <span style={{ color: '#27272a' }}>{postOtherCustomText}</span>
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
-                )}
-
-                {/* Post-Processing Deliverables List */}
-                {optPostProcessing && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', marginTop: optPreProcessing ? '0.35rem' : 0 }}>
-                    <span style={{ fontSize: '0.725rem', fontWeight: 700, color: '#09090b' }}>
-                      Post-Processing Deliverables
-                    </span>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.4rem 0.65rem' }}>
-                      {[
-                        { id: 'orthomosaic', label: 'Orthomosaic' },
-                        { id: 'topographic_map', label: 'Topographic Map' },
-                        { id: 'dem', label: 'DEM' },
-                        { id: 'dsm', label: 'DSM' },
-                        { id: 'point_cloud', label: 'Point Cloud' },
-                        { id: '3d_model', label: '3D Model' },
-                        { id: 'cad', label: 'CAD' },
-                        { id: 'volumetric_analysis', label: 'Volumetric Analysis' },
-                        { id: 'contour', label: 'Contour' },
-                      ].map((item) => {
-                        const checked = isPostDelivSelected(item.id);
-                        return (
-                          <div
-                            key={item.id}
-                            style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: '0.45rem',
-                              padding: '0.4rem 0.55rem',
-                              backgroundColor: checked ? '#ffffff' : '#fafafa',
-                              border: checked ? '1px solid #09090b' : '1px solid #e4e4e7',
-                              borderRadius: '4px',
-                              fontSize: '0.75rem',
-                              fontWeight: checked ? 700 : 400,
-                              color: checked ? '#09090b' : '#71717a',
-                              opacity: checked ? 1 : 0.6,
-                            }}
-                          >
-                            <span style={{ fontSize: '0.75rem', fontWeight: 700 }}>
-                              {checked ? '[✓]' : '[ ]'}
-                            </span>
-                            <span>{item.label}</span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                    {postOtherCustomText && (
-                      <div
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '0.45rem',
-                          padding: '0.35rem 0.6rem',
-                          backgroundColor: '#f4f4f5',
-                          border: '1px solid #d4d4d8',
-                          borderRadius: '4px',
-                          fontSize: '0.725rem',
-                        }}
-                      >
-                        <strong style={{ color: '#09090b' }}>Post-Processing Custom:</strong>
-                        <span style={{ color: '#27272a' }}>{postOtherCustomText}</span>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
+                );
+              })()}
             </div>
           </div>
 
@@ -1599,23 +1892,76 @@ export default function RequestOverviewPage() {
                   <table className="wf-table" style={{ margin: 0, width: '100%' }}>
                     <thead>
                       <tr style={{ backgroundColor: '#fafafa' }}>
-                        <th style={{ width: '8%', textAlign: 'center' }}>#</th>
-                        <th style={{ width: '42%' }}>File Name</th>
-                        <th style={{ width: '18%' }}>Type</th>
-                        <th style={{ width: '16%' }}>Size</th>
-                        <th style={{ width: '16%', textAlign: 'right' }}>Uploaded</th>
+                        <th style={{ width: '6%', textAlign: 'center' }}>#</th>
+                        <th style={{ width: '38%' }}>File Name</th>
+                        <th style={{ width: '14%' }}>Type</th>
+                        <th style={{ width: '14%' }}>Size</th>
+                        <th style={{ width: '14%', textAlign: 'center' }}>Uploaded</th>
+                        <th style={{ width: '14%', textAlign: 'right' }}>Actions</th>
                       </tr>
                     </thead>
                     <tbody>
                       {attachments.map((file) => (
-                        <tr key={file.id}>
+                        <tr
+                          key={file.id}
+                          onClick={() => {
+                            downloadDocument({
+                              name: file.name,
+                              dataUrl: file.dataUrl,
+                              type: file.type,
+                              projectTitle: projectData?.title || requestData?.project_title || undefined,
+                            });
+                          }}
+                          style={{ cursor: 'pointer', transition: 'background-color 0.15s ease' }}
+                          title={`Click to download ${file.name} directly`}
+                        >
                           <td style={{ textAlign: 'center', color: '#71717a', fontSize: '0.75rem' }}>{file.id}</td>
                           <td style={{ fontWeight: 600, color: '#09090b', fontSize: '0.8rem', wordBreak: 'break-all' }}>
-                            {file.name}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                              <FileText size={14} color="#09090b" style={{ flexShrink: 0 }} />
+                              <span style={{ textDecoration: 'underline', textUnderlineOffset: '2px' }}>{file.name}</span>
+                            </div>
                           </td>
-                          <td style={{ fontSize: '0.75rem', color: '#52525b' }}>{file.type}</td>
+                          <td style={{ fontSize: '0.75rem', color: '#52525b' }}>
+                            <span style={{ padding: '0.12rem 0.4rem', backgroundColor: '#f4f4f5', borderRadius: '4px', fontWeight: 600, fontSize: '0.7rem' }}>
+                              {file.type}
+                            </span>
+                          </td>
                           <td style={{ fontSize: '0.75rem', color: '#52525b' }}>{file.size}</td>
-                          <td style={{ fontSize: '0.75rem', color: '#52525b', textAlign: 'right' }}>{file.date}</td>
+                          <td style={{ fontSize: '0.75rem', color: '#52525b', textAlign: 'center' }}>{file.date}</td>
+                          <td style={{ textAlign: 'right' }} onClick={(e) => e.stopPropagation()}>
+                            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', justifyContent: 'flex-end' }}>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  downloadDocument({
+                                    name: file.name,
+                                    dataUrl: file.dataUrl,
+                                    type: file.type,
+                                    projectTitle: projectData?.title || requestData?.project_title || undefined,
+                                  });
+                                }}
+                                title="Download authentic file directly"
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '0.25rem',
+                                  padding: '0.3rem 0.65rem',
+                                  fontSize: '0.725rem',
+                                  fontWeight: 600,
+                                  color: '#ffffff',
+                                  backgroundColor: '#09090b',
+                                  border: 'none',
+                                  borderRadius: '4px',
+                                  cursor: 'pointer',
+                                  transition: 'background-color 0.15s ease',
+                                }}
+                              >
+                                <Download size={13} />
+                                Download
+                              </button>
+                            </div>
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -1649,9 +1995,8 @@ export default function RequestOverviewPage() {
                   whiteSpace: 'pre-wrap',
                 }}
               >
-                {reqPayload.remarks ||
-                  reqPayload.client_notes ||
-                  projectData?.description ||
+                {reqPayload.remarks?.trim() ||
+                  reqPayload.client_notes?.trim() ||
                   'No special remarks or operational instructions provided by the client.'}
               </div>
             </div>
@@ -1747,35 +2092,6 @@ export default function RequestOverviewPage() {
                   Operational plan is under formulation by LATRICS Operations. You will be able to review, add remarks, and attach documents once submitted.
                 </div>
               )}
-
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(4, 1fr)',
-                  gap: '0.85rem',
-                  width: '100%',
-                  maxWidth: '820px',
-                  textAlign: 'left',
-                  marginTop: '1rem',
-                }}
-              >
-                <div style={{ padding: '0.85rem 1rem', backgroundColor: '#fafafa', border: '1px solid #e4e4e7', borderRadius: '6px' }}>
-                  <div style={{ fontWeight: 700, color: '#09090b', fontSize: '0.8rem' }}>1. Airspace &amp; Clearances</div>
-                  <div style={{ color: '#71717a', fontSize: '0.725rem', marginTop: '0.2rem' }}>DGCA classification &amp; airport proximity</div>
-                </div>
-                <div style={{ padding: '0.85rem 1rem', backgroundColor: '#fafafa', border: '1px solid #e4e4e7', borderRadius: '6px' }}>
-                  <div style={{ fontWeight: 700, color: '#09090b', fontSize: '0.8rem' }}>2. Terrain &amp; Hazards</div>
-                  <div style={{ color: '#71717a', fontSize: '0.725rem', marginTop: '0.2rem' }}>Elevation, buffer zones &amp; staging</div>
-                </div>
-                <div style={{ padding: '0.85rem 1rem', backgroundColor: '#fafafa', border: '1px solid #e4e4e7', borderRadius: '6px' }}>
-                  <div style={{ fontWeight: 700, color: '#09090b', fontSize: '0.8rem' }}>3. GCP &amp; Telemetry</div>
-                  <div style={{ color: '#71717a', fontSize: '0.725rem', marginTop: '0.2rem' }}>Targets, altitude &amp; overlap ratio</div>
-                </div>
-                <div style={{ padding: '0.85rem 1rem', backgroundColor: '#fafafa', border: '1px solid #e4e4e7', borderRadius: '6px' }}>
-                  <div style={{ fontWeight: 700, color: '#09090b', fontSize: '0.8rem' }}>4. Timelines &amp; Quotation</div>
-                  <div style={{ color: '#71717a', fontSize: '0.725rem', marginTop: '0.2rem' }}>Flight hours, crew &amp; sign-off</div>
-                </div>
-              </div>
             </div>
           ) : (
             /* ── STATE B: PLANNING FORM OVERVIEW (8 ASSESSMENT STAGES) ── */
@@ -2172,7 +2488,7 @@ export default function RequestOverviewPage() {
                     <strong style={{ color: '#09090b' }}>{planningDetails.totalFlightDuration}</strong>
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem' }}>
-                    <span style={{ fontSize: '0.7rem', color: '#71717a' }}>Number of Sorties / Landings</span>
+                    <span style={{ fontSize: '0.7rem', color: '#71717a' }}>Number of Flights / Landings</span>
                     <strong style={{ color: '#09090b' }}>{planningDetails.landings}</strong>
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem' }}>

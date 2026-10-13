@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { projectApi } from '@/modules/projects/api';
 import { Project, ProjectStatus } from '@/modules/projects/types';
 import { sectorApi } from '@/modules/sectors/api';
@@ -12,6 +12,7 @@ import { AllocationModal } from '@/modules/allocations/components/AllocationModa
 import { allocationsApi } from '@/modules/allocations/api';
 import { AllocationCreate } from '@/modules/allocations/types';
 import { PageHeader } from '@/components/PageHeader';
+import { formatDateDDMMYYYY } from '@/lib/date';
 
 export default function SectorsPage() {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -47,31 +48,30 @@ export default function SectorsPage() {
     }
   };
 
-  useEffect(() => {
+  const loadSectorData = useCallback(async () => {
     if (!selectedProjectId) {
       setActivePlan(null);
       setSectors([]);
       return;
     }
-
-    const loadSectorData = async () => {
-      try {
-        setLoadingSectors(true);
-        const [plan, sectData] = await Promise.all([
-          planningApi.getActivePlan(selectedProjectId).catch(() => null),
-          sectorApi.listProjectSectors(selectedProjectId).catch(() => []),
-        ]);
-        setActivePlan(plan);
-        setSectors(sectData);
-      } catch (err: any) {
-        console.error('Failed to load sector data:', err);
-      } finally {
-        setLoadingSectors(false);
-      }
-    };
-
-    loadSectorData();
+    try {
+      setLoadingSectors(true);
+      const [plan, sectData] = await Promise.all([
+        planningApi.getActivePlan(selectedProjectId).catch(() => null),
+        sectorApi.listProjectSectors(selectedProjectId).catch(() => []),
+      ]);
+      setActivePlan(plan);
+      setSectors(sectData);
+    } catch (err: any) {
+      console.error('Failed to load sector data:', err);
+    } finally {
+      setLoadingSectors(false);
+    }
   }, [selectedProjectId]);
+
+  useEffect(() => {
+    loadSectorData();
+  }, [loadSectorData]);
 
   const selectedProject = projects.find((p) => p.id === selectedProjectId);
 
@@ -125,14 +125,17 @@ export default function SectorsPage() {
       <PageHeader
         title="Flight Sectors & Grids"
         subtitle="Partition project survey zones into discrete operational flight sectors and monitor survey coverage."
+        onRefresh={loadSectorData}
+        isRefreshing={loadingSectors}
+        refreshTooltip="Refresh flight sectors"
       >
         {activePlan && (
           <button
             onClick={() => setCreateModalOpen(true)}
             className="btn btn-primary"
-            style={{ fontSize: '0.875rem' }}
+            style={{ fontSize: '0.8rem', height: '36px', display: 'inline-flex', alignItems: 'center', gap: '0.4rem', padding: '0 0.95rem' }}
           >
-            📐 Subdivide Flight Grid
+            <span>📐 Subdivide Flight Grid</span>
           </button>
         )}
       </PageHeader>
@@ -216,7 +219,7 @@ export default function SectorsPage() {
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
                       <span>Status: {p.status}</span>
-                      <span>{p.updated_at ? new Date(p.updated_at).toLocaleDateString() : 'N/A'}</span>
+                      <span>{p.updated_at ? formatDateDDMMYYYY(p.updated_at) : 'N/A'}</span>
                     </div>
                   </div>
                 );

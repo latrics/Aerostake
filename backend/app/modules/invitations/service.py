@@ -3,6 +3,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 from fastapi import HTTPException, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
@@ -78,6 +79,16 @@ class InvitationService:
                 org = await invitation_repository.get_or_create_organization(db, invite_in.company_name)
                 org_id = org.id
 
+            if invite_in.agreement_start_date and org_id:
+                clean_agr_date = invite_in.agreement_start_date.strip().split("T")[0]
+                users_stmt = select(User).where(User.organization_id == org_id)
+                u_res = await db.execute(users_stmt)
+                for u in u_res.scalars().all():
+                    prof = dict(u.company_profile or {})
+                    prof["agreement_start_date"] = clean_agr_date
+                    prof["agreement_start"] = clean_agr_date
+                    u.company_profile = prof
+
 
         elif invite_in.role == RoleEnum.CLIENT_SUB:
             if not org_id:
@@ -93,9 +104,10 @@ class InvitationService:
                     detail="Organization subordinate user quota reached (maximum 4 subordinate users per organization).",
                 )
 
-        # 5. Generate secure token & expiry (7 days)
+        # 5. Generate secure token & expiry (24 hours for pilot, 7 days default)
         token = secrets.token_urlsafe(32)
-        expires_at = datetime.now(timezone.utc) + timedelta(days=7)
+        validity_days = 1 if invite_in.role == RoleEnum.PILOT else 7
+        expires_at = datetime.now(timezone.utc) + timedelta(days=validity_days)
 
         target_role = RoleEnum.CLIENT_PRIMARY if invite_in.role in [RoleEnum.CLIENT_PRIMARY, RoleEnum.CLIENT] else invite_in.role
 
@@ -110,7 +122,7 @@ class InvitationService:
         )
 
         # 6. Send invitation email notification
-        invite_link = f"http://localhost:3000/accept-invite?token={token}"
+        invite_link = f"{settings.FRONTEND_URL.rstrip('/')}/accept-invite?token={token}"
         await notification_service.send_email(
             to_email=invitation.email,
             subject=f"Aerostake Invitation: Join as {invitation.role.value}",
@@ -185,8 +197,77 @@ class InvitationService:
             await db.flush()
             await db.refresh(user)
 
+        # Inherit organization agreement start date if configured
+        if user.organization_id:
+            try:
+                org_u_stmt = select(User).where(User.organization_id == user.organization_id)
+                org_u_res = await db.execute(org_u_stmt)
+                scalars = org_u_res.scalars()
+                ou_list = scalars.all() if hasattr(scalars, 'all') and callable(scalars.all) else []
+                if not hasattr(ou_list, '__iter__'):
+                    ou_list = []
+                for ou in ou_list:
+                    if hasattr(ou, 'id') and ou.id != user.id and getattr(ou, 'company_profile', None) and isinstance(ou.company_profile, dict):
+                        agr_val = ou.company_profile.get("agreement_start_date") or ou.company_profile.get("agreement_start")
+                        if agr_val:
+                            u_prof = dict(user.company_profile or {})
+                            u_prof["agreement_start_date"] = agr_val
+                            u_prof["agreement_start"] = agr_val
+                            user.company_profile = u_prof
+                            break
+            except Exception:
+                pass
+
         # 2. Mark invitation accepted
         await invitation_repository.mark_accepted(db, invitation)
+
+        # 2b. If pilot, auto-sync pre-allocated sectors and project flight crew rosters
+        if user.role == RoleEnum.PILOT:
+            try:
+                from app.modules.sectors.model import Sector
+                from app.modules.projects.model import Project
+
+                stmt = select(Sector)
+                res = await db.execute(stmt)
+                all_sectors = res.scalars().all()
+                for sec in all_sectors:
+                    coords = dict(sec.polygon_coordinates or {})
+                    planning = dict(coords.get("planning") or {})
+                    p_email = (planning.get("pilot_email") or "").strip().lower()
+                    if p_email and p_email == user.email.strip().lower():
+                        planning["assigned_pilot_id"] = str(user.id)
+                        if user.full_name:
+                            planning["assigned_pilot"] = user.full_name
+                        if user.phone_number:
+                            planning["pilot_phone"] = user.phone_number
+                        planning["is_pending_invite"] = False
+                        coords["planning"] = planning
+                        sec.polygon_coordinates = coords
+
+                proj_stmt = select(Project)
+                proj_res = await db.execute(proj_stmt)
+                for proj in proj_res.scalars().all():
+                    req_payload = dict(proj.requirements_payload or {})
+                    mob = dict(req_payload.get("mobilisation") or {})
+                    pilots = list(mob.get("pilots") or [])
+                    changed = False
+                    for p in pilots:
+                        if (p.get("email") or "").strip().lower() == user.email.strip().lower():
+                            p["id"] = str(user.id)
+                            if user.full_name:
+                                p["name"] = user.full_name
+                            if user.phone_number:
+                                p["contactNo"] = user.phone_number
+                            p["is_pending_invite"] = False
+                            changed = True
+                    if changed:
+                        mob["pilots"] = pilots
+                        req_payload["mobilisation"] = mob
+                        proj.requirements_payload = req_payload
+
+                await db.flush()
+            except Exception:
+                pass
 
         # 3. Generate JWT response
         token_data = {

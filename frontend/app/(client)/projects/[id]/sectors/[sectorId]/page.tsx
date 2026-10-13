@@ -7,6 +7,8 @@ import { useProject } from '@/modules/projects/hooks';
 import { useSector } from '@/modules/sectors/hooks';
 import { SectorStatusBadge } from '@/modules/sectors/components/SectorStatusBadge';
 
+import { PageHeader } from '@/components/PageHeader';
+
 export default function SectorDetailPage() {
   const params = useParams();
   const projectId = params?.id as string;
@@ -28,7 +30,7 @@ export default function SectorDetailPage() {
       <div className="glass-panel" style={{ padding: '2rem', color: 'var(--error)', borderColor: '#09090b' }}>
         <h3 style={{ fontSize: '1.25rem', fontWeight: 700, marginBottom: '0.5rem' }}>Sector Not Found</h3>
         <p style={{ marginBottom: '1.5rem' }}>{error || 'Flight sector records could not be retrieved.'}</p>
-        <Link href={`/projects/${projectId}/overview`} className="btn btn-secondary">
+        <Link href={`/projects/${projectId}/overview`} className="btn btn-secondary" style={{ height: '36px', display: 'inline-flex', alignItems: 'center' }}>
           ← Back to Project Workspace
         </Link>
       </div>
@@ -36,41 +38,50 @@ export default function SectorDetailPage() {
   }
 
   return (
-    <div>
-      {/* Breadcrumb */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '1.25rem' }}>
-        <Link href="/projects" style={{ color: 'var(--text-secondary)' }}>
-          Projects
-        </Link>
-        <span>/</span>
-        <Link href={`/projects/${projectId}/overview`} style={{ color: 'var(--text-secondary)' }}>
-          {project?.title || 'Project Workspace'}
-        </Link>
-        <span>/</span>
-        <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{sector.sector_code}</span>
-      </div>
-
-      {/* Sector Header */}
-      <div className="glass-panel" style={{ padding: '1.75rem 2rem', marginBottom: '1.5rem' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1rem', marginBottom: '1rem' }}>
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.25rem' }}>
-              <h2 style={{ fontSize: '1.75rem', fontWeight: 800 }}>Flight Sector {sector.sector_code}</h2>
-              <SectorStatusBadge status={sector.status} size="md" />
-            </div>
-            <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>
-              Subdivided operational flight cell attached to Project {project?.title || projectId}
-            </p>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+      {/* ── Standard Page Header ── */}
+      <PageHeader
+        title={`Flight Sector ${sector.sector_code}`}
+        subtitle={`Subdivided operational flight cell attached to Project ${project?.title || projectId}`}
+        breadcrumb={
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', fontSize: '0.8rem', color: '#71717a' }}>
+            <Link href="/projects" style={{ color: '#71717a', textDecoration: 'none' }}>
+              Projects
+            </Link>
+            <span>/</span>
+            <Link href={`/projects/${projectId}/overview`} style={{ color: '#71717a', textDecoration: 'none' }}>
+              {project?.title || 'Project Workspace'}
+            </Link>
+            <span>/</span>
+            <span style={{ color: '#09090b', fontWeight: 600 }}>{sector.sector_code}</span>
           </div>
-
+        }
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <SectorStatusBadge status={sector.status} size="md" isClient={true} />
           <Link
             href={`/projects/${projectId}/overview`}
-            className="btn btn-secondary"
-            style={{ fontSize: '0.85rem' }}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '0.45rem',
+              fontSize: '0.8rem',
+              fontWeight: 600,
+              height: '36px',
+              padding: '0 0.95rem',
+              backgroundColor: '#ffffff',
+              color: '#09090b',
+              border: '1px solid #d4d4d8',
+              borderRadius: '6px',
+              textDecoration: 'none',
+            }}
           >
             ← Back to Overview
           </Link>
         </div>
+      </PageHeader>
+
+      <div className="glass-panel" style={{ padding: '1rem 1.25rem' }}>
 
         <div
           style={{
@@ -122,14 +133,42 @@ export default function SectorDetailPage() {
         </div>
 
         <div className="glass-card">
-          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '0.25rem' }}>
+          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '0.35rem' }}>
             Survey Execution Status
           </div>
-          <div style={{ fontSize: '1.65rem', fontWeight: 800, textTransform: 'capitalize', color: '#09090b' }}>
-            {sector.status.replace('_', ' ')}
-          </div>
-          <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '0.25rem' }}>
-            Real-time pilot sortie status
+          {(() => {
+            const isCompleted = sector.status === 'completed' || sector.status === 'surveyed' || sector.status === 'verified';
+            const isInProgress = sector.status === 'in_progress';
+            return (
+              <div
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '4px 10px',
+                  borderRadius: '6px',
+                  backgroundColor: isCompleted ? 'rgba(22, 163, 74, 0.15)' : '#f4f4f5',
+                  border: isCompleted ? '1px solid #22c55e' : '1px solid #d4d4d8',
+                  color: isCompleted ? '#16a34a' : '#52525b',
+                  fontSize: '1rem',
+                  fontWeight: 800,
+                  width: 'fit-content',
+                }}
+              >
+                <span
+                  style={{
+                    width: '8px',
+                    height: '8px',
+                    borderRadius: '50%',
+                    backgroundColor: isCompleted ? '#16a34a' : '#71717a',
+                  }}
+                />
+                {isCompleted ? 'Completed' : isInProgress ? 'In Progress' : 'Pending'}
+              </div>
+            );
+          })()}
+          <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '0.45rem' }}>
+            Real-time pilot flight status
           </div>
         </div>
       </div>

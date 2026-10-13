@@ -17,6 +17,8 @@ export interface PilotCrewMember {
     size: string;
   };
   insuranceActive?: boolean;
+  isPendingInvite?: boolean;
+  isProfileCompleted?: boolean;
 }
 
 export interface HardwareDeployment {

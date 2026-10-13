@@ -36,15 +36,10 @@ export default function MyAssignmentsPage() {
       <PageHeader
         title="My Flight Missions"
         subtitle="Review assigned sector grids, hardware specs, pre-flight safety protocols, and record flight telemetry."
-      >
-        <button
-          onClick={() => refetch()}
-          className="btn btn-secondary"
-          style={{ fontSize: '0.8rem', height: '36px', display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}
-        >
-          🔄 Refresh Missions
-        </button>
-      </PageHeader>
+        onRefresh={refetch}
+        isRefreshing={loading}
+        refreshTooltip="Refresh missions"
+      />
 
       {actionFeedback && (
         <div

@@ -43,6 +43,8 @@ export interface Project {
   payload?: string | null;
   survey_type?: string | null;
   target_area_sqkm?: number | null;
+  calculated_area_sqkm?: number | null;
+  requested_area_sqkm?: number | null;
   requirements_payload?: Record<string, any> | null;
   latest_request?: any | null;
   client_email?: string | null;

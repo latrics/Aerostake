@@ -25,24 +25,30 @@ import {
   CheckCircle2,
   X,
   Info,
+  Eye,
   Mail,
   Clock,
   ShieldAlert,
 } from 'lucide-react';
+import { useSearchParams } from 'next/navigation';
 import { useAuth } from '@/lib/auth';
 import { usersApi } from '@/modules/users/api';
 import { UserProfile } from '@/modules/users/types';
 import { invitationsApi } from '@/modules/invitations/api';
 import { InvitationOut } from '@/modules/invitations/types';
 import { InviteUserDrawer } from '@/modules/users/components/InviteUserDrawer';
+import { InvitationDetailModal } from '@/modules/invitations/components/InvitationDetailModal';
 import { PageHeader } from '@/components/PageHeader';
+import { formatDateDDMMYYYY } from '@/lib/date';
 
 type TabKey = 'all' | 'ops' | 'pilots' | 'clients' | 'pending_invites';
 
 export default function UserManagementPage() {
   const { user: currentUser } = useAuth();
+  const searchParams = useSearchParams();
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [pendingInvitations, setPendingInvitations] = useState<InvitationOut[]>([]);
+  const [selectedInvitationForModal, setSelectedInvitationForModal] = useState<InvitationOut | null>(null);
   const [invitationToRevoke, setInvitationToRevoke] = useState<InvitationOut | null>(null);
   const [isRevoking, setIsRevoking] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -50,6 +56,13 @@ export default function UserManagementPage() {
 
   // Tab & Filters
   const [activeTab, setActiveTab] = useState<TabKey>('all');
+
+  useEffect(() => {
+    const tabParam = searchParams.get('tab');
+    if (tabParam === 'pending' || tabParam === 'pending_invites') {
+      setActiveTab('pending_invites');
+    }
+  }, [searchParams]);
   const [searchQuery, setSearchQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
@@ -222,17 +235,7 @@ export default function UserManagementPage() {
   };
 
   const formatDate = (isoString?: string) => {
-    if (!isoString) return '—';
-    try {
-      const d = new Date(isoString);
-      return d.toLocaleDateString('en-GB', {
-        day: '2-digit',
-        month: 'short',
-        year: 'numeric',
-      });
-    } catch {
-      return '—';
-    }
+    return formatDateDDMMYYYY(isoString);
   };
 
   // KPI Calculations
@@ -414,11 +417,14 @@ export default function UserManagementPage() {
   };
 
   return (
-    <div style={{ padding: '0.25rem 0', maxWidth: '1440px', margin: '0 auto' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', paddingBottom: '3rem' }}>
       {/* ── Page Header ── */}
       <PageHeader
         title="Users"
         subtitle="Manage team members, pilots and clients across the platform"
+        onRefresh={fetchUsers}
+        isRefreshing={isLoading}
+        refreshTooltip="Refresh user directory"
       />
 
       {/* ── KPI Strip (5 Cards) ── */}
@@ -1024,6 +1030,9 @@ export default function UserManagementPage() {
                 <th style={{ padding: '0.85rem 1rem', fontSize: '0.78rem', fontWeight: 600, color: '#52525b', textTransform: 'uppercase' }}>
                   Backend Database State
                 </th>
+                <th style={{ padding: '0.85rem 1rem', textAlign: 'center', fontSize: '0.78rem', fontWeight: 600, color: '#52525b', textTransform: 'uppercase' }}>
+                  Invitation &amp; Email Layout
+                </th>
                 <th style={{ padding: '0.85rem 1rem', width: '130px', textAlign: 'center', fontSize: '0.78rem', fontWeight: 600, color: '#52525b', textTransform: 'uppercase' }}>
                   Actions
                 </th>
@@ -1032,7 +1041,7 @@ export default function UserManagementPage() {
             <tbody>
               {isLoading ? (
                 <tr>
-                  <td colSpan={8} style={{ padding: '4rem 1rem', textAlign: 'center', color: '#52525b' }}>
+                  <td colSpan={9} style={{ padding: '4rem 1rem', textAlign: 'center', color: '#52525b' }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}>
                       <Loader2 size={18} className="animate-spin" />
                       <span>Loading pending invitations...</span>
@@ -1041,7 +1050,7 @@ export default function UserManagementPage() {
                 </tr>
               ) : paginatedInvitations.length === 0 ? (
                 <tr>
-                  <td colSpan={8} style={{ padding: '4rem 1rem', textAlign: 'center', color: '#52525b' }}>
+                  <td colSpan={9} style={{ padding: '4rem 1rem', textAlign: 'center', color: '#52525b' }}>
                     <div style={{ maxWidth: '360px', margin: '0 auto' }}>
                       <Clock size={32} style={{ color: '#71717a', marginBottom: '0.5rem' }} />
                       <div style={{ fontSize: '0.95rem', fontWeight: 600, color: '#09090b' }}>No pending invitations</div>
@@ -1181,6 +1190,34 @@ export default function UserManagementPage() {
                       )}
                     </td>
 
+                    {/* Invitation & Email Layout */}
+                    <td style={{ padding: '0.85rem 1rem', textAlign: 'center' }}>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedInvitationForModal(inv)}
+                        style={{
+                          padding: '0.35rem 0.75rem',
+                          backgroundColor: '#ffffff',
+                          color: '#09090b',
+                          border: '1px solid #09090b',
+                          borderRadius: '5px',
+                          fontSize: '0.78rem',
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '0.35rem',
+                          whiteSpace: 'nowrap',
+                          boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)',
+                          transition: 'all 0.15s ease',
+                        }}
+                        title="View invitation link, active 24h timer, and formatted email layout"
+                      >
+                        <Mail size={13} />
+                        <span>Invitation</span>
+                      </button>
+                    </td>
+
                     {/* Actions */}
                     <td style={{ padding: '0.85rem 1rem', textAlign: 'center' }}>
                       <button
@@ -1244,7 +1281,7 @@ export default function UserManagementPage() {
                 <th style={{ padding: '0.85rem 1rem', fontSize: '0.78rem', fontWeight: 600, color: '#52525b', textTransform: 'uppercase' }}>
                   Joined On
                 </th>
-                <th style={{ padding: '0.85rem 1rem', width: '60px', textAlign: 'center', fontSize: '0.78rem', fontWeight: 600, color: '#52525b', textTransform: 'uppercase' }}>
+                <th style={{ padding: '0.85rem 1rem', width: '130px', textAlign: 'center', fontSize: '0.78rem', fontWeight: 600, color: '#52525b', textTransform: 'uppercase' }}>
                   Actions
                 </th>
               </tr>
@@ -1276,7 +1313,6 @@ export default function UserManagementPage() {
               ) : (
                 paginatedUsers.map((u, idx) => {
                   const isSelected = !!selectedUserIds[u.id];
-                  const isMenuOpen = actionMenuOpenId === u.id;
                   const isUnauthenticated = u.has_authenticated === false || u.invitation_status === 'pending';
                   return (
                     <tr
@@ -1414,204 +1450,177 @@ export default function UserManagementPage() {
                         {formatDate(u.created_at)}
                       </td>
 
-                      {/* Row Actions Menu */}
-                      <td style={{ padding: '0.85rem 1rem', textAlign: 'center', position: 'relative' }}>
-                        <button
-                          type="button"
-                          onClick={() => setActionMenuOpenId(isMenuOpen ? null : u.id)}
-                          style={{
-                            border: 'none',
-                            background: 'none',
-                            color: '#52525b',
-                            cursor: 'pointer',
-                            padding: '0.25rem',
-                            borderRadius: '4px',
-                          }}
-                        >
-                          <MoreVertical size={16} />
-                        </button>
-
-                        {isMenuOpen && (
-                          <div
-                            style={{
-                              position: 'absolute',
-                              right: '1rem',
-                              top: '2.5rem',
-                              backgroundColor: '#ffffff',
-                              border: '1px solid #e4e4e7',
-                              borderRadius: '6px',
-                              boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
-                              zIndex: 100,
-                              minWidth: '180px',
-                              textAlign: 'left',
-                              padding: '0.25rem 0',
-                            }}
-                          >
-                            {/* Special Action for Unauthenticated User */}
-                            {isUnauthenticated && (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setActionMenuOpenId(null);
-                                  setInvitationToRevoke({
-                                    id: u.invitation_id || '',
-                                    email: u.email,
-                                    role: u.role,
-                                    organization_name: getOrganizationName(u),
-                                    created_at: u.created_at,
-                                    expires_at: '',
-                                    status: 'pending',
-                                    invited_by: '',
-                                    organization_id: u.organization_id || '',
-                                    token: '',
-                                    has_user_record: true,
-                                  } as InvitationOut);
-                                }}
-                                style={{
-                                  width: '100%',
-                                  padding: '0.5rem 0.85rem',
-                                  border: 'none',
-                                  borderBottom: '1px solid #f4f4f5',
-                                  backgroundColor: '#fafafa',
-                                  fontSize: '0.8rem',
-                                  color: '#09090b',
-                                  cursor: 'pointer',
-                                  textAlign: 'left',
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: '0.45rem',
-                                  fontWeight: 600,
-                                }}
-                              >
-                                <ShieldAlert size={14} color="#09090b" />
-                                <span>Revoke & Remove User</span>
-                              </button>
-                            )}
-
+                      {/* Row Actions */}
+                      <td style={{ padding: '0.85rem 1rem', textAlign: 'center' }}>
+                        <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem' }}>
+                          {/* Special Revoke button for Unauthenticated User */}
+                          {isUnauthenticated && (
                             <button
                               type="button"
                               onClick={() => {
-                                setActionMenuOpenId(null);
-                                setUserToView(u);
+                                setInvitationToRevoke({
+                                  id: u.invitation_id || '',
+                                  email: u.email,
+                                  role: u.role,
+                                  organization_name: getOrganizationName(u),
+                                  created_at: u.created_at,
+                                  expires_at: '',
+                                  status: 'pending',
+                                  invited_by: '',
+                                  organization_id: u.organization_id || '',
+                                  token: '',
+                                  has_user_record: true,
+                                } as InvitationOut);
                               }}
+                              title="Revoke invitation & remove user"
                               style={{
-                                width: '100%',
-                                padding: '0.5rem 0.85rem',
-                                border: 'none',
-                                background: 'none',
-                                fontSize: '0.8rem',
+                                width: '28px',
+                                height: '28px',
+                                borderRadius: '5px',
+                                border: '1px solid #d4d4d8',
+                                backgroundColor: '#f4f4f5',
                                 color: '#09090b',
                                 cursor: 'pointer',
-                                textAlign: 'left',
-                                display: 'flex',
+                                display: 'inline-flex',
                                 alignItems: 'center',
-                                gap: '0.45rem',
+                                justifyContent: 'center',
+                                transition: 'all 0.15s ease',
                               }}
                             >
-                              <Info size={14} color="#52525b" />
-                              <span>View User Details</span>
+                              <ShieldAlert size={14} />
                             </button>
+                          )}
 
-                            {/* Toggle Active / Deactivate */}
-                            {currentUser && currentUser.id === u.id ? (
-                              <button
-                                type="button"
-                                disabled
-                                title="You cannot deactivate your own administrator account"
-                                style={{
-                                  width: '100%',
-                                  padding: '0.5rem 0.85rem',
-                                  border: 'none',
-                                  background: 'none',
-                                  fontSize: '0.8rem',
-                                  color: '#71717a',
-                                  cursor: 'not-allowed',
-                                  textAlign: 'left',
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: '0.45rem',
-                                }}
-                              >
-                                <UserX size={14} color="#71717a" />
-                                <span>Deactivate (Self)</span>
-                              </button>
-                            ) : (
-                              <button
-                                type="button"
-                                onClick={() => handleToggleUserStatus(u)}
-                                style={{
-                                  width: '100%',
-                                  padding: '0.5rem 0.85rem',
-                                  border: 'none',
-                                  background: 'none',
-                                  fontSize: '0.8rem',
-                                  color: u.is_active ? '#09090b' : '#09090b',
-                                  cursor: 'pointer',
-                                  textAlign: 'left',
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: '0.45rem',
-                                }}
-                              >
-                                {u.is_active ? <UserX size={14} color="#09090b" /> : <UserCheck size={14} color="#09090b" />}
-                                <span>{u.is_active ? 'Deactivate User' : 'Activate User'}</span>
-                              </button>
-                            )}
+                          {/* 1. View User Details */}
+                          <button
+                            type="button"
+                            onClick={() => setUserToView(u)}
+                            title="View User Details"
+                            style={{
+                              width: '28px',
+                              height: '28px',
+                              borderRadius: '5px',
+                              border: '1px solid #e4e4e7',
+                              backgroundColor: '#ffffff',
+                              color: '#09090b',
+                              cursor: 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              transition: 'all 0.15s ease',
+                            }}
+                          >
+                            <Eye size={14} />
+                          </button>
 
-                            {/* Delete Option */}
-                            {currentUser && currentUser.id === u.id ? (
-                              <button
-                                type="button"
-                                disabled
-                                title="You cannot delete your own administrator account"
-                                style={{
-                                  width: '100%',
-                                  padding: '0.5rem 0.85rem',
-                                  border: 'none',
-                                  borderTop: '1px solid #f4f4f5',
-                                  background: 'none',
-                                  fontSize: '0.8rem',
-                                  color: '#71717a',
-                                  cursor: 'not-allowed',
-                                  textAlign: 'left',
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: '0.45rem',
-                                }}
-                              >
-                                <Trash2 size={14} color="#71717a" />
-                                <span>Delete (Self)</span>
-                              </button>
-                            ) : (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setActionMenuOpenId(null);
-                                  setUserToDelete(u);
-                                }}
-                                style={{
-                                  width: '100%',
-                                  padding: '0.5rem 0.85rem',
-                                  border: 'none',
-                                  borderTop: '1px solid #f4f4f5',
-                                  background: 'none',
-                                  fontSize: '0.8rem',
-                                  color: '#09090b',
-                                  cursor: 'pointer',
-                                  textAlign: 'left',
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: '0.45rem',
-                                  fontWeight: 600,
-                                }}
-                              >
-                                <Trash2 size={14} color="#09090b" />
-                                <span>Delete User</span>
-                              </button>
-                            )}
-                          </div>
-                        )}
+                          {/* 2. Activate / Deactivate User */}
+                          {currentUser && currentUser.id === u.id ? (
+                            <button
+                              type="button"
+                              disabled
+                              title="You cannot deactivate your own account"
+                              style={{
+                                width: '28px',
+                                height: '28px',
+                                borderRadius: '5px',
+                                border: '1px solid #e4e4e7',
+                                backgroundColor: '#f4f4f5',
+                                color: '#a1a1aa',
+                                cursor: 'not-allowed',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                              }}
+                            >
+                              <UserX size={14} />
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => handleToggleUserStatus(u)}
+                              title={u.is_active ? 'Deactivate User' : 'Activate User'}
+                              style={{
+                                width: '28px',
+                                height: '28px',
+                                borderRadius: '5px',
+                                border: '1px solid #e4e4e7',
+                                backgroundColor: '#ffffff',
+                                color: u.is_active ? '#09090b' : '#71717a',
+                                cursor: 'pointer',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                transition: 'all 0.15s ease',
+                              }}
+                            >
+                              {u.is_active ? <UserX size={14} /> : <UserCheck size={14} />}
+                            </button>
+                          )}
 
+                          {/* 3. Remove User */}
+                          {currentUser && currentUser.id === u.id ? (
+                            <button
+                              type="button"
+                              disabled
+                              title="You cannot delete your own account"
+                              style={{
+                                width: '28px',
+                                height: '28px',
+                                borderRadius: '5px',
+                                border: '1px solid #e4e4e7',
+                                backgroundColor: '#f4f4f5',
+                                color: '#a1a1aa',
+                                cursor: 'not-allowed',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                              }}
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          ) : currentUser?.role?.toLowerCase() === 'operations' && u.role?.toLowerCase() === 'admin' ? (
+                            <button
+                              type="button"
+                              disabled
+                              title="Operations staff cannot delete Administrator accounts"
+                              style={{
+                                width: '28px',
+                                height: '28px',
+                                borderRadius: '5px',
+                                border: '1px solid #e4e4e7',
+                                backgroundColor: '#f4f4f5',
+                                color: '#a1a1aa',
+                                cursor: 'not-allowed',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                              }}
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => setUserToDelete(u)}
+                              title="Remove User"
+                              style={{
+                                width: '28px',
+                                height: '28px',
+                                borderRadius: '5px',
+                                border: '1px solid #fecaca',
+                                backgroundColor: '#fff5f5',
+                                color: '#dc2626',
+                                cursor: 'pointer',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                transition: 'all 0.15s ease',
+                              }}
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   );
@@ -2175,9 +2184,87 @@ export default function UserManagementPage() {
                 backgroundColor: '#fafafa',
                 borderTop: '1px solid #e4e4e7',
                 display: 'flex',
-                justifyContent: 'flex-end',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                gap: '0.75rem',
               }}
             >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                {/* Activate / Deactivate inside Details Modal */}
+                <button
+                  type="button"
+                  disabled={Boolean(currentUser && currentUser.id === userToView.id)}
+                  onClick={() => {
+                    handleToggleUserStatus(userToView);
+                    setUserToView(null);
+                  }}
+                  title={currentUser && currentUser.id === userToView.id ? 'You cannot deactivate your own account' : undefined}
+                  style={{
+                    padding: '0.5rem 0.85rem',
+                    borderRadius: '6px',
+                    border: '1px solid #d4d4d8',
+                    backgroundColor: '#ffffff',
+                    color: '#09090b',
+                    fontSize: '0.8rem',
+                    fontWeight: 600,
+                    cursor: currentUser && currentUser.id === userToView.id ? 'not-allowed' : 'pointer',
+                    opacity: currentUser && currentUser.id === userToView.id ? 0.5 : 1,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '0.4rem',
+                  }}
+                >
+                  {userToView.is_active ? <UserX size={14} /> : <UserCheck size={14} />}
+                  <span>{userToView.is_active ? 'Deactivate User' : 'Activate User'}</span>
+                </button>
+
+                {/* Remove User inside Details Modal */}
+                <button
+                  type="button"
+                  disabled={Boolean(
+                    (currentUser && currentUser.id === userToView.id) ||
+                    (currentUser?.role?.toLowerCase() === 'operations' && userToView.role?.toLowerCase() === 'admin')
+                  )}
+                  onClick={() => {
+                    const target = userToView;
+                    setUserToView(null);
+                    setUserToDelete(target);
+                  }}
+                  title={
+                    currentUser && currentUser.id === userToView.id
+                      ? 'You cannot delete your own account'
+                      : currentUser?.role?.toLowerCase() === 'operations' && userToView.role?.toLowerCase() === 'admin'
+                      ? 'Operations staff cannot delete Administrator accounts'
+                      : undefined
+                  }
+                  style={{
+                    padding: '0.5rem 0.85rem',
+                    borderRadius: '6px',
+                    border: '1px solid #fecaca',
+                    backgroundColor: '#fff5f5',
+                    color: '#dc2626',
+                    fontSize: '0.8rem',
+                    fontWeight: 600,
+                    cursor:
+                      (currentUser && currentUser.id === userToView.id) ||
+                      (currentUser?.role?.toLowerCase() === 'operations' && userToView.role?.toLowerCase() === 'admin')
+                        ? 'not-allowed'
+                        : 'pointer',
+                    opacity:
+                      (currentUser && currentUser.id === userToView.id) ||
+                      (currentUser?.role?.toLowerCase() === 'operations' && userToView.role?.toLowerCase() === 'admin')
+                        ? 0.5
+                        : 1,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '0.4rem',
+                  }}
+                >
+                  <Trash2 size={14} />
+                  <span>Remove User</span>
+                </button>
+              </div>
+
               <button
                 type="button"
                 onClick={() => setUserToView(null)}
@@ -2208,6 +2295,19 @@ export default function UserManagementPage() {
           fetchUsers();
         }}
       />
+
+      {/* ── Invitation Detail & Email Layout Modal ── */}
+      <InvitationDetailModal
+        isOpen={Boolean(selectedInvitationForModal)}
+        onClose={() => setSelectedInvitationForModal(null)}
+        invitation={selectedInvitationForModal}
+        onInvitationUpdated={(updated) => {
+          setPendingInvitations((prev) =>
+            prev.map((i) => (i.id === updated.id ? updated : i))
+          );
+        }}
+      />
     </div>
   );
 }
+

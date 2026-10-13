@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     ENVIRONMENT: str = "development"
 
     HOST: str = "0.0.0.0"
+    FRONTEND_URL: str = "http://localhost:3000"
     # Database Configuration
     DATABASE_URL: str = "postgresql+asyncpg://aerostake_user:aerostake_password@localhost:5432/aerostake_db"
     DB_ECHO: bool = False

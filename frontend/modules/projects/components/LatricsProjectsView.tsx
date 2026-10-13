@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import WireframeBox from '@/components/WireframeBox';
 import { PageHeader } from '@/components/PageHeader';
+import { formatDateDDMMYYYY, formatDateTimeDDMMYYYY } from '@/lib/date';
 import {
   Search,
   Filter,
@@ -300,26 +301,11 @@ export default function LatricsProjectsView() {
   };
 
   const formatDate = (dateStr?: string | null) => {
-    if (!dateStr) return '—';
-    try {
-      return new Date(dateStr).toLocaleDateString('en-GB', {
-        day: '2-digit',
-        month: 'short',
-        year: 'numeric',
-      });
-    } catch {
-      return dateStr;
-    }
+    return formatDateDDMMYYYY(dateStr);
   };
 
   const formatDateTime = (dateStr?: string | null) => {
-    if (!dateStr) return '—';
-    try {
-      const d = new Date(dateStr);
-      return `${d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}, ${d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}`;
-    } catch {
-      return dateStr;
-    }
+    return formatDateTimeDDMMYYYY(dateStr);
   };
 
   const getStatusBadge = (status: ProjectStatus | string) => {
@@ -360,6 +346,9 @@ export default function LatricsProjectsView() {
       <PageHeader
         title="Projects"
         subtitle="View and track all survey projects, their status, scope, deliverables and timelines."
+        onRefresh={fetchProjects}
+        isRefreshing={isLoading}
+        refreshTooltip="Refresh projects"
       >
         <button
           onClick={handleExportCSV}
@@ -369,31 +358,15 @@ export default function LatricsProjectsView() {
             display: 'inline-flex',
             alignItems: 'center',
             gap: '0.4rem',
-            height: '34px',
+            height: '36px',
             fontSize: '0.8rem',
             padding: '0 0.85rem',
+            borderRadius: '6px',
             opacity: filteredProjects.length === 0 ? 0.5 : 1,
             cursor: filteredProjects.length === 0 ? 'not-allowed' : 'pointer',
           }}
         >
           <Download size={14} /> Export
-        </button>
-        <button
-          onClick={() => fetchProjects()}
-          title="Refresh list"
-          style={{
-            width: '34px',
-            height: '34px',
-            border: '1px solid var(--border-color)',
-            borderRadius: '6px',
-            backgroundColor: '#ffffff',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            cursor: 'pointer',
-          }}
-        >
-          <RotateCcw size={14} color="#09090b" className={isLoading ? 'animate-spin' : ''} />
         </button>
       </PageHeader>
 

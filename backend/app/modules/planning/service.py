@@ -181,12 +181,26 @@ class PlanningService:
     ) -> Project:
         project = await project_service.get_project_model(db, current_user, project_id)
 
-        # Only the client owner or Admin can approve
-        if current_user.role == RoleEnum.CLIENT and project.client_id != current_user.id:
+        # RBAC: Pilot cannot approve operational flight plans
+        if current_user.role == RoleEnum.PILOT:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="You can only approve plans for your own projects",
+                detail="Pilots do not have permission to approve operational flight plans",
             )
+
+        # Clients can only approve plans for their own project or organization
+        if current_user.role in [RoleEnum.CLIENT, RoleEnum.CLIENT_PRIMARY, RoleEnum.CLIENT_SUB]:
+            has_org_access = (
+                current_user.organization_id is not None
+                and project.organization_id is not None
+                and current_user.organization_id == project.organization_id
+            )
+            has_user_access = project.client_id == current_user.id or project.created_by == current_user.id
+            if not has_org_access and not has_user_access:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="You can only approve plans for your own projects",
+                )
 
         plan = await planning_repository.get_active_plan_for_project(db, project_id)
         if not plan:
@@ -244,11 +258,26 @@ class PlanningService:
     ) -> Project:
         project = await project_service.get_project_model(db, current_user, project_id)
 
-        if current_user.role == RoleEnum.CLIENT and project.client_id != current_user.id:
+        # RBAC: Pilot cannot request plan revisions
+        if current_user.role == RoleEnum.PILOT:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="You can only request revisions for your own projects",
+                detail="Pilots do not have permission to request plan revisions",
             )
+
+        # Clients can only request revisions for their own project or organization
+        if current_user.role in [RoleEnum.CLIENT, RoleEnum.CLIENT_PRIMARY, RoleEnum.CLIENT_SUB]:
+            has_org_access = (
+                current_user.organization_id is not None
+                and project.organization_id is not None
+                and current_user.organization_id == project.organization_id
+            )
+            has_user_access = project.client_id == current_user.id or project.created_by == current_user.id
+            if not has_org_access and not has_user_access:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="You can only request revisions for your own projects",
+                )
 
         plan = await planning_repository.get_active_plan_for_project(db, project_id)
         if not plan:
@@ -386,6 +415,9 @@ class PlanningService:
             updated_by=current_user.id,
         )
 
+        # Synchronize Latrics Calculated Area as the project's actual Total Area
+        await self._sync_calculated_area_to_project(db, project.id, version_in.form_data)
+
         # If Ops created the first planning form, move project to PLANNING status (Under Review)
         if project.status == ProjectStatusEnum.SUBMITTED and sender_role == "ops":
             await project_repository.update(db=db, project=project, status=ProjectStatusEnum.PLANNING)
@@ -512,6 +544,11 @@ class PlanningService:
         project_id: uuid.UUID,
     ) -> Optional[PlanningDraft]:
         project = await self._resolve_project(db, current_user, project_id)
+        # Unsubmitted drafts must only be accessible to the authoring Ops team.
+        # Clients and pilots must never see unsubmitted draft remarks or parameter changes;
+        # they strictly view officially submitted planning form versions.
+        if current_user.role not in [RoleEnum.ADMIN, RoleEnum.OPERATIONS]:
+            return None
         return await planning_repository.get_draft_by_project(db, project.id)
 
     async def save_planning_draft(
@@ -527,7 +564,7 @@ class PlanningService:
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Drone pilots have view-only access and cannot save planning drafts.",
             )
-        return await planning_repository.save_or_update_draft(
+        draft = await planning_repository.save_or_update_draft(
             db=db,
             project_id=project.id,
             form_data=draft_in.form_data,
@@ -537,6 +574,40 @@ class PlanningService:
             status=draft_in.status,
             updated_by=current_user.id,
         )
+        return draft
+
+    async def _sync_calculated_area_to_project(
+        self,
+        db: AsyncSession,
+        project_id: uuid.UUID,
+        form_data: Optional[dict],
+    ):
+        """Synchronizes Latrics Calculated Area from the planning form into the project's actual target area."""
+        if not form_data or not isinstance(form_data, dict):
+            return
+        ca = form_data.get("kmlCalculatedArea")
+        if ca is None or not str(ca).strip():
+            return
+        try:
+            calc_val = float(ca)
+            if calc_val <= 0:
+                return
+        except (ValueError, TypeError):
+            return
+
+        reqs = await request_repository.list_by_project(db, project_id)
+        if not reqs:
+            return
+        latest_req = reqs[-1]
+        payload = dict(latest_req.requirements_payload or {})
+        # Preserve original client requested area if not already set
+        if "requested_area_sqkm" not in payload and latest_req.target_area_sqkm is not None:
+            payload["requested_area_sqkm"] = latest_req.target_area_sqkm
+        payload["calculated_area_sqkm"] = calc_val
+        latest_req.requirements_payload = payload
+        latest_req.target_area_sqkm = calc_val
+        db.add(latest_req)
+        await db.flush()
 
 
 planning_service = PlanningService()

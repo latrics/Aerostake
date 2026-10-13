@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { projectApi } from '@/modules/projects/api';
 import { Project, ProjectStatus } from '@/modules/projects/types';
@@ -10,6 +10,7 @@ import { requestApi } from '@/modules/requests/api';
 import { RequestVersion } from '@/modules/requests/types';
 import { PlanPublishModal } from '@/modules/planning/components/PlanPublishModal';
 import { PageHeader } from '@/components/PageHeader';
+import { formatDateDDMMYYYY } from '@/lib/date';
 
 export default function PlanningPage() {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -50,27 +51,30 @@ export default function PlanningPage() {
       setRequestVersions([]);
       return;
     }
-
-    const loadProjectPlanningData = async () => {
-      try {
-        setLoadingPlan(true);
-        const [plan, history, requests] = await Promise.all([
-          planningApi.getActivePlan(selectedProjectId).catch(() => null),
-          planningApi.listProjectPlans(selectedProjectId).catch(() => []),
-          requestApi.listProjectRequests(selectedProjectId).catch(() => []),
-        ]);
-        setActivePlan(plan);
-        setPlanHistory(history);
-        setRequestVersions(requests);
-      } catch (err: any) {
-        console.error('Failed to load project planning data:', err);
-      } finally {
-        setLoadingPlan(false);
-      }
-    };
-
-    loadProjectPlanningData();
   }, [selectedProjectId]);
+
+  const loadProjectPlanningData = useCallback(async () => {
+    if (!selectedProjectId) return;
+    try {
+      setLoadingPlan(true);
+      const [plan, history, requests] = await Promise.all([
+        planningApi.getActivePlan(selectedProjectId).catch(() => null),
+        planningApi.listProjectPlans(selectedProjectId).catch(() => []),
+        requestApi.listProjectRequests(selectedProjectId).catch(() => []),
+      ]);
+      setActivePlan(plan);
+      setPlanHistory(history);
+      setRequestVersions(requests);
+    } catch (err: any) {
+      console.error('Failed to load project planning data:', err);
+    } finally {
+      setLoadingPlan(false);
+    }
+  }, [selectedProjectId]);
+
+  useEffect(() => {
+    loadProjectPlanningData();
+  }, [loadProjectPlanningData]);
 
   const selectedProject = projects.find((p) => p.id === selectedProjectId);
   const latestRequest = requestVersions.length > 0
@@ -95,11 +99,14 @@ export default function PlanningPage() {
   };
 
   return (
-    <div>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
       {/* ── Page Header ── */}
       <PageHeader
         title="Operational Flight Planning"
         subtitle="Draft resource estimations, compute pricing quotations, and publish flight plans for client review."
+        onRefresh={loadProjectPlanningData}
+        isRefreshing={loadingPlan}
+        refreshTooltip="Refresh flight planning data"
       >
         <Link
           href="/planning/feasibility"
@@ -107,12 +114,13 @@ export default function PlanningPage() {
             display: 'inline-flex',
             alignItems: 'center',
             gap: '0.45rem',
-            fontSize: '0.825rem',
+            fontSize: '0.8rem',
             fontWeight: 700,
             backgroundColor: '#ffffff',
-            border: '1.5px solid #09090b',
+            border: '1px solid #09090b',
             color: '#09090b',
-            padding: '0.5rem 0.85rem',
+            height: '36px',
+            padding: '0 0.85rem',
             borderRadius: '6px',
             textDecoration: 'none',
           }}
@@ -124,9 +132,9 @@ export default function PlanningPage() {
           <button
             onClick={() => setPublishModalOpen(true)}
             className="btn btn-primary"
-            style={{ fontSize: '0.875rem' }}
+            style={{ fontSize: '0.8rem', height: '36px', display: 'inline-flex', alignItems: 'center', gap: '0.4rem', padding: '0 0.95rem' }}
           >
-            ➕ Draft New Plan (Req {latestRequest.version})
+            <span>➕ Draft New Plan (Req {latestRequest.version})</span>
           </button>
         )}
       </PageHeader>
@@ -210,7 +218,7 @@ export default function PlanningPage() {
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
                       <span>Status: {p.status}</span>
-                      <span>{p.updated_at ? new Date(p.updated_at).toLocaleDateString() : 'N/A'}</span>
+                      <span>{p.updated_at ? formatDateDDMMYYYY(p.updated_at) : 'N/A'}</span>
                     </div>
                   </div>
                 );

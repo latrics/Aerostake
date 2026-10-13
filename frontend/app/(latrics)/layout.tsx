@@ -85,6 +85,21 @@ export default function LatricsLayout({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  // Role & Identity identification sourced from real authenticated user object
+  const userRole = user?.role?.toLowerCase();
+  const isAdminRole = userRole === 'admin';
+  const isOpsRole = userRole === 'operations';
+  const isPilotRole = userRole === 'pilot';
+
+  // Pilot Route Guard: Pilot role's only dedicated section in the portal is Schedule
+  useEffect(() => {
+    if (!authLoading && user && isPilotRole) {
+      if (pathname !== '/schedule' && !pathname.startsWith('/schedule/')) {
+        router.replace('/schedule');
+      }
+    }
+  }, [authLoading, user, isPilotRole, pathname, router]);
+
   // Session Timeout Guard:
   // If session has expired or user is unauthenticated, redirect to login page
   useEffect(() => {
@@ -109,23 +124,14 @@ export default function LatricsLayout({
     return <ClientLayout>{children}</ClientLayout>;
   }
 
-  // Role & Identity identification sourced from real authenticated user object
-  const userRole = user?.role?.toLowerCase();
-  const isAdminRole = userRole === 'admin';
-  const isOpsRole = userRole === 'operations';
-  const isPilotRole = userRole === 'pilot';
-
   const portalLabel = isAdminRole ? 'Admin Portal' : isOpsRole ? 'OPS Portal' : isPilotRole ? 'Pilot Portal' : 'Latrics Portal';
   const displayName = user?.full_name || (isAdminRole ? 'Admin' : isOpsRole ? 'Ops User' : isPilotRole ? 'Pilot' : user?.email?.split('@')[0] || 'Staff User');
   const teamLabel = isAdminRole ? 'Platform Admin' : isOpsRole ? 'Operations Team' : isPilotRole ? 'LATRICS' : 'Latrics Team';
   const displayEmail = user?.email || '';
 
   const allNavItems = [
-    // Pilot Portal Navigation (matching design)
-    { label: 'Dashboard', path: '/dashboard', icon: Folder, roles: ['pilot'] },
-    { label: 'Projects', path: '/projects', icon: FileText, roles: ['pilot'] },
+    // Pilot Portal Navigation (Schedule only as requested)
     { label: 'Schedule', path: '/schedule', icon: Calendar, roles: ['pilot'] },
-    { label: 'Reports', path: '/reports', icon: BarChart3, roles: ['pilot'] },
 
     // Admin & Ops Navigation
     { label: 'Dashboard', path: '/dashboard', icon: Home, roles: ['admin', 'operations'] },

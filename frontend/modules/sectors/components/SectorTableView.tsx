@@ -2,13 +2,15 @@ import React from 'react';
 import Link from 'next/link';
 import { Sector } from '../types';
 import { SectorStatusBadge } from './SectorStatusBadge';
+import { formatDateDDMMYYYY } from '@/lib/date';
 
 interface SectorTableViewProps {
   sectors: Sector[];
   projectId: string;
+  isClient?: boolean;
 }
 
-export const SectorTableView: React.FC<SectorTableViewProps> = ({ sectors, projectId }) => {
+export const SectorTableView: React.FC<SectorTableViewProps> = ({ sectors, projectId, isClient = false }) => {
   if (sectors.length === 0) {
     return (
       <div className="glass-panel" style={{ padding: '2rem', textAlign: 'center' }}>
@@ -34,9 +36,7 @@ export const SectorTableView: React.FC<SectorTableViewProps> = ({ sectors, proje
         </thead>
         <tbody>
           {sectors.map((sector) => {
-            const updatedDate = sector.updated_at
-              ? new Date(sector.updated_at).toLocaleDateString()
-              : '--';
+            const updatedDate = formatDateDDMMYYYY(sector.updated_at);
 
             return (
               <tr key={sector.id}>
@@ -46,7 +46,7 @@ export const SectorTableView: React.FC<SectorTableViewProps> = ({ sectors, proje
                   </span>
                 </td>
                 <td>
-                  <SectorStatusBadge status={sector.status} size="sm" />
+                  <SectorStatusBadge status={sector.status} size="sm" isClient={isClient} />
                 </td>
                 <td>{sector.target_area_sqkm ? `${sector.target_area_sqkm} km²` : '--'}</td>
                 <td>{sector.estimated_flight_minutes ? `${sector.estimated_flight_minutes} mins` : '--'}</td>

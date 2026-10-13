@@ -4,12 +4,32 @@ import { SectorStatus } from '../types';
 interface SectorStatusBadgeProps {
   status: SectorStatus | string;
   size?: 'sm' | 'md';
+  isClient?: boolean;
 }
 
-export const SectorStatusBadge: React.FC<SectorStatusBadgeProps> = ({ status, size = 'md' }) => {
+export const SectorStatusBadge: React.FC<SectorStatusBadgeProps> = ({ status, size = 'md', isClient = false }) => {
   const normalized = (status || '').toLowerCase();
 
   const getStyle = () => {
+    if (isClient) {
+      if (normalized === 'completed' || normalized === 'surveyed' || normalized === 'verified') {
+        return {
+          bg: 'rgba(22, 163, 74, 0.15)',
+          border: '#22c55e',
+          color: '#16a34a',
+          dot: '#16a34a',
+          label: 'Completed',
+        };
+      }
+      return {
+        bg: '#f4f4f5',
+        border: '#d4d4d8',
+        color: '#52525b',
+        dot: '#71717a',
+        label: normalized === 'in_progress' ? 'In Progress' : 'Pending',
+      };
+    }
+
     switch (normalized) {
       case 'pending':
         return {

@@ -159,6 +159,8 @@ class PaymentRepository:
         notes: Optional[str],
         created_by: Optional[uuid.UUID],
         invoice_number: Optional[str] = None,
+        sector_id: Optional[uuid.UUID] = None,
+        sector_code: Optional[str] = None,
     ) -> Invoice:
         if not invoice_number:
             invoice_number = await self.get_next_invoice_number(db)
@@ -166,6 +168,8 @@ class PaymentRepository:
             invoice_number=invoice_number,
             project_id=project_id,
             client_id=client_id,
+            sector_id=sector_id,
+            sector_code=sector_code,
             title=title.strip() if title else "Project Survey Service Bill",
             bill_date=bill_date,
             due_date=due_date,

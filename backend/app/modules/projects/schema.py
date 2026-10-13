@@ -50,6 +50,8 @@ class ProjectOut(BaseModel):
     survey_location: Optional[str] = None
     survey_type: Optional[str] = None
     target_area_sqkm: Optional[float] = None
+    calculated_area_sqkm: Optional[float] = None
+    requested_area_sqkm: Optional[float] = None
     requirements_payload: Optional[Dict[str, Any]] = None
     sectors_count: Optional[int] = 0
     completed_sectors_count: Optional[int] = 0

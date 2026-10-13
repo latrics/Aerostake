@@ -56,7 +56,7 @@ class InvoiceItemSchema(BaseModel):
     price: float = Field(..., ge=0, description="Rate / Price per unit in ₹")
     tenure: Optional[str] = Field(default=None, description="Optional tenure string (e.g. 3 Days)")
     multiply_tenure: Optional[bool] = Field(default=False, description="Whether tenure multiplies with price")
-    total_price: float = Field(..., ge=0, description="Total price")
+    total_price: float = Field(..., gt=0, description="Total price (must be positive)")
 
 
 class InvoiceCreate(BaseModel):
@@ -64,7 +64,9 @@ class InvoiceCreate(BaseModel):
     bill_date: str = Field(..., description="Bill date (YYYY-MM-DD)")
     due_date: Optional[str] = Field(default=None, description="Due date (YYYY-MM-DD)")
     items: List[InvoiceItemSchema] = Field(..., min_length=1, description="Line items table")
-    total_amount: float = Field(..., ge=0, description="Summation of all line item costs in ₹")
+    total_amount: float = Field(..., gt=0, description="Summation of all line item costs in ₹ (must be positive)")
+    sector_id: Optional[uuid.UUID] = Field(default=None, description="Target sector ID (null if project-wide/general)")
+    sector_code: Optional[str] = Field(default=None, max_length=50, description="Target sector code identifier (e.g. S1, S2)")
     notes: Optional[str] = Field(default=None, description="Payment instructions and terms")
 
 
@@ -75,6 +77,8 @@ class InvoiceOut(BaseModel):
     invoice_number: str
     project_id: uuid.UUID
     client_id: Optional[uuid.UUID] = None
+    sector_id: Optional[uuid.UUID] = None
+    sector_code: Optional[str] = None
     title: str
     bill_date: datetime
     due_date: Optional[datetime] = None

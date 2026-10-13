@@ -7,8 +7,12 @@ from app.modules.allocations.model import AllocationStatusEnum
 
 class AllocationCreate(BaseModel):
     pilot_id: uuid.UUID = Field(..., description="UUID of the licensed pilot assigned to this sector")
-    drone_model: str = Field(..., min_length=2, max_length=100, description="Drone model (e.g. DJI Matrice 300 RTK)")
-    drone_serial_number: str = Field(..., min_length=2, max_length=100, description="Hardware registration serial number")
+    drone_model: Optional[str] = Field(None, max_length=100, description="Drone model (e.g. DJI Matrice 300 RTK)")
+    drone_serial_number: Optional[str] = Field(None, max_length=100, description="Hardware registration serial number")
+    drone_identifier: Optional[str] = Field(None, description="Drone model / serial identifier")
+    planned_start_date: Optional[str] = Field(None, description="Planned scanning start date (YYYY-MM-DD)")
+    planned_end_date: Optional[str] = Field(None, description="Planned scanning end date (YYYY-MM-DD)")
+    notes: Optional[str] = Field(None, description="Mission dispatch instructions & safety notes")
 
 
 class AllocationStatusUpdate(BaseModel):
@@ -31,3 +35,6 @@ class AllocationOut(BaseModel):
     pilot_name: Optional[str] = None
     pilot_email: Optional[str] = None
     sector_code: Optional[str] = None
+    planned_start_date: Optional[str] = None
+    planned_end_date: Optional[str] = None
+    notes: Optional[str] = None

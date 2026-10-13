@@ -16,6 +16,7 @@ import {
   Save,
   Check,
   Star,
+  Calendar,
 } from 'lucide-react';
 import { ClientCompany } from '../types';
 
@@ -23,18 +24,33 @@ interface ClientExpandedRowProps {
   company: ClientCompany;
   onUpdateRemarks?: (companyId: string, newRemarks: string) => void;
   onUpdateRating?: (companyId: string, newRating: number) => void;
+  onUpdateAgreementDate?: (companyId: string, newDate: string) => void;
 }
 
 export const ClientExpandedRow: React.FC<ClientExpandedRowProps> = ({
   company,
   onUpdateRemarks,
   onUpdateRating,
+  onUpdateAgreementDate,
 }) => {
   const [remarkText, setRemarkText] = useState(company.remarks || '');
   const [rating, setRating] = useState(company.rating || 5.0);
   const [hoverRating, setHoverRating] = useState<number | null>(null);
   const [savedNotice, setSavedNotice] = useState(false);
   const [ratingSavedNotice, setRatingSavedNotice] = useState(false);
+  const [agreementDate, setAgreementDate] = useState(
+    company.agreement_start_date ? company.agreement_start_date.split('T')[0] : ''
+  );
+  const [dateSavedNotice, setDateSavedNotice] = useState(false);
+
+  const handleSaveAgreementDate = () => {
+    if (!agreementDate) return;
+    if (onUpdateAgreementDate) {
+      onUpdateAgreementDate(company.id, agreementDate);
+    }
+    setDateSavedNotice(true);
+    setTimeout(() => setDateSavedNotice(false), 2000);
+  };
 
   const handleSaveRemarks = () => {
     if (onUpdateRemarks) {
@@ -82,9 +98,75 @@ export const ClientExpandedRow: React.FC<ClientExpandedRowProps> = ({
         padding: '1.25rem 1.5rem',
         display: 'flex',
         flexDirection: 'column',
-        gap: '1.25rem',
+        gap: '1rem',
       }}
     >
+      {/* ── Aerostake Validity Expired Alert (Textured Black Banner) ── */}
+      {company.is_validity_over && (
+        <div
+          style={{
+            background: 'repeating-linear-gradient(-45deg, #09090b, #09090b 8px, #18181b 8px, #18181b 16px)',
+            border: '2px solid #27272a',
+            borderRadius: '6px',
+            padding: '0.85rem 1.15rem',
+            color: '#ffffff',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '1rem',
+            boxShadow: '0 4px 15px rgba(0, 0, 0, 0.35)',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+            <div
+              style={{
+                width: '32px',
+                height: '32px',
+                borderRadius: '4px',
+                backgroundColor: '#27272a',
+                border: '1px solid #3f3f46',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0,
+              }}
+            >
+              <AlertCircle size={18} color="#ffffff" />
+            </div>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <span style={{ fontSize: '0.875rem', fontWeight: 800, color: '#ffffff' }}>
+                  Aerostake Validity Ended — Contract Renewal Required
+                </span>
+                <span
+                  style={{
+                    fontSize: '9px',
+                    fontWeight: 800,
+                    padding: '2px 6px',
+                    borderRadius: '3px',
+                    backgroundColor: '#ffffff',
+                    color: '#09090b',
+                    letterSpacing: '0.04em',
+                    textTransform: 'uppercase',
+                  }}
+                >
+                  {company.validity_reason || 'EXPIRED'}
+                </span>
+              </div>
+              <p style={{ margin: '0.2rem 0 0 0', fontSize: '0.75rem', color: '#d4d4d8' }}>
+                {company.validity_message ||
+                  '1,000 landings quota reached or 3-year agreement tenure completed. Contract renewal is required to allocate flights.'}
+              </p>
+            </div>
+          </div>
+
+          <div style={{ fontSize: '0.725rem', color: '#a1a1aa', textAlign: 'right', whiteSpace: 'nowrap' }}>
+            <div>Landings: <strong>{company.landings_count} / 1,000</strong></div>
+            <div>Tenure Left: <strong>{company.tenure_days_left ?? 0}d / 1,095d</strong></div>
+          </div>
+        </div>
+      )}
+
       <div
         style={{
           display: 'grid',
@@ -300,6 +382,72 @@ export const ClientExpandedRow: React.FC<ClientExpandedRowProps> = ({
                 <span>{company.address}</span>
               </div>
             )}
+          </div>
+
+          {/* Aerostake Agreement Date Control for Ops */}
+          <div
+            style={{
+              padding: '0.65rem 0.75rem',
+              backgroundColor: '#fafafa',
+              borderRadius: '6px',
+              border: '1px solid #e4e4e7',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '0.35rem',
+              marginTop: '0.5rem',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                <Calendar size={13} color="#09090b" />
+                <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#09090b' }}>
+                  Aerostake Agreement Date
+                </span>
+              </div>
+              {dateSavedNotice && (
+                <span style={{ fontSize: '0.675rem', color: '#09090b', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
+                  <Check size={11} /> Saved
+                </span>
+              )}
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.15rem' }}>
+              <input
+                type="date"
+                value={agreementDate}
+                onChange={(e) => setAgreementDate(e.target.value)}
+                style={{
+                  flex: 1,
+                  padding: '0.3rem 0.5rem',
+                  borderRadius: '4px',
+                  border: '1px solid #d4d4d8',
+                  fontSize: '0.75rem',
+                  outline: 'none',
+                  color: '#09090b',
+                  backgroundColor: '#ffffff',
+                }}
+              />
+              <button
+                type="button"
+                onClick={handleSaveAgreementDate}
+                style={{
+                  padding: '0.3rem 0.65rem',
+                  backgroundColor: '#09090b',
+                  color: '#ffffff',
+                  border: 'none',
+                  borderRadius: '4px',
+                  fontSize: '0.72rem',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                Set Date
+              </button>
+            </div>
+            <span style={{ fontSize: '0.675rem', color: '#71717a' }}>
+              Defines 3-year agreement ({company.tenure_days_left ?? 1095}d left) &amp; 1,000 landings contract.
+            </span>
           </div>
 
           <div

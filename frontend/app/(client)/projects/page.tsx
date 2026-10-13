@@ -8,6 +8,7 @@ import { isLatricsRole } from '@/lib/role';
 import LatricsProjectsView from '@/modules/projects/components/LatricsProjectsView';
 import WireframeBox from '@/components/WireframeBox';
 import { PageHeader } from '@/components/PageHeader';
+import { formatDateDDMMYYYY } from '@/lib/date';
 import {
   Search,
   Plus,
@@ -123,16 +124,7 @@ function ClientProjectsView() {
   }
 
   const formatDate = (dateStr?: string | null) => {
-    if (!dateStr) return '—';
-    try {
-      return new Date(dateStr).toLocaleDateString('en-GB', {
-        day: '2-digit',
-        month: 'short',
-        year: 'numeric',
-      });
-    } catch {
-      return dateStr;
-    }
+    return formatDateDDMMYYYY(dateStr);
   };
 
   return (
@@ -141,6 +133,9 @@ function ClientProjectsView() {
       <PageHeader
         title="Projects"
         subtitle="All your survey projects in one place. View live status, scope, deliverables and timelines."
+        onRefresh={fetchProjects}
+        isRefreshing={isLoading}
+        refreshTooltip="Refresh projects"
       >
         <div style={{ position: 'relative', width: '220px' }}>
           <input
@@ -153,24 +148,6 @@ function ClientProjectsView() {
           />
           <Search size={15} color="#71717a" style={{ position: 'absolute', right: '10px', top: '10px' }} />
         </div>
-
-        <button
-          onClick={() => fetchProjects()}
-          title="Refresh projects"
-          style={{
-            width: '36px',
-            height: '36px',
-            border: '1px solid #e4e4e7',
-            borderRadius: '6px',
-            backgroundColor: '#ffffff',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            cursor: 'pointer',
-          }}
-        >
-          <RotateCcw size={15} color="#09090b" className={isLoading ? 'animate-spin' : ''} />
-        </button>
       </PageHeader>
 
       {/* Error Alert */}

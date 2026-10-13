@@ -38,7 +38,7 @@ export default function SettingsPage() {
   };
 
   return (
-    <div>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', paddingBottom: '3rem' }}>
       {/* ── Page Header ── */}
       <PageHeader
         title="Platform & Operations Settings"

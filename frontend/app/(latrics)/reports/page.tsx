@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { BarChart3, FileText, ArrowLeft, ArrowRight, Download, CheckCircle2, Loader2 } from 'lucide-react';
 import { projectApi } from '@/modules/projects/api';
@@ -11,29 +11,33 @@ export default function PilotReportsPage() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  useEffect(() => {
-    async function loadData() {
-      setIsLoading(true);
-      try {
-        const list = await projectApi.listProjects().catch(() => []);
-        setProjects(list || []);
-      } catch (err) {
-        console.error('Failed to load projects for reports:', err);
-      } finally {
-        setIsLoading(false);
-      }
+  const loadData = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const list = await projectApi.listProjects().catch(() => []);
+      setProjects(list || []);
+    } catch (err) {
+      console.error('Failed to load projects for reports:', err);
+    } finally {
+      setIsLoading(false);
     }
-    loadData();
   }, []);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
 
   const reportedProjects = projects.filter((p) => (p.completed_sectors || 0) > 0 || p.status === 'completed');
 
   return (
-    <div style={{ maxWidth: '1000px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '1.5rem', paddingBottom: '3rem' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', paddingBottom: '3rem' }}>
       {/* Header */}
       <PageHeader
         title="Flight & Mission Reports"
         subtitle="Completed flight logs, daily capture reports, and pilot telemetry records."
+        onRefresh={loadData}
+        isRefreshing={isLoading}
+        refreshTooltip="Refresh flight reports"
         breadcrumbs={
           <Link href="/dashboard" style={{ color: '#71717a', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '0.2rem', fontSize: '0.8rem' }}>
             <ArrowLeft size={14} /> Dashboard
@@ -49,7 +53,8 @@ export default function PilotReportsPage() {
             gap: '0.45rem',
             fontSize: '0.8rem',
             fontWeight: 600,
-            padding: '0.5rem 1rem',
+            height: '36px',
+            padding: '0 0.95rem',
             backgroundColor: '#ffffff',
             border: '1px solid #d4d4d8',
             color: '#09090b',

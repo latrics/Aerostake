@@ -107,6 +107,17 @@ class Invoice(Base):
         nullable=True,
         index=True
     )
+    sector_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("sectors.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True
+    )
+    sector_code: Mapped[Optional[str]] = mapped_column(
+        String(50),
+        nullable=True,
+        index=True
+    )
     title: Mapped[str] = mapped_column(
         String(200),
         default="Project Service Bill",

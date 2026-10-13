@@ -97,12 +97,12 @@ export const StageChatBox: React.FC<StageChatBoxProps> = ({
         display: 'flex',
         flexDirection: 'column',
         height: '100%',
-        minHeight: '480px',
-        maxHeight: '620px',
+        minHeight: '620px',
         border: '1px solid var(--border-color)',
         borderRadius: '8px',
         backgroundColor: '#ffffff',
         overflow: 'hidden',
+        padding: 0,
       }}
     >
       {/* ── Header ── */}
@@ -111,14 +111,15 @@ export const StageChatBox: React.FC<StageChatBoxProps> = ({
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          padding: '0.85rem 1rem',
+          padding: '0.85rem 1.25rem',
+          margin: 0,
           borderBottom: '1px solid var(--border-color)',
           backgroundColor: '#fafafa',
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
           <MessageSquare size={16} color="#09090b" />
-          <h3 style={{ fontSize: '0.875rem', fontWeight: 700, color: '#09090b', margin: 0 }}>
+          <h3 className="wf-title" style={{ fontSize: '0.95rem', fontWeight: 700, color: '#09090b', margin: 0 }}>
             {stageName} Chat & Communication
           </h3>
         </div>

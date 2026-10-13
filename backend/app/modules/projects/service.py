@@ -178,6 +178,41 @@ class ProjectService:
         completed_sectors = sum(1 for s in sectors if getattr(s.status, 'value', str(s.status)) in ['verified', 'surveyed'])
         progress_pct = round((completed_sectors / total_sectors) * 100) if total_sectors > 0 else (100 if project.status == ProjectStatusEnum.COMPLETED else 0)
 
+        # Check if Latrics has defined Calculated Area in planning form or draft
+        calculated_area = None
+        try:
+            from app.modules.planning.repository import planning_repository
+            p_versions = await planning_repository.list_form_versions_by_project(db, project.id)
+            if p_versions:
+                for pv in p_versions:
+                    if pv.form_data and isinstance(pv.form_data, dict):
+                        ca = pv.form_data.get("kmlCalculatedArea")
+                        if ca is not None and str(ca).strip():
+                            try:
+                                val = float(ca)
+                                if val > 0:
+                                    calculated_area = val
+                                    break
+                            except (ValueError, TypeError):
+                                pass
+            if calculated_area is None:
+                p_draft = await planning_repository.get_draft_by_project(db, project.id)
+                if p_draft and p_draft.form_data and isinstance(p_draft.form_data, dict):
+                    ca = p_draft.form_data.get("kmlCalculatedArea")
+                    if ca is not None and str(ca).strip():
+                        try:
+                            val = float(ca)
+                            if val > 0:
+                                calculated_area = val
+                        except (ValueError, TypeError):
+                            pass
+        except Exception:
+            calculated_area = None
+
+        actual_target_area = calculated_area if calculated_area is not None else (getattr(latest_req, 'target_area_sqkm', None) if latest_req else None)
+        req_payload = getattr(latest_req, 'requirements_payload', None) if latest_req else None
+        requested_area = (req_payload.get("requested_area_sqkm") if isinstance(req_payload, dict) else None) or (getattr(latest_req, 'target_area_sqkm', None) if latest_req else None)
+
         return {
             "id": project.id,
             "title": project.title,
@@ -195,7 +230,9 @@ class ProjectService:
             "creator_email": creator_user.email if creator_user else None,
             "survey_location": getattr(latest_req, 'survey_location', None) if latest_req else None,
             "survey_type": getattr(latest_req, 'survey_type', None) if latest_req else None,
-            "target_area_sqkm": getattr(latest_req, 'target_area_sqkm', None) if latest_req else None,
+            "target_area_sqkm": actual_target_area,
+            "calculated_area_sqkm": calculated_area,
+            "requested_area_sqkm": requested_area,
             "requirements_payload": getattr(latest_req, 'requirements_payload', None) if latest_req else None,
             "sectors_count": total_sectors,
             "completed_sectors_count": completed_sectors,
@@ -394,11 +431,31 @@ class ProjectService:
             reqs = await request_repository.list_by_project(db, project.id)
             latest_payload = (project_in.requirements_payload if project_in.requirements_payload is not None else (getattr(project, 'requirements_payload', None) or (reqs[-1].requirements_payload if reqs else {}))) or {}
             proc_deliv = latest_payload.get("processing_deliverables") or {}
-            client_ack = (proc_deliv.get("client_signoff") or {}).get("acknowledged") or proc_deliv.get("client_acknowledged")
+            formal_acc = latest_payload.get("formal_acceptance") or {}
+            client_ack = (
+                (proc_deliv.get("client_signoff") or {}).get("acknowledged")
+                or proc_deliv.get("client_acknowledged")
+                or formal_acc.get("accepted")
+            )
             if not client_ack:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Cannot advance to Delivered stage: Client has not yet acknowledged receipt of the survey deliverables.",
+                    detail="Cannot close project: Client has not yet completed formal acceptance of the survey deliverables.",
+                )
+
+            # Enforce financial verification & ₹0 due balance before closure
+            from app.modules.payments.service import payment_service
+            p_wallet = await payment_service.get_project_wallet(db, current_user, project.id)
+            if p_wallet.amount_due > 0:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Cannot close project: Outstanding balance of ₹{p_wallet.amount_due:,.2f} is still pending on this project. Accounts must be settled to ₹0 due before closure.",
+                )
+            fin_clearance = latest_payload.get("financial_clearance") or {}
+            if not fin_clearance.get("cleared"):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Cannot close project: Financial verification (Step B) must be confirmed by Operations before project closure.",
                 )
 
         # Allow client to submit their own draft project
@@ -418,6 +475,18 @@ class ProjectService:
         # Capture previous request state for delta detection
         existing_reqs = await request_repository.list_by_project(db, project.id)
         old_req_payload: Dict[str, Any] = (existing_reqs[-1].requirements_payload if existing_reqs else {}) or {}
+
+        # Guard financial clearance against remaining outstanding balance
+        if project_in.requirements_payload is not None:
+            fin_clear = project_in.requirements_payload.get("financial_clearance")
+            if isinstance(fin_clear, dict) and fin_clear.get("cleared"):
+                from app.modules.payments.service import payment_service
+                p_wallet = await payment_service.get_project_wallet(db, current_user, project.id)
+                if p_wallet.amount_due > 0:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Cannot grant financial clearance: ₹{p_wallet.amount_due:,.2f} remains due on this project.",
+                    )
 
         # Synchronize requirements_payload, survey_location, survey_type onto latest request version
         if project_in.requirements_payload is not None or project_in.survey_location is not None or project_in.survey_type is not None or project_in.target_area_sqkm is not None:

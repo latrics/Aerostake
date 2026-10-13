@@ -74,13 +74,15 @@ class MockPaymentRepo:
     async def list_verified_by_project(self, db, project_id):
         return [p for p in mock_payments.values() if p.project_id == project_id and p.status == PaymentStatusEnum.VERIFIED]
 
-    async def verify(self, db, payment, verified_by_user_id, reference_code=None, notes=None):
+    async def verify(self, db, payment, verified_by_user_id, reference_code=None, notes=None, verified_amount=None):
         payment.status = PaymentStatusEnum.VERIFIED
         payment.verified_by = verified_by_user_id
         if reference_code:
             payment.reference_code = reference_code
         if notes:
             payment.notes = notes
+        if verified_amount is not None and verified_amount > 0:
+            payment.amount_usd = verified_amount
         mock_payments[str(payment.id)] = payment
         return payment
 
@@ -107,7 +109,7 @@ class MockPaymentRepo:
         return f"INV-2026-{count + 1:04d}"
 
     async def create_invoice(
-        self, db, project_id, client_id, title, bill_date, due_date, items, total_amount, notes, created_by, invoice_number=None
+        self, db, project_id, client_id, title, bill_date, due_date, items, total_amount, notes, created_by, invoice_number=None, sector_id=None, sector_code=None
     ):
         from app.modules.payments.model import Invoice
         inv_id = uuid.uuid4()
@@ -117,6 +119,8 @@ class MockPaymentRepo:
             invoice_number=num,
             project_id=project_id,
             client_id=client_id,
+            sector_id=sector_id,
+            sector_code=sector_code,
             title=title,
             bill_date=bill_date,
             due_date=due_date,
@@ -243,14 +247,7 @@ def test_payments_and_verification_lifecycle():
         assert len(records) == 1
         assert records[0]["id"] == payment_id
 
-        # 6. Security Guard Test: Ops and Pilot cannot verify bank payments (403 Forbidden, Admin only!)
-        ops_verify_forbidden = client.post(
-            f"/payments/{payment_id}/verify",
-            headers={"Authorization": f"Bearer {ops_token}"},
-            json={"reference_code": "BANK-UTR-998822", "notes": "Funds confirmed in corporate account."}
-        )
-        assert ops_verify_forbidden.status_code == 403
-
+        # 6. Security Guard Test: Pilot cannot verify bank payments (403 Forbidden)
         pilot_verify_forbidden = client.post(
             f"/payments/{payment_id}/verify",
             headers={"Authorization": f"Bearer {pilot_token}"},

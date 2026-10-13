@@ -1,6 +1,6 @@
 import pytest
 import uuid
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 from fastapi.testclient import TestClient
 
 from app.database import get_db
@@ -117,6 +117,10 @@ async def override_get_db():
     mock_session.refresh = AsyncMock()
     mock_session.commit = AsyncMock()
     mock_session.rollback = AsyncMock()
+    mock_res = MagicMock()
+    mock_res.scalars.return_value.all.return_value = []
+    mock_res.scalars.return_value.first.return_value = None
+    mock_session.execute = AsyncMock(return_value=mock_res)
     yield mock_session
 
 

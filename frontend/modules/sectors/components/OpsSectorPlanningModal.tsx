@@ -42,7 +42,7 @@ export const OpsSectorPlanningModal: React.FC<OpsSectorPlanningModalProps> = ({
       setSectorName(sector.sector_code || planning.sector_name || '');
       setTargetArea(sector.target_area_sqkm || planning.target_area_sqkm || '');
       setPlannedSorties(planning.planned_sorties || '');
-      setStartDate(planning.planned_start_date || '');
+      setStartDate(planning.scanning_date || planning.planned_start_date || '');
       setEndDate(planning.planned_end_date || '');
       setSelectedPilot(
         planning.assigned_pilot ||
@@ -77,6 +77,7 @@ export const OpsSectorPlanningModal: React.FC<OpsSectorPlanningModalProps> = ({
         sector_name: sectorName.trim(),
         target_area_sqkm: targetArea !== '' ? Number(targetArea) : undefined,
         planned_sorties: plannedSorties !== '' ? Number(plannedSorties) : undefined,
+        scanning_date: startDate || undefined,
         planned_start_date: startDate || undefined,
         planned_end_date: endDate || undefined,
         assigned_pilots: selectedPilot ? [{ name: selectedPilot }] : undefined,
@@ -205,20 +206,20 @@ export const OpsSectorPlanningModal: React.FC<OpsSectorPlanningModalProps> = ({
                 </div>
               </div>
 
-              {/* Row 2: Planned Sorties & Sequence Priority */}
+              {/* Row 2: Planned Flights & Sequence Priority */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.85rem' }}>
                 <div className="form-group" style={{ margin: 0 }}>
-                  <label className="form-label" style={{ fontSize: '0.75rem' }}>Planned Landings / Sorties</label>
+                  <label className="form-label" style={{ fontSize: '0.75rem' }}>Planned Landings / Flights</label>
                   <input
                     type="number"
                     min="1"
                     className="form-input"
                     value={plannedSorties}
                     onChange={(e) => setPlannedSorties(e.target.value === '' ? '' : Number(e.target.value))}
-                    placeholder="e.g. 6 sorties"
+                    placeholder="e.g. 6 flights"
                     style={{ fontSize: '0.8rem' }}
                   />
-                  <span style={{ fontSize: '0.675rem', color: 'var(--text-muted)' }}>Ops estimate of sorties to cover area</span>
+                  <span style={{ fontSize: '0.675rem', color: 'var(--text-muted)' }}>Ops estimate of flights to cover area</span>
                 </div>
 
                 <div className="form-group" style={{ margin: 0 }}>

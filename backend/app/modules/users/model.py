@@ -32,9 +32,21 @@ class User(Base):
         index=True,
         nullable=False
     )
-    hashed_password: Mapped[str] = mapped_column(
+    hashed_password: Mapped[Optional[str]] = mapped_column(
         String(255),
+        nullable=True
+    )
+    auth_provider: Mapped[str] = mapped_column(
+        String(50),
+        default="local",
+        server_default="local",
         nullable=False
+    )
+    external_auth_id: Mapped[Optional[str]] = mapped_column(
+        String(255),
+        unique=True,
+        nullable=True,
+        index=True
     )
     role: Mapped[RoleEnum] = mapped_column(
         Enum(RoleEnum, name="role_enum", create_type=False, values_callable=lambda obj: [e.value for e in obj]),

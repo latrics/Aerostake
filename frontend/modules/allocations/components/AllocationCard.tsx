@@ -3,6 +3,7 @@
 import React from 'react';
 import { SectorAllocation, AllocationStatusEnum } from '../types';
 import { AllocationStatusBadge } from './AllocationStatusBadge';
+import { formatDateTimeDDMMYYYY } from '@/lib/date';
 
 interface AllocationCardProps {
   allocation: SectorAllocation;
@@ -80,7 +81,7 @@ export function AllocationCard({
         <div>
           <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Assigned Timestamp</div>
           <div style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-primary)', marginTop: '0.2rem' }}>
-            📅 {new Date(allocation.assigned_at).toLocaleDateString()} {new Date(allocation.assigned_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            📅 {formatDateTimeDDMMYYYY(allocation.assigned_at)}
           </div>
         </div>
 

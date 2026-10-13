@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Building2,
@@ -39,6 +39,7 @@ import { ClientLandingBar } from '@/modules/clients/components/ClientLandingBar'
 import { ClientTenureBar } from '@/modules/clients/components/ClientTenureBar';
 import { ClientExpandedRow } from '@/modules/clients/components/ClientExpandedRow';
 import { ClientFiltersModal } from '@/modules/clients/components/ClientFiltersModal';
+import { PageHeader } from '@/components/PageHeader';
 
 type SortField =
   | 'name'
@@ -99,28 +100,29 @@ export default function ClientsPage() {
   }, [user, authLoading, router]);
 
   // Load actual data from database
-  useEffect(() => {
-    async function loadData() {
-      setIsLoading(true);
-      try {
-        const response = await clientsApi.getClientsAndStats();
-        setCompanies(response.companies);
-        setStats(response.stats);
-        setCounts(response.counts);
+  const loadData = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const response = await clientsApi.getClientsAndStats();
+      setCompanies(response.companies);
+      setStats(response.stats);
+      setCounts(response.counts);
 
-        // Automatically expand the client company with projects if available
-        if (response.companies.length > 0) {
-          const companyWithProjects = response.companies.find((c) => c.projects_count > 0) || response.companies[0];
-          setExpandedRowIds({ [companyWithProjects.id]: true });
-        }
-      } catch (err) {
-        console.error('Failed to load database clients data:', err);
-      } finally {
-        setIsLoading(false);
+      // Automatically expand the client company with projects if available
+      if (response.companies.length > 0) {
+        const companyWithProjects = response.companies.find((c) => c.projects_count > 0) || response.companies[0];
+        setExpandedRowIds({ [companyWithProjects.id]: true });
       }
+    } catch (err) {
+      console.error('Failed to load database clients data:', err);
+    } finally {
+      setIsLoading(false);
     }
-    loadData();
   }, []);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
 
   // Close action menus on outside click
   useEffect(() => {
@@ -158,6 +160,21 @@ export default function ClientsPage() {
     }
   };
 
+  const handleUpdateAgreementDate = async (companyId: string, newDate: string) => {
+    setCompanies((prev) =>
+      prev.map((c) => (c.id === companyId ? { ...c, agreement_start_date: newDate } : c))
+    );
+    try {
+      await clientsApi.updateAgreementDate(companyId, newDate);
+      const res = await clientsApi.getClientsAndStats();
+      if (res && res.companies) {
+        setCompanies(res.companies);
+      }
+    } catch (err) {
+      console.error('Failed to persist agreement date update to database:', err);
+    }
+  };
+
   const handleExportCSV = () => {
     const headers = [
       'Company Name',
@@ -167,7 +184,6 @@ export default function ClientsPage() {
       'Requests (Conv/Total)',
       'Tenure Left (Days)',
       'Landings Count',
-      'Total Sectors',
       'Finished Sectors',
       'Pending Payment (INR)',
       'Issues',
@@ -186,7 +202,6 @@ export default function ClientsPage() {
       `"${c.requests_converted || `${c.converted_requests_count || 0}/${c.requests_count || 0}`}"`,
       c.tenure_days_left ?? 1095,
       c.landings_count,
-      c.sectors_count,
       `"${c.finished_sectors}"`,
       c.pending_payment,
       c.issues_count ?? 0,
@@ -342,152 +357,117 @@ export default function ClientsPage() {
   return (
     <div
       style={{
-        padding: '1.75rem 2rem',
-        maxWidth: '1600px',
-        margin: '0 auto',
         display: 'flex',
         flexDirection: 'column',
-        gap: '1.5rem',
+        gap: '1.25rem',
+        paddingBottom: '3rem',
       }}
     >
-      {/* ── Top Header with Title, Search, Filters, Export ── */}
-      <div
-        style={{
-          display: 'flex',
-          flexWrap: 'wrap',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: '1rem',
-        }}
+      {/* ── Page Header ── */}
+      <PageHeader
+        title="Clients"
+        subtitle="Manage all client companies and view their project, operational and financial overview."
+        onRefresh={loadData}
+        isRefreshing={isLoading}
+        refreshTooltip="Refresh clients database"
       >
-        <div>
-          <h1
+        {/* Search Input */}
+        <div style={{ position: 'relative', width: '280px' }}>
+          <Search
+            size={14}
             style={{
-              fontSize: '1.75rem',
-              fontWeight: 800,
-              color: '#09090b',
-              margin: '0 0 0.25rem 0',
-              letterSpacing: '-0.025em',
+              position: 'absolute',
+              left: '0.75rem',
+              top: '50%',
+              transform: 'translateY(-50%)',
+              color: '#a1a1aa',
+              pointerEvents: 'none',
             }}
-          >
-            Clients
-          </h1>
-          <p
-            style={{
-              fontSize: '0.875rem',
-              color: '#71717a',
-              margin: 0,
+          />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => {
+              setSearchQuery(e.target.value);
+              setCurrentPage(1);
             }}
-          >
-            Manage all client companies and view their project, operational and financial overview.
-          </p>
-        </div>
-
-        {/* Right side controls */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
-          {/* Search Input */}
-          <div
+            placeholder="Search company, project or contact..."
             style={{
-              position: 'relative',
-              width: '320px',
-            }}
-          >
-            <Search
-              size={15}
-              style={{
-                position: 'absolute',
-                left: '0.85rem',
-                top: '50%',
-                transform: 'translateY(-50%)',
-                color: '#a1a1aa',
-                pointerEvents: 'none',
-              }}
-            />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => {
-                setSearchQuery(e.target.value);
-                setCurrentPage(1);
-              }}
-              placeholder="Search company, project or contact..."
-              style={{
-                width: '100%',
-                padding: '0.55rem 0.85rem 0.55rem 2.35rem',
-                fontSize: '0.825rem',
-                borderRadius: '6px',
-                border: '1px solid #e4e4e7',
-                backgroundColor: '#ffffff',
-                color: '#09090b',
-                outline: 'none',
-              }}
-            />
-          </div>
-
-          {/* Sort Dropdown */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', position: 'relative' }}>
-            <span style={{ fontSize: '0.8rem', color: '#71717a', fontWeight: 500 }}>Sort by:</span>
-            <div style={{ position: 'relative' }}>
-              <select
-                value={selectedSortOption}
-                onChange={(e) => handleSelectSortDropdown(e.target.value)}
-                style={{
-                  appearance: 'none',
-                  padding: '0.5rem 2rem 0.5rem 0.85rem',
-                  fontSize: '0.825rem',
-                  fontWeight: 600,
-                  color: '#09090b',
-                  backgroundColor: '#ffffff',
-                  border: '1px solid #e4e4e7',
-                  borderRadius: '6px',
-                  cursor: 'pointer',
-                  outline: 'none',
-                }}
-              >
-                <option value="Recently Updated">Recently Updated</option>
-                <option value="Company Name (A-Z)">Company Name (A-Z)</option>
-                <option value="Most Projects">Most Projects</option>
-                <option value="Highest Landings">Highest Landings</option>
-                <option value="Pending Payments">Pending Payments</option>
-                <option value="Highest Rating">Highest Rating</option>
-              </select>
-              <ChevronDown
-                size={14}
-                style={{
-                  position: 'absolute',
-                  right: '0.65rem',
-                  top: '50%',
-                  transform: 'translateY(-50%)',
-                  color: '#71717a',
-                  pointerEvents: 'none',
-                }}
-              />
-            </div>
-          </div>
-
-          {/* Export Button */}
-          <button
-            onClick={handleExportCSV}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.45rem',
-              padding: '0.55rem 1.1rem',
+              width: '100%',
+              height: '36px',
+              padding: '0 0.75rem 0 2.2rem',
+              fontSize: '0.8rem',
               borderRadius: '6px',
-              border: '1px solid #09090b',
-              backgroundColor: '#09090b',
-              color: '#ffffff',
-              fontSize: '0.825rem',
+              border: '1px solid #e4e4e7',
+              backgroundColor: '#ffffff',
+              color: '#09090b',
+              outline: 'none',
+            }}
+          />
+        </div>
+
+        {/* Sort Dropdown */}
+        <div style={{ position: 'relative' }}>
+          <select
+            value={selectedSortOption}
+            onChange={(e) => handleSelectSortDropdown(e.target.value)}
+            style={{
+              appearance: 'none',
+              height: '36px',
+              padding: '0 2rem 0 0.85rem',
+              fontSize: '0.8rem',
               fontWeight: 600,
+              color: '#09090b',
+              backgroundColor: '#ffffff',
+              border: '1px solid #e4e4e7',
+              borderRadius: '6px',
               cursor: 'pointer',
-              boxShadow: '0 1px 2px 0 rgba(0, 0, 0, 0.05)',
+              outline: 'none',
             }}
           >
-            <Download size={14} />
-            <span>Export</span>
-          </button>
+            <option value="Recently Updated">Recently Updated</option>
+            <option value="Company Name (A-Z)">Company Name (A-Z)</option>
+            <option value="Most Projects">Most Projects</option>
+            <option value="Highest Landings">Highest Landings</option>
+            <option value="Pending Payments">Pending Payments</option>
+            <option value="Highest Rating">Highest Rating</option>
+          </select>
+          <ChevronDown
+            size={14}
+            style={{
+              position: 'absolute',
+              right: '0.65rem',
+              top: '50%',
+              transform: 'translateY(-50%)',
+              color: '#71717a',
+              pointerEvents: 'none',
+            }}
+          />
         </div>
-      </div>
+
+        {/* Export Button */}
+        <button
+          onClick={handleExportCSV}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.45rem',
+            height: '36px',
+            padding: '0 0.95rem',
+            borderRadius: '6px',
+            border: '1px solid #09090b',
+            backgroundColor: '#09090b',
+            color: '#ffffff',
+            fontSize: '0.8rem',
+            fontWeight: 600,
+            cursor: 'pointer',
+            boxShadow: '0 1px 2px 0 rgba(0, 0, 0, 0.05)',
+          }}
+        >
+          <Download size={14} />
+          <span>Export</span>
+        </button>
+      </PageHeader>
 
       {/* ── Main Clients Table (Actual Database Data) ── */}
       <div
@@ -592,20 +572,9 @@ export default function ClientsPage() {
                   </div>
                 </th>
 
-                {/* Sectors */}
-                <th
-                  onClick={() => handleHeaderSort('sectors')}
-                  style={{ padding: '0.75rem 0.75rem', cursor: 'pointer', userSelect: 'none' }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-                    <span>Sectors</span>
-                    <ArrowDown size={12} />
-                  </div>
-                </th>
-
                 {/* finished Sectors */}
                 <th
-                  onClick={() => handleHeaderSort('sectors')}
+                  onClick={() => handleHeaderSort('finished_sectors')}
                   style={{ padding: '0.75rem 0.75rem', cursor: 'pointer', userSelect: 'none' }}
                 >
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
@@ -741,7 +710,7 @@ export default function ClientsPage() {
                             </div>
 
                             <div style={{ display: 'flex', flexDirection: 'column' }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', flexWrap: 'wrap' }}>
                                 <span
                                   style={{
                                     fontSize: '0.85rem',
@@ -751,6 +720,27 @@ export default function ClientsPage() {
                                 >
                                   {company.name}
                                 </span>
+                                {company.is_validity_over && (
+                                  <span
+                                    style={{
+                                      fontSize: '9px',
+                                      fontWeight: 800,
+                                      padding: '2px 6px',
+                                      borderRadius: '3px',
+                                      background:
+                                        'repeating-linear-gradient(-45deg, #09090b, #09090b 6px, #27272a 6px, #27272a 12px)',
+                                      color: '#ffffff',
+                                      border: '1px solid #3f3f46',
+                                      letterSpacing: '0.04em',
+                                      whiteSpace: 'nowrap',
+                                      textTransform: 'uppercase',
+                                      boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
+                                    }}
+                                    title={company.validity_message || 'Aerostake validity is completed. Renewals required.'}
+                                  >
+                                    VALIDITY OVER
+                                  </span>
+                                )}
                               </div>
                               <span style={{ fontSize: '0.725rem', color: '#71717a' }}>
                                 {company.active_since}
@@ -808,11 +798,6 @@ export default function ClientsPage() {
                         {/* projects completed */}
                         <td style={{ padding: '0.85rem 0.75rem', color: '#09090b', fontWeight: 500 }}>
                           {company.projects_completed}
-                        </td>
-
-                        {/* Sectors */}
-                        <td style={{ padding: '0.85rem 0.75rem', color: '#09090b', fontWeight: 500 }}>
-                          {company.sectors_count}
                         </td>
 
                         {/* finished Sectors */}
@@ -930,6 +915,24 @@ export default function ClientsPage() {
                               </button>
                               <button
                                 onClick={() => {
+                                  if (!isExpanded) toggleRowExpansion(company.id);
+                                  setActionMenuOpenId(null);
+                                }}
+                                style={{
+                                  width: '100%',
+                                  padding: '0.45rem 0.85rem',
+                                  fontSize: '0.775rem',
+                                  color: '#09090b',
+                                  background: 'none',
+                                  border: 'none',
+                                  cursor: 'pointer',
+                                  textAlign: 'left',
+                                }}
+                              >
+                                Set Agreement Date
+                              </button>
+                              <button
+                                onClick={() => {
                                   router.push('/projects');
                                   setActionMenuOpenId(null);
                                 }}
@@ -993,6 +996,7 @@ export default function ClientsPage() {
                               company={company}
                               onUpdateRemarks={handleUpdateRemarks}
                               onUpdateRating={handleUpdateRating}
+                              onUpdateAgreementDate={handleUpdateAgreementDate}
                             />
                           </td>
                         </tr>

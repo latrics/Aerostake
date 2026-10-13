@@ -291,12 +291,14 @@ export default function ClientSettingsPage() {
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', maxWidth: '850px', paddingBottom: '3rem' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', paddingBottom: '3rem' }}>
       {/* Page Header */}
       <PageHeader
         title="Personal Settings"
         subtitle="Update your personal credentials, contact details, job designation, and password security."
       />
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', maxWidth: '850px' }}>
 
       {/* Global Error Banner if initial load failed */}
       {error && (
@@ -1566,6 +1568,7 @@ export default function ClientSettingsPage() {
           </div>
         </div>
       )}
+      </div>
     </div>
   );
 }

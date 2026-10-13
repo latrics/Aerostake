@@ -11,6 +11,7 @@ class InvitationCreate(BaseModel):
     role: RoleEnum = Field(..., description="Target role: operations, pilot, client_primary, or client_sub")
     company_name: Optional[str] = Field(default=None, max_length=255, description="Required when inviting a client_primary to establish organization")
     organization_id: Optional[uuid.UUID] = Field(default=None, description="Required when inviting client_sub to attach to existing organization")
+    agreement_start_date: Optional[str] = Field(default=None, description="Optional manual Aerostake agreement start date (YYYY-MM-DD)")
 
 
 class InvitationOut(BaseModel):

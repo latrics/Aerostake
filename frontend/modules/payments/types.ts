@@ -65,6 +65,8 @@ export interface Invoice {
   invoice_number: string;
   project_id: string;
   client_id?: string | null;
+  sector_id?: string | null;
+  sector_code?: string | null;
   title: string;
   bill_date: string;
   due_date?: string | null;
@@ -84,6 +86,8 @@ export interface InvoiceCreate {
   due_date?: string;
   items: InvoiceItem[];
   total_amount: number;
+  sector_id?: string | null;
+  sector_code?: string | null;
   notes?: string;
 }
 

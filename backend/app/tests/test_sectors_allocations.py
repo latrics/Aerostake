@@ -178,6 +178,7 @@ def test_sectors_and_allocations_full_lifecycle():
         client_id=client_id,
         status=ProjectStatusEnum.APPROVED,
     )
+    approved_project.requirements_payload = {"mobilisation": {"pilots": []}}
     mock_projects[str(approved_project_id)] = approved_project
 
     plan_id = uuid.uuid4()
@@ -244,6 +245,7 @@ def test_sectors_and_allocations_full_lifecycle():
         sectors_data = sectors_res.json()
         assert len(sectors_data) == 2
         sec_a1_id = sectors_data[0]["id"]
+        sec_a2_id = sectors_data[1]["id"]
         assert sectors_data[0]["sector_code"] == "SEC-A1"
         assert sectors_data[0]["status"] == "pending"
 
@@ -315,3 +317,58 @@ def test_sectors_and_allocations_full_lifecycle():
         assert "sectors_created" in actions
         assert "pilot_allocated" in actions
         assert "flight_status_updated" in actions
+
+        # 12. Batch assign sectors to an invited pilot with scanning dates
+        batch_assign_res = client.patch(
+            f"/projects/{approved_project_id}/sectors/batch-assign-pilots",
+            headers={"Authorization": f"Bearer {ops_token}"},
+            json={
+                "sector_ids": [str(sec_a2_id)],
+                "pilot_name": "Arjun Verma",
+                "pilot_email": "arjun.pilot@latrics.com",
+                "pilot_phone": "+91 99887 76655",
+                "is_pending_invite": True,
+                "sector_scanning_dates": {
+                    str(sec_a2_id): "2026-10-25",
+                },
+            }
+        )
+        assert batch_assign_res.status_code == 200
+        sec_a2 = mock_sectors[str(sec_a2_id)]
+        assert sec_a2.polygon_coordinates["planning"]["assigned_pilot"] == "Arjun Verma"
+        assert sec_a2.polygon_coordinates["planning"]["is_pending_invite"] is True
+        assert sec_a2.polygon_coordinates["planning"]["scanning_date"] == "2026-10-25"
+        assert sec_a2.polygon_coordinates["planning"]["planned_start_date"] == "2026-10-25"
+        # Verify project mobilisation roster has the invited pilot
+        proj_updated = mock_projects[str(approved_project_id)]
+        mob_pilots = proj_updated.requirements_payload["mobilisation"]["pilots"]
+        assert any(p["name"] == "Arjun Verma" and p["email"] == "arjun.pilot@latrics.com" for p in mob_pilots)
+
+        # 13. Independent batch date scheduling (without pilot assignment)
+        schedule_dates_res = client.patch(
+            f"/projects/{approved_project_id}/sectors/batch-schedule-dates",
+            headers={"Authorization": f"Bearer {ops_token}"},
+            json={
+                "sector_ids": [str(sec_a1_id)],
+                "scanning_date": "2026-10-28",
+            }
+        )
+        assert schedule_dates_res.status_code == 200
+        sec_a1 = mock_sectors[str(sec_a1_id)]
+        assert sec_a1.polygon_coordinates["planning"]["scanning_date"] == "2026-10-28"
+
+        # 14. Independent individual sector planning update (setting pilot independently)
+        indiv_plan_res = client.patch(
+            f"/sectors/{sec_a1_id}/planning",
+            headers={"Authorization": f"Bearer {ops_token}"},
+            json={
+                "assigned_pilot": "Priya Sharma",
+                "assigned_pilot_id": str(pilot_user.id),
+                "pilot_email": "priya.pilot@latrics.com",
+            }
+        )
+        assert indiv_plan_res.status_code == 200
+        assert sec_a1.polygon_coordinates["planning"]["assigned_pilot"] == "Priya Sharma"
+        # Scanning date should remain untouched
+        assert sec_a1.polygon_coordinates["planning"]["scanning_date"] == "2026-10-28"
+

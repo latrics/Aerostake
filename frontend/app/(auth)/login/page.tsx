@@ -35,6 +35,7 @@ function LoginForm() {
       const data = await login({ email, password });
       
       // Perform redirect based on role and onboarding status
+      // Perform redirect: all returning users land into the dashboard first
       const role = data.user.role;
       if (role === 'client' || role === 'client_primary') {
         const isOnboarded = Boolean(data.user.company_profile?.is_onboarded);
@@ -43,13 +44,10 @@ function LoginForm() {
         } else {
           window.location.href = '/dashboard';
         }
-      } else if (role === 'client_sub') {
-        window.location.href = '/dashboard';
-      } else if (role === 'admin') {
-        window.location.href = '/requests';
-      } else if (role === 'operations') {
-        window.location.href = '/allocations';
       } else if (role === 'pilot') {
+        window.location.href = '/schedule';
+      } else {
+        // Any returning user (admin, operations, client_sub) lands into the dashboard first
         window.location.href = '/dashboard';
       }
     } catch (err: any) {
@@ -143,26 +141,6 @@ function LoginForm() {
         <Link href="/signup" style={{ color: '#09090b', fontWeight: 600, textDecoration: 'underline' }}>
           Create one here
         </Link>
-      </div>
-
-      <div
-        style={{
-          marginTop: '2rem',
-          borderTop: '1px solid var(--border-color)',
-          paddingTop: '1rem',
-          fontSize: '0.75rem',
-          color: 'var(--text-muted)',
-          lineHeight: '1.5',
-        }}
-      >
-        <strong>Available System Accounts:</strong>
-        <ul style={{ paddingLeft: '1.2rem', marginTop: '0.35rem', listStyleType: 'disc' }}>
-          <li>Admin: <code>aditya.paul@latrics.com</code> (Password: <code>Password123!</code>)</li>
-          <li>Operations: <code>ops@latrics.com</code> (Password: <code>Password123!</code>)</li>
-          <li>Client Primary: <code>client1@email.com</code> (Password: <code>Password123!</code>)</li>
-          <li>Client Sub-User: <code>sub1@email.com</code> (Password: <code>Password123!</code>)</li>
-          <li>Pilot: <code>pilot1@email.com</code> (Password: <code>Password123!</code>)</li>
-        </ul>
       </div>
     </form>
   );

@@ -6,9 +6,10 @@ import { SectorStatusBadge } from './SectorStatusBadge';
 interface SectorGridViewProps {
   sectors: Sector[];
   projectId: string;
+  isClient?: boolean;
 }
 
-export const SectorGridView: React.FC<SectorGridViewProps> = ({ sectors, projectId }) => {
+export const SectorGridView: React.FC<SectorGridViewProps> = ({ sectors, projectId, isClient = false }) => {
   if (sectors.length === 0) {
     return (
       <div className="glass-panel" style={{ padding: '2rem', textAlign: 'center' }}>
@@ -42,11 +43,11 @@ export const SectorGridView: React.FC<SectorGridViewProps> = ({ sectors, project
               display: 'flex',
               flexDirection: 'column',
               position: 'relative',
-              borderColor: isLive ? '#09090b' : isFinished ? '#27272a' : undefined,
+              borderColor: isClient ? (isFinished ? '#22c55e' : '#e4e4e7') : (isLive ? '#09090b' : isFinished ? '#27272a' : undefined),
               boxShadow: undefined,
             }}
           >
-            {isLive && (
+            {isLive && !isClient && (
               <span
                 style={{
                   position: 'absolute',
@@ -65,7 +66,7 @@ export const SectorGridView: React.FC<SectorGridViewProps> = ({ sectors, project
               <span style={{ fontWeight: 800, fontSize: '1.1rem', color: 'var(--text-primary)' }}>
                 {sector.sector_code}
               </span>
-              <SectorStatusBadge status={sector.status} size="sm" />
+              <SectorStatusBadge status={sector.status} size="sm" isClient={isClient} />
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', fontSize: '0.825rem', color: 'var(--text-secondary)', marginBottom: '1rem', flex: 1 }}>
