@@ -1,0 +1,4 @@
+# Files executed or sourced on the Linux VPS must keep LF endings
+*.sh text eol=lf
+.env*.example text eol=lf
+*.conf text eol=lf

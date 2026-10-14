@@ -5,6 +5,9 @@ Usage:
     python -m app.create_admin --email admin@latrics.com --name "Aditya Paul" --password "StrongPassword123!"
 Or interactively:
     python -m app.create_admin
+
+On the VPS (run from /srv/aerostake/prod, or /srv/aerostake/dev with -p aerostake-dev --env-file .env.dev):
+    docker compose -p aerostake-prod --env-file .env.prod -f docker-compose.prod.yml exec backend python -m app.create_admin
 """
 
 import argparse
