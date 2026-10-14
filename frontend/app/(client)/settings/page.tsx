@@ -606,7 +606,7 @@ export default function ClientSettingsPage() {
                   </label>
                   <input
                     type="email"
-                    placeholder="e.g. pilot@latrics.com"
+                    placeholder="e.g. pilot@company.com"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     required

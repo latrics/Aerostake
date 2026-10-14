@@ -930,7 +930,7 @@ export default function ProjectMobilisationView({
                       <label className="form-label">Email</label>
                       <input
                         type="email"
-                        placeholder="ops@latrics.com"
+                        placeholder="ops@company.com"
                         value={formData.latricsOpsPocEmail}
                         onChange={(e) => handleFieldChange('latricsOpsPocEmail', e.target.value)}
                         className="form-input"

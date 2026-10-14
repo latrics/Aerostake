@@ -710,7 +710,7 @@ function ProjectOverviewContent() {
 
     return {
       name: realStaff?.full_name || targetName || (isOps ? user?.full_name : null) || 'LATRICS Operations Lead',
-      email: realStaff?.email || targetEmail || (isOps ? user?.email : null) || 'ops@latrics.com',
+      email: realStaff?.email || targetEmail || (isOps ? user?.email : null) || '—',
       phone: safePhone || '—',
       role: realStaff?.designation || (realStaff?.company_profile as any)?.designation || 'Operations Flight Manager',
     };
@@ -5418,7 +5418,7 @@ function ProjectOverviewContent() {
                         className="form-input"
                         value={editOpsEmail}
                         onChange={(e) => setEditOpsEmail(e.target.value)}
-                        placeholder="ops@latrics.com"
+                        placeholder="ops@company.com"
                         style={{ fontSize: '0.8rem' }}
                         required
                       />
@@ -5557,7 +5557,7 @@ function ProjectOverviewContent() {
                         <input
                           type="email"
                           className="form-input"
-                          placeholder="e.g. pilot1@email.com"
+                          placeholder="e.g. pilot@company.com"
                           value={newPilotEmail}
                           onChange={(e) => setNewPilotEmail(e.target.value)}
                           style={{ fontSize: '0.75rem', height: '30px', width: '100%' }}

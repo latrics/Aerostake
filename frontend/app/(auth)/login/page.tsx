@@ -103,7 +103,7 @@ function LoginForm() {
           type="email"
           id="email"
           className="form-input"
-          placeholder="name@latrics.com"
+          placeholder="name@company.com"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           disabled={loading}

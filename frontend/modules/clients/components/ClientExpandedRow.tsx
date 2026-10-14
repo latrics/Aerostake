@@ -460,7 +460,7 @@ export const ClientExpandedRow: React.FC<ClientExpandedRowProps> = ({
             }}
           >
             <Link
-              href={`mailto:${company.contact_email || 'client@latrics.com'}`}
+              href={company.contact_email ? `mailto:${company.contact_email}` : '#'}
               style={{
                 flex: 1,
                 padding: '0.4rem 0.6rem',
