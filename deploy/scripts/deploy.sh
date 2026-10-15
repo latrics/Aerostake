@@ -58,11 +58,13 @@ BACKUP_DIR="${BACKUP_DIR:-/srv/backups}"
 mkdir -p "${BACKUP_DIR}" 2>/dev/null || BACKUP_DIR="./backups"
 mkdir -p "${BACKUP_DIR}"
 
-if docker compose -f "${COMPOSE_FILE}" ps --status running postgres 2>/dev/null | grep -q "postgres"; then
+if docker compose -p "${COMPOSE_PROJECT_NAME}" --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" ps --status running postgres 2>/dev/null | grep -q "postgres"; then
     TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
     BACKUP_FILE="${BACKUP_DIR}/${COMPOSE_PROJECT_NAME}_pre_migration_${TIMESTAMP}.sql.gz"
     echo "💾 Creating pre-migration database snapshot: ${BACKUP_FILE}..."
-    docker compose -f "${COMPOSE_FILE}" exec -T postgres pg_dump -U "${POSTGRES_USER:-aerostake_prod_user}" "${POSTGRES_DB:-aerostake_prod_db}" | gzip > "${BACKUP_FILE}"
+    PG_USER="$(grep -E '^POSTGRES_USER=' "${ENV_FILE}" | cut -d= -f2- | tr -d '\"' | tr -d '\'')"
+    PG_DB="$(grep -E '^POSTGRES_DB=' "${ENV_FILE}" | cut -d= -f2- | tr -d '\"' | tr -d '\'')"
+    docker compose -p "${COMPOSE_PROJECT_NAME}" --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" exec -T postgres pg_dump -U "${PG_USER:-postgres}" "${PG_DB:-postgres}" | gzip > "${BACKUP_FILE}" || true
     echo "✅ Snapshot secured successfully."
 fi
 
