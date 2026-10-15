@@ -17,6 +17,7 @@ import sys
 from sqlalchemy import select
 
 from app.database import AsyncSessionLocal
+from app.modules.organizations.model import Organization  # noqa: F401 - registers organization table in metadata
 from app.modules.users.model import RoleEnum, User
 from app.security.auth import hash_password
 
