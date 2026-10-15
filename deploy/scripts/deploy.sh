@@ -45,12 +45,6 @@ fi
 export ENV_FILE
 export COMPOSE_FILE="docker-compose.prod.yml"
 
-# Export variables from env file for script use
-set -a
-# shellcheck disable=SC1090
-source "${ENV_FILE}"
-set +a
-
 COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-${DEFAULT_PROJECT_NAME}}"
 API_PORT="${API_PORT:-${DEFAULT_API_PORT}}"
 export COMPOSE_PROJECT_NAME
