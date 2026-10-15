@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.allocations.model import AllocationStatusEnum, SectorAllocation
 from app.modules.allocations.repository import allocation_repository
-from app.modules.allocations.schema import AllocationCreate, AllocationStatusUpdate
+from app.modules.allocations.schema import AllocationCreate, AllocationOut, AllocationStatusUpdate
 from app.modules.notifications.service import notification_service
 from app.modules.projects.model import Project, ProjectStatusEnum
 from app.modules.projects.repository import project_repository
